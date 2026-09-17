@@ -42,8 +42,53 @@ const DEPARTMENTS = [
 
 const DEPARTMENT_KEYS = DEPARTMENTS.map((d) => d.key);
 
-/** @param {string} key @returns {{wtax:string, pay:string, deds:string}} */
-function sheetNames(key) {
+/**
+ * A 4-tab workbook: SUMMARY + one WTAX/PAY/DEDS trio, reused for every allowed
+ * department or employment category. Distinct from the 13-block master, whose
+ * tabs are named WTAX-GEN.AD / GEN.AD - PAY / GEN.AD - DEDS.
+ */
+const TEMPLATE_SHAPE_MULTI = 'multi';
+const TEMPLATE_SHAPE_GENERIC = 'generic';
+const GENERIC_KEY = 'GENERIC';
+const GENERIC_SHEETS = { wtax: 'WTAX', pay: 'PAY', deds: 'DEDS' };
+
+/**
+ * @param {string[]|Iterable<string>} sheetNameList
+ * @returns {{shape:'multi'|'generic', sheets:{wtax:string,pay:string,deds:string}|null}|null}
+ */
+function resolveBlueprintSheets(sheetNameList) {
+  const names = new Set(sheetNameList);
+  if (!names.has('SUMMARY')) return null;
+
+  const named = { ...GENERIC_SHEETS };
+  const genad = { wtax: 'WTAX-GEN.AD', pay: 'GEN.AD - PAY', deds: 'GEN.AD - DEDS' };
+  const hasNamed = names.has(named.wtax) && names.has(named.pay) && names.has(named.deds);
+  const hasGenAd = names.has(genad.wtax) && names.has(genad.pay) && names.has(genad.deds);
+  const hasOtherBlock = DEPARTMENT_KEYS
+    .filter((key) => key !== 'GEN.AD')
+    .some((key) => names.has(`WTAX-${key}`));
+
+  if (hasGenAd && hasOtherBlock) return { shape: TEMPLATE_SHAPE_MULTI, sheets: null };
+  if (hasNamed) return { shape: TEMPLATE_SHAPE_GENERIC, sheets: named };
+  if (hasGenAd) return { shape: TEMPLATE_SHAPE_GENERIC, sheets: genad };
+  return null;
+}
+
+/**
+ * @param {string[]|Iterable<string>} sheetNameList
+ * @returns {'multi'|'generic'|null}
+ */
+function detectTemplateShape(sheetNameList) {
+  return resolveBlueprintSheets(sheetNameList)?.shape || null;
+}
+
+/**
+ * @param {string} key department / block key
+ * @param {'multi'|'generic'} [shape]
+ * @returns {{wtax:string, pay:string, deds:string}}
+ */
+function sheetNames(key, shape = TEMPLATE_SHAPE_MULTI, blueprintSheets) {
+  if (shape === TEMPLATE_SHAPE_GENERIC) return { ...(blueprintSheets || GENERIC_SHEETS) };
   return { wtax: `WTAX-${key}`, pay: `${key} - PAY`, deds: `${key} - DEDS` };
 }
 
@@ -91,8 +136,11 @@ const PAY_INPUT_COLS = {
   increment: 'H',
 };
 
-/** Contract field -> DEDS column. */
-const DEDS_INPUT_COLS = {
+/**
+ * Original 13-block DEDS (print area through AF). Housing is P, then others, then
+ * Pag-IBIG starting at S.
+ */
+const DEDS_INPUT_COLS_CLASSIC = {
   gsisArrears: 'H',
   gsisSalaryLoan: 'I',
   gsisPolicyLoan: 'J',
@@ -116,6 +164,60 @@ const DEDS_INPUT_COLS = {
 };
 
 /**
+ * Universal template after GSL + GBK were inserted into the GSIS block.
+ * Print area runs through AH; Pag-IBIG starts at U.
+ */
+const DEDS_INPUT_COLS_WIDE = {
+  gsisArrears: 'H',
+  gsisSalaryLoan: 'I',
+  gsisPolicyLoan: 'J',
+  gfal: 'K',
+  cpl: 'L',
+  mpl: 'M',
+  mplLite: 'N',
+  emergencyLoan: 'O',
+  gsisHousingLoan: 'P',
+  gsl: 'Q',
+  gbk: 'R',
+  gsisOthers: 'S',
+  pagibigFundCont: 'U',
+  pagibig2: 'V',
+  pagibigMpl: 'W',
+  pagibigCalLoan: 'X',
+  pagibigOthers: 'Y',
+  landbankSalaryLoan: 'AB',
+  earistCreditCoop: 'AC',
+  feu: 'AD',
+  mtslaSalaryLoan: 'AE',
+  otherDeds: 'AF',
+};
+
+/** Product default: the 4-tab template HR is using now. */
+const DEDS_INPUT_COLS = DEDS_INPUT_COLS_WIDE;
+
+const DEDS_FORMULA_COLS_CLASSIC = ['C', 'D', 'E', 'F', 'G', 'R', 'X', 'Y', 'AE', 'AF'];
+const DEDS_FORMULA_COLS_WIDE = ['C', 'D', 'E', 'F', 'G', 'T', 'Z', 'AA', 'AG', 'AH'];
+
+const DEDS_VARIANT_WIDE = 'wide';
+const DEDS_VARIANT_CLASSIC = 'classic';
+
+/** True when DEDS has the extra GSIS columns (total deductions in AH). */
+function detectDedsVariant(sheet) {
+  if (sheet && (sheet.cell('AH16') || sheet.cell('AH17') || sheet.cell('AH20'))) {
+    return DEDS_VARIANT_WIDE;
+  }
+  return DEDS_VARIANT_CLASSIC;
+}
+
+function dedsInputCols(variant) {
+  return variant === DEDS_VARIANT_WIDE ? DEDS_INPUT_COLS_WIDE : DEDS_INPUT_COLS_CLASSIC;
+}
+
+function dedsFormulaCols(variant) {
+  return variant === DEDS_VARIANT_WIDE ? DEDS_FORMULA_COLS_WIDE : DEDS_FORMULA_COLS_CLASSIC;
+}
+
+/**
  * Columns carrying a per-employee formula. Used rows get these stamped from the
  * first-row pattern; unused rows get them cleared so a VLOOKUP over a blank name
  * cannot print #N/A.
@@ -127,7 +229,7 @@ const DEDS_INPUT_COLS = {
 const FORMULA_COLS = {
   wtax: ['G', 'I', 'K', 'M', 'N'],
   pay: ['C', 'D', 'E', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'X'],
-  deds: ['C', 'D', 'E', 'F', 'G', 'R', 'X', 'Y', 'AE', 'AF'],
+  deds: DEDS_FORMULA_COLS_WIDE,
 };
 
 /**
@@ -151,9 +253,12 @@ const CHAINED_CONST_COLS = {
  * block's first employee row (WTAX 8 / PAY 21 / DEDS 20).
  *
  * @param {string} key template department key
+ * @param {'multi'|'generic'} [shape]
+ * @param {'classic'|'wide'} [dedsVariant]
  */
-function firstRowFormulas(key) {
-  const { wtax, pay, deds } = sheetNames(key);
+function firstRowFormulas(key, shape = TEMPLATE_SHAPE_MULTI, dedsVariant = DEDS_VARIANT_WIDE) {
+  const { wtax, pay, deds } = sheetNames(key, shape);
+  const wide = dedsVariant === DEDS_VARIANT_WIDE;
   return {
     wtax: {
       I: 'ROUND(G8*H8,2)',
@@ -169,30 +274,45 @@ function firstRowFormulas(key) {
       J: `'${wtax}'!N8`,
       K: 'ROUND(I21-J21,2)',
       L: `'${wtax}'!F8`,
-      M: `'${deds}'!R20`,
-      N: `'${deds}'!X20`,
-      O: `'${deds}'!Y20`,
-      P: `'${deds}'!AE20`,
+      M: wide ? `'${deds}'!T20` : `'${deds}'!R20`,
+      N: wide ? `'${deds}'!Z20` : `'${deds}'!X20`,
+      O: wide ? `'${deds}'!AA20` : `'${deds}'!Y20`,
+      P: wide ? `'${deds}'!AG20` : `'${deds}'!AE20`,
       Q: 'ROUND(SUM(L21:P21),2)',
       R: 'K21-Q21',
       S: 'ROUND(R21/2,0)',
       T: 'R21-S21',
       U: 'B21',
       V: `ROUND('${pay}'!I21*0.12,2)`,
-      X: `MIN((I21*0.05)-'${deds}'!Y20,2500)`,
+      X: wide
+        ? `MIN((I21*0.05)-'${deds}'!AA20,2500)`
+        : `MIN((I21*0.05)-'${deds}'!Y20,2500)`,
     },
-    deds: {
-      C: `'${pay}'!C21`,
-      D: `'${pay}'!D21`,
-      E: `'${pay}'!E21`,
-      F: `'${pay}'!L21`,
-      G: `ROUND('${pay}'!I21*0.09,2)`,
-      R: 'SUM(G20:Q20)',
-      X: 'SUM(S20:W20)',
-      Y: `MIN(ROUNDDOWN('${pay}'!I21*0.05/2,2),2500)`,
-      AE: 'SUM(Z20:AD20)',
-      AF: 'SUM(F20,R20,X20,Y20,AE20)',
-    },
+    deds: wide
+      ? {
+        C: `'${pay}'!C21`,
+        D: `'${pay}'!D21`,
+        E: `'${pay}'!E21`,
+        F: `'${pay}'!L21`,
+        G: `ROUND('${pay}'!I21*0.09,2)`,
+        T: 'SUM(G20:S20)',
+        Z: 'SUM(U20:Y20)',
+        AA: `MIN(ROUNDDOWN('${pay}'!I21*0.05/2,2),2500)`,
+        AG: 'SUM(AB20:AF20)',
+        AH: 'SUM(F20,T20,Z20,AA20,AG20)',
+      }
+      : {
+        C: `'${pay}'!C21`,
+        D: `'${pay}'!D21`,
+        E: `'${pay}'!E21`,
+        F: `'${pay}'!L21`,
+        G: `ROUND('${pay}'!I21*0.09,2)`,
+        R: 'SUM(G20:Q20)',
+        X: 'SUM(S20:W20)',
+        Y: `MIN(ROUNDDOWN('${pay}'!I21*0.05/2,2),2500)`,
+        AE: 'SUM(Z20:AD20)',
+        AF: 'SUM(F20,R20,X20,Y20,AE20)',
+      },
   };
 }
 
@@ -211,6 +331,13 @@ const PERIOD_CELLS = {
   quincenaCell: 'B11',        // other departments reference this cell by formula
   summaryPeriod: 'SUMMARY!B2',
   summaryPayrollNo: 'SUMMARY!B8', // remaining payroll numbers are derived by formula
+};
+
+/** Department name on each cloned trio. PAY/DEDS add a "Regular Employees - " prefix except TEMPO/CONTRACTUAL. */
+const TITLE_CELLS = {
+  wtax: 'B3',
+  pay: 'B9',
+  deds: 'B9',
 };
 
 /**
@@ -277,7 +404,6 @@ const DB_EMP_TYPE_TO_TEMPLATE = {
  *   eal   - the template has a single "EMERGENCY LOAN (ELA)" column, already fed by
  *           emergencyLoan. HR needs to say whether eal is a second loan type or a
  *           duplicate before it is mapped.
- *   gsl, gbk, rel - meaning unknown; unmapped rather than guessed.
  * Mapping these later is a one-line change here.
  */
 const DB_FIELD_TO_CONTRACT = {
@@ -302,6 +428,9 @@ const DB_FIELD_TO_CONTRACT = {
   mpl: 'mpl',
   mplLite: 'mplLite',
   emergencyLoan: 'emergencyLoan',
+  rel: 'gsisHousingLoan',
+  gsl: 'gsl',
+  gbk: 'gbk',
 
   pagibigFundCont: 'pagibigFundCont',
   pagibig2: 'pagibig2',
@@ -316,11 +445,10 @@ const DB_FIELD_TO_CONTRACT = {
 
 /** Contract fields with no payroll_processed source; always written as 0. */
 const UNSOURCED_CONTRACT_FIELDS = [
-  'gsisHousingLoan',   // DEDS P
-  'gsisOthers',        // DEDS Q
-  'pagibigCalLoan',    // DEDS V
-  'pagibigOthers',     // DEDS W
-  'mtslaSalaryLoan',   // DEDS AC
+  'gsisOthers',
+  'pagibigCalLoan',
+  'pagibigOthers',
+  'mtslaSalaryLoan',
 ];
 
 module.exports = {
@@ -330,6 +458,12 @@ module.exports = {
   WTAX_DAILY_RATE_COL,
   DEPARTMENTS,
   DEPARTMENT_KEYS,
+  TEMPLATE_SHAPE_MULTI,
+  TEMPLATE_SHAPE_GENERIC,
+  GENERIC_KEY,
+  GENERIC_SHEETS,
+  resolveBlueprintSheets,
+  detectTemplateShape,
   sheetNames,
   DEFAULT_BLUEPRINT_KEY,
   MAX_DEPARTMENT_KEY_LENGTH,
@@ -337,11 +471,21 @@ module.exports = {
   WTAX_INPUT_COLS,
   PAY_INPUT_COLS,
   DEDS_INPUT_COLS,
+  DEDS_INPUT_COLS_CLASSIC,
+  DEDS_INPUT_COLS_WIDE,
+  DEDS_FORMULA_COLS_CLASSIC,
+  DEDS_FORMULA_COLS_WIDE,
+  DEDS_VARIANT_WIDE,
+  DEDS_VARIANT_CLASSIC,
+  detectDedsVariant,
+  dedsInputCols,
+  dedsFormulaCols,
   FORMULA_COLS,
   CHAINED_CONST_COLS,
   firstRowFormulas,
   OWNED_COLS,
   PERIOD_CELLS,
+  TITLE_CELLS,
   DB_DEPT_TO_TEMPLATE,
   DB_EMP_TYPE_TO_TEMPLATE,
   DB_FIELD_TO_CONTRACT,

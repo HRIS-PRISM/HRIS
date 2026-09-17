@@ -40,6 +40,8 @@ function sampleEmployee(i) {
     mplLite: 0,
     emergencyLoan: 0,
     gsisHousingLoan: 0,
+    gsl: 0,
+    gbk: 0,
     gsisOthers: 0,
     pagibigFundCont: 200,
     pagibig2: 0,

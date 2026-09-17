@@ -32,36 +32,69 @@ function findSubtotalRow(sheet, col, firstRow) {
   throw new Error(`${sheet.name}: no subtotal row with ${needle}`);
 }
 
+function inspectBlock(pkg, names, deptKey, shape, problems) {
+  const wtax = pkg.sheet(names.wtax);
+  const pay = pkg.sheet(names.pay);
+  const deds = pkg.sheet(names.deds);
+  const dedsVariant = M.detectDedsVariant(deds);
+  const dedsCols = M.dedsInputCols(dedsVariant);
+  const dedsFormula = M.dedsFormulaCols(dedsVariant);
+
+  const wtaxSubtotal = findSubtotalRow(wtax, 'F', M.WTAX_FIRST_ROW);
+  const paySubtotal = findSubtotalRow(pay, 'F', M.PAY_FIRST_ROW);
+  const dedsSubtotal = findSubtotalRow(deds, 'F', M.DEDS_FIRST_ROW);
+  const capacity = wtaxSubtotal - M.WTAX_FIRST_ROW;
+
+  checkColumnCoverage(wtax, 'wtax', M.WTAX_FIRST_ROW, capacity, M.WTAX_INPUT_COLS, problems, deptKey);
+  checkColumnCoverage(pay, 'pay', M.PAY_FIRST_ROW, capacity, M.PAY_INPUT_COLS, problems, deptKey);
+  checkColumnCoverage(deds, 'deds', M.DEDS_FIRST_ROW, capacity, dedsCols, problems, deptKey, dedsFormula);
+
+  checkPatternRows(wtax, 'wtax', M.WTAX_FIRST_ROW, problems, deptKey, shape);
+  checkPatternRows(pay, 'pay', M.PAY_FIRST_ROW, problems, deptKey, shape, dedsVariant);
+  checkPatternRows(deds, 'deds', M.DEDS_FIRST_ROW, problems, deptKey, shape, dedsVariant, dedsFormula);
+
+  return { capacity, wtaxSubtotal, paySubtotal, dedsSubtotal, dedsVariant };
+}
+
 function buildLayout(pkg, problems) {
+  const blueprint = M.resolveBlueprintSheets(pkg.sheetNames());
+  if (!blueprint) {
+    problems.push('Workbook is missing SUMMARY plus either WTAX-GEN.AD or the WTAX / PAY / DEDS tabs');
+    return { shape: null, sheets: null, departments: {} };
+  }
+
+  if (blueprint.shape === M.TEMPLATE_SHAPE_GENERIC) {
+    const geometry = inspectBlock(pkg, blueprint.sheets, M.GENERIC_KEY, blueprint.shape, problems);
+    return {
+      shape: blueprint.shape,
+      sheets: blueprint.sheets,
+      departments: {
+        [M.GENERIC_KEY]: { ...geometry, summaryRow: 8 },
+      },
+    };
+  }
+
   const departments = {};
 
   for (const dept of M.DEPARTMENTS) {
     const names = M.sheetNames(dept.key);
-    const wtax = pkg.sheet(names.wtax);
-    const pay = pkg.sheet(names.pay);
-    const deds = pkg.sheet(names.deds);
+    const geometry = inspectBlock(pkg, names, dept.key, blueprint.shape, problems);
 
-    const wtaxSubtotal = findSubtotalRow(wtax, 'F', M.WTAX_FIRST_ROW);
-    const paySubtotal = findSubtotalRow(pay, 'F', M.PAY_FIRST_ROW);
-    const dedsSubtotal = findSubtotalRow(deds, 'F', M.DEDS_FIRST_ROW);
-    const capacity = wtaxSubtotal - M.WTAX_FIRST_ROW;
-
-    if (paySubtotal !== wtaxSubtotal + 14) {
-      problems.push(`${dept.key}: PAY subtotal ${paySubtotal}, expected ${wtaxSubtotal + 14}`);
+    if (geometry.paySubtotal !== geometry.wtaxSubtotal + 14) {
+      problems.push(`${dept.key}: PAY subtotal ${geometry.paySubtotal}, expected ${geometry.wtaxSubtotal + 14}`);
     }
-    if (dedsSubtotal !== wtaxSubtotal + 13) {
-      problems.push(`${dept.key}: DEDS subtotal ${dedsSubtotal}, expected ${wtaxSubtotal + 13}`);
+    if (geometry.dedsSubtotal !== geometry.wtaxSubtotal + 13) {
+      problems.push(`${dept.key}: DEDS subtotal ${geometry.dedsSubtotal}, expected ${geometry.wtaxSubtotal + 13}`);
     }
 
-    // SUMMARY must read this department's subtotal rows.
     const summary = pkg.sheet('SUMMARY');
     const grossRef = summary.formulaAt(`D${dept.summaryRow}`);
-    const wantGross = `'${names.pay}'!I${paySubtotal}`;
+    const wantGross = `'${names.pay}'!I${geometry.paySubtotal}`;
     if (grossRef !== wantGross) {
       problems.push(`${dept.key}: SUMMARY!D${dept.summaryRow} is ${grossRef}, expected ${wantGross}`);
     }
     const gsisRef = summary.formulaAt(`H${dept.summaryRow}`);
-    const wantGsis = `'${names.deds}'!G${dedsSubtotal}`;
+    const wantGsis = `'${names.deds}'!G${geometry.dedsSubtotal}`;
     if (gsisRef !== wantGsis) {
       problems.push(`${dept.key}: SUMMARY!H${dept.summaryRow} is ${gsisRef}, expected ${wantGsis}`);
     }
@@ -72,24 +105,13 @@ function buildLayout(pkg, problems) {
       problems.push(`${dept.key}: SUMMARY!C${dept.summaryRow} reads "${titleText}", map says "${dept.title}"`);
     }
 
-    checkColumnCoverage(wtax, 'wtax', M.WTAX_FIRST_ROW, capacity, M.WTAX_INPUT_COLS, problems, dept.key);
-    checkColumnCoverage(pay, 'pay', M.PAY_FIRST_ROW, capacity, M.PAY_INPUT_COLS, problems, dept.key);
-    checkColumnCoverage(deds, 'deds', M.DEDS_FIRST_ROW, capacity, M.DEDS_INPUT_COLS, problems, dept.key);
-
-    checkPatternRows(wtax, 'wtax', M.WTAX_FIRST_ROW, problems, dept.key);
-    checkPatternRows(pay, 'pay', M.PAY_FIRST_ROW, problems, dept.key);
-    checkPatternRows(deds, 'deds', M.DEDS_FIRST_ROW, problems, dept.key);
-
     departments[dept.key] = {
-      capacity,
-      wtaxSubtotal,
-      paySubtotal,
-      dedsSubtotal,
+      ...geometry,
       summaryRow: dept.summaryRow,
     };
   }
 
-  return departments;
+  return { shape: blueprint.shape, sheets: null, departments };
 }
 
 /**
@@ -102,9 +124,11 @@ function buildLayout(pkg, problems) {
  * Every FORMULA_COLS cell on those two rows must carry a formula; a gap here
  * would leave later employee rows without that computation.
  */
-function checkPatternRows(sheet, kind, firstRow, problems, deptKey) {
-  const fallback = M.firstRowFormulas(deptKey)[kind] || {};
-  for (const col of M.FORMULA_COLS[kind]) {
+function checkPatternRows(sheet, kind, firstRow, problems, deptKey, shape, dedsVariant, formulaCols) {
+  const fallback = M.firstRowFormulas(deptKey, shape, dedsVariant)[kind] || {};
+  const cols = formulaCols || M.FORMULA_COLS[kind];
+  for (const col of cols) {
+    if (kind === 'wtax' && col === M.WTAX_DAILY_RATE_COL) continue;
     for (const off of [0, 1]) {
       const ref = col + (firstRow + off);
       if (sheet.formulaAt(ref) === null && !fallback[col]) {
@@ -114,8 +138,8 @@ function checkPatternRows(sheet, kind, firstRow, problems, deptKey) {
   }
 }
 
-function checkColumnCoverage(sheet, kind, firstRow, capacity, inputCols, problems, deptKey) {
-  const stamped = new Set(M.FORMULA_COLS[kind].map(colToIndex));
+function checkColumnCoverage(sheet, kind, firstRow, capacity, inputCols, problems, deptKey, formulaCols) {
+  const stamped = new Set((formulaCols || M.FORMULA_COLS[kind]).map(colToIndex));
   const chained = new Set(M.CHAINED_CONST_COLS[kind].map(colToIndex));
   const inputs = new Set(Object.values(inputCols).map(colToIndex));
   const seenUnknown = new Set();
@@ -139,15 +163,17 @@ function checkColumnCoverage(sheet, kind, firstRow, capacity, inputCols, problem
 function inspectAndWriteLayout(templatePath = TEMPLATE_PATH) {
   const pkg = XlsmPackage.load(fs.readFileSync(templatePath));
   const problems = [];
-  const departments = buildLayout(pkg, problems);
+  const { shape, sheets, departments } = buildLayout(pkg, problems);
   const layout = {
-    generatedFrom: 'templates/EARIST_Appendix33.xlsm',
+    generatedFrom: path.relative(path.join(__dirname, '..'), templatePath).replace(/\\/g, '/'),
+    shape: shape || M.TEMPLATE_SHAPE_MULTI,
     wtaxFirstRow: M.WTAX_FIRST_ROW,
     payFirstRow: M.PAY_FIRST_ROW,
     dedsFirstRow: M.DEDS_FIRST_ROW,
     totalCapacity: Object.values(departments).reduce((a, d) => a + d.capacity, 0),
     departments,
   };
+  if (sheets) layout.genericSheets = sheets;
   if (problems.length) {
     const err = new Error(problems.join('; '));
     err.problems = problems;
@@ -163,17 +189,20 @@ function main() {
   const pkg = XlsmPackage.load(fs.readFileSync(TEMPLATE_PATH));
 
   const problems = [];
-  const departments = buildLayout(pkg, problems);
+  const { shape, sheets, departments } = buildLayout(pkg, problems);
 
   const layout = {
     generatedFrom: 'templates/EARIST_Appendix33.xlsm',
+    shape: shape || M.TEMPLATE_SHAPE_MULTI,
     wtaxFirstRow: M.WTAX_FIRST_ROW,
     payFirstRow: M.PAY_FIRST_ROW,
     dedsFirstRow: M.DEDS_FIRST_ROW,
     totalCapacity: Object.values(departments).reduce((a, d) => a + d.capacity, 0),
     departments,
   };
+  if (sheets) layout.genericSheets = sheets;
 
+  console.log(`shape ${layout.shape}`);
   for (const [key, d] of Object.entries(departments)) {
     console.log(`${key.padEnd(12)} capacity ${String(d.capacity).padStart(3)}  subtotals W${d.wtaxSubtotal} P${d.paySubtotal} D${d.dedsSubtotal}`);
   }

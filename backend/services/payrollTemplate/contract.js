@@ -41,8 +41,10 @@
  * @property {number} mpl                DEDS M
  * @property {number} mplLite            DEDS N
  * @property {number} emergencyLoan      DEDS O  "EMERGENCY LOAN (ELA)"
- * @property {number} gsisHousingLoan    DEDS P
- * @property {number} gsisOthers         DEDS Q
+ * @property {number} gsisHousingLoan    DEDS P  (payroll_processed.rel)
+ * @property {number} gsl                DEDS Q on the wide template (solar loan)
+ * @property {number} gbk                DEDS R on the wide template (bicycle loan)
+ * @property {number} gsisOthers         DEDS S (Q on the original 13-block sheet)
  *
  * @property {number} pagibigFundCont    DEDS S
  * @property {number} pagibig2           DEDS T
@@ -80,7 +82,7 @@ const NUMERIC_FIELDS = [
   'rateNbc594', 'nbcDiffl597', 'increment',
   'withholdingTax', 'lwopDays', 'lwopHours', 'lwopMinutes',
   'gsisArrears', 'gsisSalaryLoan', 'gsisPolicyLoan', 'gfal', 'cpl',
-  'mpl', 'mplLite', 'emergencyLoan', 'gsisHousingLoan', 'gsisOthers',
+  'mpl', 'mplLite', 'emergencyLoan', 'gsisHousingLoan', 'gsl', 'gbk', 'gsisOthers',
   'pagibigFundCont', 'pagibig2', 'pagibigMpl', 'pagibigCalLoan', 'pagibigOthers',
   'landbankSalaryLoan', 'earistCreditCoop', 'feu', 'mtslaSalaryLoan', 'otherDeds',
 ];
