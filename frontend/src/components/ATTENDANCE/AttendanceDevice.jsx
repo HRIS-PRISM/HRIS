@@ -107,6 +107,7 @@ import {
   useAttendanceCompactPage,
 } from './attendanceFilterLayout';
 import AttendanceEmployeeSearchField from './AttendanceEmployeeSearchField';
+import AttendancePunchStatusSidebar from './AttendancePunchStatusSidebar';
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
 
 
@@ -689,43 +690,61 @@ const RowBtn = ({ icon, label, onClick, color, hoverBg, disabled = false }) => (
 const NO_TIME_IN_LABEL = 'No TimeIN';
 const NO_TIME_OUT_LABEL = 'No TimeOUT';
 
-const MissingTimeBadge = ({ label }) => (
+const MissingTimeBadge = ({ label, compact = false }) => (
   <Box
     sx={{
       display: 'inline-flex',
       alignItems: 'center',
-      gap: 0.5,
-      px: 1.25,
-      py: 0.3,
+      gap: compact ? 0.3 : 0.5,
+      px: compact ? 0.55 : 1.25,
+      py: compact ? 0.15 : 0.3,
       borderRadius: '12px',
       bgcolor: 'rgba(244,67,54,0.10)',
       border: '1px solid rgba(244,67,54,0.28)',
+      maxWidth: '100%',
     }}
   >
-    <Cancel sx={{ fontSize: 11, color: '#f44336' }} />
-    <Typography sx={{ fontSize: '0.62rem', fontWeight: 700, color: '#f44336', lineHeight: 1.2 }}>
+    <Cancel sx={{ fontSize: compact ? 9 : 11, color: '#f44336', flexShrink: 0 }} />
+    <Typography
+      sx={{
+        fontSize: compact ? '0.58rem' : '0.62rem',
+        fontWeight: 700,
+        color: '#f44336',
+        lineHeight: 1.2,
+        whiteSpace: 'nowrap',
+      }}
+    >
       {label}
     </Typography>
   </Box>
 );
 
 // ─── Time cell renderer ────────────────────────────────────────────────────
-const TimeCell = ({ time, isUncategorized, missingLabel }) => {
-  const formatted = formatTime(time);
+const TimeCell = ({ time, isUncategorized, missingLabel, compact = false }) => {
+  const formatted = formatTime(time, compact);
   if (formatted)
     return (
-      <Typography sx={{ fontSize: '0.78rem', color: '#1a1a1a' }}>
+      <Typography
+        sx={{
+          fontSize: compact ? '0.66rem' : '0.78rem',
+          color: '#1a1a1a',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          minWidth: 0,
+        }}
+      >
         {formatted}
       </Typography>
     );
-  if (isUncategorized) return <MissingTimeBadge label={missingLabel} />;
+  if (isUncategorized) return <MissingTimeBadge label={missingLabel} compact={compact} />;
   return (
-    <Typography sx={{ fontSize: '0.75rem', color: '#a0a0a0' }}>—</Typography>
+    <Typography sx={{ fontSize: compact ? '0.66rem' : '0.75rem', color: '#a0a0a0' }}>—</Typography>
   );
 };
 
 // ─── Utility functions ─────────────────────────────────────────────────────
-const formatTime = (time) => {
+const formatTime = (time, compact = false) => {
   if (!time) return null;
   const str = String(time).trim();
   if (/am|pm/i.test(str)) {
@@ -734,16 +753,20 @@ const formatTime = (time) => {
     const minute = parts[1] || '00';
     const second = (parts[2] || '00').replace(/am|pm/i, '') || '00';
     const ampm = /pm/i.test(str) ? 'PM' : 'AM';
-    return `${hour.padStart(2, '0')}:${minute}:${second} ${ampm}`;
+    return compact
+      ? `${hour.padStart(2, '0')}:${minute} ${ampm}`
+      : `${hour.padStart(2, '0')}:${minute}:${second} ${ampm}`;
   }
   const [hour, minute, second] = str.split(':');
   const hour24 = parseInt(hour, 10);
   const hour12 = hour24 % 12 || 12;
-  return `${String(hour12).padStart(2, '0')}:${minute}:${second || '00'} ${hour24 < 12 ? 'AM' : 'PM'}`;
+  const hh = String(hour12).padStart(2, '0');
+  const ampm = hour24 < 12 ? 'AM' : 'PM';
+  return compact ? `${hh}:${minute} ${ampm}` : `${hh}:${minute}:${second || '00'} ${ampm}`;
 };
 
-const getDayOfWeek = (dateString) =>
-  new Date(dateString).toLocaleDateString('en-US', { weekday: 'long' });
+const getDayShort = (dateString) =>
+  new Date(dateString).toLocaleDateString('en-US', { weekday: 'short' });
 
 const formatModifiedAt = (value) => {
   if (!value) return '';
@@ -769,9 +792,11 @@ const parseRecordKey = (key) => {
   return { personID: key.slice(0, sep), date: key.slice(sep + 2) };
 };
 
-/** Grid columns: checkbox + data columns */
-const RECORDS_GRID_COLS =
-  '32px 0.8fr 1fr 1fr 1.1fr 1.1fr 1.1fr 1.1fr 1fr 1fr 1fr';
+/** Fits the device panel without a horizontal scrollbar. */
+const RECORD_COLS =
+  'minmax(0,0.82fr) minmax(0,0.95fr) minmax(0,0.42fr) minmax(0,0.72fr) minmax(0,0.48fr) minmax(0,0.55fr) minmax(0,0.72fr) minmax(0,0.58fr) minmax(0,0.62fr) minmax(0,0.5fr)';
+const RECORDS_GRID_COLS = `26px ${RECORD_COLS}`;
+const RECORD_HEADERS = ['ID', 'DATE', 'DAY', 'IN', 'BRK IN', 'BRK OUT', 'OUT', 'TYPE', 'SP IN', 'SP OUT'];
 
 const formatModifierLabel = (modifiedBy, modifiedByName) => {
   const num = String(modifiedBy || '').trim();
@@ -2848,9 +2873,22 @@ const goToComputationModule = async (selectedComputationType) => {
 
             {/* RIGHT: Content — expands to full width when the sidebar is hidden */}
             <Grid item xs={12} lg={topTab === 'facial' ? 12 : 9}>
+              <Box
+                sx={{
+                  display: 'flex',
+                  gap: 2,
+                  ...attendanceMainPanelHeightSx,
+                  flexDirection: { xs: 'column', lg: 'row' },
+                  minHeight: 0,
+                  alignItems: 'stretch',
+                  overflow: 'hidden',
+                }}
+              >
               <SectionCard
                 sx={{
-                  ...attendanceMainPanelHeightSx,
+                  flex: 1,
+                  minWidth: 0,
+                  minHeight: 0,
                   display: 'flex',
                   flexDirection: 'column',
                   position: 'relative',
@@ -3039,95 +3077,204 @@ const goToComputationModule = async (selectedComputationType) => {
                     {/* Toolbar */}
                     <Box
                       sx={{
-                        px: 3,
-                        py: 2,
+                        px: 2,
+                        py: 1.15,
                         borderBottom: `1px solid ${T.divider}`,
-                        bgcolor: T.accentFaint,
+                        bgcolor: '#fff',
                         flexShrink: 0,
                       }}
                     >
-                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                          <Assignment sx={{ fontSize: 15, color: T.accent }} />
-                          <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, color: T.text }}>
-                            Attendance Records
-                          </Typography>
+                      <Box
+                        sx={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: 1.25,
+                        }}
+                      >
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+                          <Box
+                            sx={{
+                              width: 28,
+                              height: 28,
+                              borderRadius: '8px',
+                              bgcolor: T.accentFaint,
+                              border: `1px solid ${T.accentBorder}`,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexShrink: 0,
+                            }}
+                          >
+                            <Assignment sx={{ fontSize: 15, color: T.accent }} />
+                          </Box>
+                          <Box sx={{ minWidth: 0 }}>
+                            <Typography
+                              sx={{
+                                fontSize: '0.82rem',
+                                fontWeight: 800,
+                                color: T.text,
+                                lineHeight: 1.15,
+                              }}
+                            >
+                              Attendance Records
+                            </Typography>
+                            {records.length > 0 && (
+                              <Typography sx={{ fontSize: '0.64rem', color: T.faint, fontWeight: 600, mt: 0.15 }}>
+                                {records.length} {records.length === 1 ? 'row' : 'rows'} in this period
+                              </Typography>
+                            )}
+                          </Box>
                         </Box>
+
                         {records.length > 0 && (
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            {missingTimeInCount > 0 && (
-                              <Box sx={{ px: 1.5, py: 0.3, borderRadius: 5, bgcolor: 'rgba(244,67,54,0.10)', border: '1px solid rgba(244,67,54,0.28)', display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                <Cancel sx={{ fontSize: 11, color: '#f44336' }} />
-                                <Typography sx={{ fontSize: '0.72rem', color: '#f44336', fontWeight: 700 }}>
-                                  {missingTimeInCount} {NO_TIME_IN_LABEL}
-                                </Typography>
-                              </Box>
-                            )}
-                            {missingTimeOutCount > 0 && (
-                              <Box sx={{ px: 1.5, py: 0.3, borderRadius: 5, bgcolor: 'rgba(244,67,54,0.10)', border: '1px solid rgba(244,67,54,0.28)', display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                <Cancel sx={{ fontSize: 11, color: '#f44336' }} />
-                                <Typography sx={{ fontSize: '0.72rem', color: '#f44336', fontWeight: 700 }}>
-                                  {missingTimeOutCount} {NO_TIME_OUT_LABEL}
-                                </Typography>
-                              </Box>
-                            )}
-                            {lockedRowCount > 0 && (
-                              <Box sx={{ px: 1.5, py: 0.3, borderRadius: 5, bgcolor: 'rgba(33,150,243,0.10)', border: '1px solid rgba(33,150,243,0.28)', display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                <Lock sx={{ fontSize: 11, color: '#1976d2' }} />
-                                <Typography sx={{ fontSize: '0.72rem', color: '#1976d2', fontWeight: 700 }}>
-                                  {lockedRowCount} Admin Modified
-                                </Typography>
-                              </Box>
-                            )}
-                            {selectedLockedRows.size > 0 && (
-                              <AccentButton
-                                variant="contained"
+                          <Box
+                            sx={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 0.6,
+                              flexShrink: 0,
+                            }}
+                          >
+                            <Tooltip title="Open the full Attendance State page">
+                              <Button
+                                variant="outlined"
                                 size="small"
-                                startIcon={
-                                  bulkRestoring ? (
-                                    <CircularProgress size={13} sx={{ color: '#fff' }} />
-                                  ) : (
-                                    <Sync sx={{ fontSize: '13px !important' }} />
-                                  )
-                                }
-                                disabled={bulkRestoring || restoringKey !== null}
-                                onClick={handleBulkForceSync}
+                                startIcon={<Assignment sx={{ fontSize: '14px !important' }} />}
+                                onClick={handleGoToState}
                                 sx={{
-                                  fontSize: '0.78rem',
-                                  bgcolor: '#1976d2',
-                                  color: '#fff',
-                                  boxShadow: '0 2px 8px rgba(25,118,210,0.3)',
-                                  '&:hover': { bgcolor: '#1565c0' },
+                                  textTransform: 'none',
+                                  fontWeight: 700,
+                                  fontSize: '0.72rem',
+                                  height: 32,
+                                  px: 1.2,
+                                  borderRadius: '8px',
+                                  whiteSpace: 'nowrap',
+                                  color: T.accent,
+                                  borderColor: alpha(T.accent, 0.28),
+                                  bgcolor: '#fff',
+                                  boxShadow: 'none',
+                                  '&:hover': {
+                                    borderColor: T.accent,
+                                    bgcolor: T.accentFaint,
+                                    boxShadow: 'none',
+                                  },
                                 }}
                               >
-                                Restore Selected ({selectedLockedRows.size})
-                              </AccentButton>
-                            )}
-                            <AccentButton
-                              variant="contained"
-                              size="small"
-                              startIcon={<Assignment sx={{ fontSize: '13px !important' }} />}
-                              onClick={handleGoToState}
-                              sx={{ fontSize: '0.78rem', bgcolor: T.accent, color: '#fff', boxShadow: `0 2px 8px ${alpha(T.accent, 0.28)}`, '&:hover': { bgcolor: T.accentDark } }}
-                            >
-                              Go to Attendance State
-                            </AccentButton>
-                            <AccentButton
-                              variant="contained"
-                              size="small"
-                              startIcon={<Send sx={{ fontSize: '13px !important' }} />}
-                              onClick={handleSendToDTR}
-                              sx={{ fontSize: '0.78rem', bgcolor: '#2e7d32', color: '#fff', boxShadow: `0 2px 8px rgba(46,125,50,0.3)`, '&:hover': { bgcolor: '#1b5e20' } }}
-                            >
-                              View in DTR Module
-                            </AccentButton>
+                                View State
+                              </Button>
+                            </Tooltip>
+                            <Tooltip title="Open this period in the DTR module">
+                              <Button
+                                variant="contained"
+                                size="small"
+                                onClick={handleSendToDTR}
+                                sx={{
+                                  textTransform: 'none',
+                                  fontWeight: 700,
+                                  fontSize: '0.72rem',
+                                  height: 32,
+                                  px: 1.35,
+                                  borderRadius: '8px',
+                                  whiteSpace: 'nowrap',
+                                  bgcolor: T.accent,
+                                  color: '#fff',
+                                  boxShadow: 'none',
+                                  '&:hover': { bgcolor: T.accentDark, boxShadow: 'none' },
+                                }}
+                              >
+                                View DTR
+                              </Button>
+                            </Tooltip>
                           </Box>
                         )}
                       </Box>
+
+                      {records.length > 0 && (missingTimeInCount > 0 || missingTimeOutCount > 0 || lockedRowCount > 0) && (
+                        <Box
+                          sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 0.6,
+                            mt: 1,
+                            flexWrap: 'wrap',
+                          }}
+                        >
+                          {missingTimeInCount > 0 && (
+                            <Box
+                              sx={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 0.55,
+                                height: 24,
+                                px: 0.8,
+                                borderRadius: '999px',
+                                bgcolor: alpha('#c62828', 0.07),
+                                border: `1px solid ${alpha('#c62828', 0.16)}`,
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              <Cancel sx={{ fontSize: 12, color: '#c62828' }} />
+                              <Typography sx={{ fontSize: '0.68rem', fontWeight: 800, color: '#c62828', lineHeight: 1 }}>
+                                {missingTimeInCount}
+                              </Typography>
+                              <Typography sx={{ fontSize: '0.64rem', fontWeight: 600, color: alpha('#c62828', 0.85) }}>
+                                No time in
+                              </Typography>
+                            </Box>
+                          )}
+                          {missingTimeOutCount > 0 && (
+                            <Box
+                              sx={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 0.55,
+                                height: 24,
+                                px: 0.8,
+                                borderRadius: '999px',
+                                bgcolor: alpha('#c62828', 0.07),
+                                border: `1px solid ${alpha('#c62828', 0.16)}`,
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              <Cancel sx={{ fontSize: 12, color: '#c62828' }} />
+                              <Typography sx={{ fontSize: '0.68rem', fontWeight: 800, color: '#c62828', lineHeight: 1 }}>
+                                {missingTimeOutCount}
+                              </Typography>
+                              <Typography sx={{ fontSize: '0.64rem', fontWeight: 600, color: alpha('#c62828', 0.85) }}>
+                                No time out
+                              </Typography>
+                            </Box>
+                          )}
+                          {lockedRowCount > 0 && (
+                            <Box
+                              sx={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 0.55,
+                                height: 24,
+                                px: 0.8,
+                                borderRadius: '999px',
+                                bgcolor: alpha('#1565c0', 0.08),
+                                border: `1px solid ${alpha('#1565c0', 0.18)}`,
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              <Lock sx={{ fontSize: 12, color: '#1565c0' }} />
+                              <Typography sx={{ fontSize: '0.68rem', fontWeight: 800, color: '#1565c0', lineHeight: 1 }}>
+                                {lockedRowCount}
+                              </Typography>
+                              <Typography sx={{ fontSize: '0.64rem', fontWeight: 600, color: alpha('#1565c0', 0.9) }}>
+                                Admin modified
+                              </Typography>
+                            </Box>
+                          )}
+                        </Box>
+                      )}
                     </Box>
 
                     {/* Records area */}
-                    <Box sx={{ flexGrow: 1, overflowY: 'auto', position: 'relative', ...scrollbarSx }}>
+                    <Box sx={{ flexGrow: 1, overflowY: 'auto', overflowX: 'hidden', position: 'relative', ...scrollbarSx }}>
                       {!hasSearchedSingle || !personID ? (
                         <Box sx={{ py: 10, textAlign: 'center' }}>
                           <Box sx={{ width: 72, height: 72, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
@@ -3161,16 +3308,17 @@ const goToComputationModule = async (selectedComputationType) => {
                             <Box
                               sx={{
                                 display: 'grid',
-                                gridTemplateColumns: lockedRowCount > 0 ? RECORDS_GRID_COLS : '0.8fr 1fr 1fr 1.1fr 1.1fr 1.1fr 1.1fr 1fr 1fr 1fr',
-                                px: 2.5,
-                                py: 1.25,
+                                gridTemplateColumns: lockedRowCount > 0 ? RECORDS_GRID_COLS : RECORD_COLS,
+                                px: 1.25,
+                                py: 0.7,
                                 bgcolor: T.accent,
-                                gap: 1,
+                                gap: 0.5,
                                 position: 'sticky',
                                 top: 0,
                                 zIndex: 2,
-                                minWidth: lockedRowCount > 0 ? 932 : 900,
+                                width: '100%',
                                 alignItems: 'center',
+                                '& > *': { minWidth: 0 },
                               }}
                             >
                               {lockedRowCount > 0 && (
@@ -3189,42 +3337,56 @@ const goToComputationModule = async (selectedComputationType) => {
                                   sx={{
                                     color: 'rgba(255,255,255,0.7)',
                                     p: 0,
+                                    transform: 'scale(0.8)',
                                     '&.Mui-checked': { color: '#fff' },
                                     '&.MuiCheckbox-indeterminate': { color: '#fff' },
                                   }}
                                 />
                               )}
-                              {['EMP ID', 'DATE', 'DAY', 'TIME IN', 'BREAK IN', 'BREAK OUT', 'TIME OUT', 'SPECIAL TYPE', 'SP. IN', 'SP. OUT'].map((h) => (
-                                <Typography key={h} sx={{ color: '#fff', fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.07em' }}>
+                              {RECORD_HEADERS.map((h) => (
+                                <Typography
+                                  key={h}
+                                  sx={{
+                                    color: '#fff',
+                                    fontSize: '0.55rem',
+                                    fontWeight: 700,
+                                    letterSpacing: '0.04em',
+                                    whiteSpace: 'nowrap',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    minWidth: 0,
+                                  }}
+                                >
                                   {h}
                                 </Typography>
                               ))}
                             </Box>
                             <Box
                               sx={{
-                                px: 2.5,
-                                py: 0.75,
+                                px: 1.25,
+                                py: 0.45,
                                 display: 'flex',
                                 alignItems: 'center',
-                                flexWrap: 'wrap',
-                                gap: 1,
+                                gap: 0.75,
+                                flexWrap: 'nowrap',
                                 borderBottom: `1px solid ${T.divider}`,
-                                bgcolor: alpha(T.accent, 0.02),
+                                bgcolor: '#fff',
+                                overflow: 'visible',
                               }}
                             >
-                              <Typography sx={{ fontSize: '0.72rem', color: T.muted, mr: 'auto' }}>
+                              <Typography sx={{ fontSize: '0.68rem', color: T.muted, flex: '1 1 auto', minWidth: 0 }}>
                                 {records.length > recordsRowsPerPage
                                   ? `Showing ${(recordsPage - 1) * recordsRowsPerPage + 1}–${Math.min(records.length, recordsPage * recordsRowsPerPage)} of ${records.length}`
                                   : `${records.length} row${records.length === 1 ? '' : 's'}`}
                               </Typography>
                               {lockedRowCount > 0 && (
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.6, flexShrink: 0 }}>
                                   <Typography
                                     component="button"
                                     type="button"
                                     onClick={handleSelectAllLockedInPeriod}
                                     sx={{
-                                      fontSize: '0.68rem',
+                                      fontSize: '0.66rem',
                                       fontWeight: 700,
                                       color: '#1976d2',
                                       bgcolor: 'transparent',
@@ -3232,6 +3394,7 @@ const goToComputationModule = async (selectedComputationType) => {
                                       cursor: 'pointer',
                                       p: 0,
                                       fontFamily: 'inherit',
+                                      whiteSpace: 'nowrap',
                                       '&:hover': { textDecoration: 'underline' },
                                     }}
                                   >
@@ -3239,13 +3402,13 @@ const goToComputationModule = async (selectedComputationType) => {
                                   </Typography>
                                   {selectedLockedRows.size > 0 && (
                                     <>
-                                      <Typography sx={{ fontSize: '0.68rem', color: T.faint }}>·</Typography>
+                                      <Typography sx={{ fontSize: '0.66rem', color: T.faint }}>·</Typography>
                                       <Typography
                                         component="button"
                                         type="button"
                                         onClick={handleClearLockedSelection}
                                         sx={{
-                                          fontSize: '0.68rem',
+                                          fontSize: '0.66rem',
                                           fontWeight: 600,
                                           color: T.muted,
                                           bgcolor: 'transparent',
@@ -3253,6 +3416,7 @@ const goToComputationModule = async (selectedComputationType) => {
                                           cursor: 'pointer',
                                           p: 0,
                                           fontFamily: 'inherit',
+                                          whiteSpace: 'nowrap',
                                           '&:hover': { textDecoration: 'underline' },
                                         }}
                                       >
@@ -3260,6 +3424,40 @@ const goToComputationModule = async (selectedComputationType) => {
                                       </Typography>
                                     </>
                                   )}
+                                  <Box
+                                    component="button"
+                                    type="button"
+                                    disabled={selectedLockedRows.size === 0 || bulkRestoring || restoringKey !== null}
+                                    onClick={handleBulkForceSync}
+                                    sx={{
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: 0.4,
+                                      height: 24,
+                                      px: 1,
+                                      border: 'none',
+                                      borderRadius: '6px',
+                                      bgcolor: '#1976d2',
+                                      color: '#fff',
+                                      fontSize: '0.66rem',
+                                      fontWeight: 800,
+                                      fontFamily: 'inherit',
+                                      whiteSpace: 'nowrap',
+                                      cursor: selectedLockedRows.size === 0 ? 'default' : 'pointer',
+                                      flexShrink: 0,
+                                      opacity: selectedLockedRows.size === 0 ? 0.45 : 1,
+                                      '&:hover': {
+                                        bgcolor: selectedLockedRows.size === 0 ? '#1976d2' : '#1565c0',
+                                      },
+                                    }}
+                                  >
+                                    {bulkRestoring ? (
+                                      <CircularProgress size={10} sx={{ color: '#fff' }} />
+                                    ) : (
+                                      <Sync sx={{ fontSize: 12, color: '#fff' }} />
+                                    )}
+                                    Restore{selectedLockedRows.size > 0 ? ` (${selectedLockedRows.size})` : ''}
+                                  </Box>
                                 </Box>
                               )}
                               <FormControl size="small" sx={{ minWidth: 92 }}>
@@ -3294,7 +3492,7 @@ const goToComputationModule = async (selectedComputationType) => {
                                 </Box>
                               )}
                             </Box>
-                            <Box sx={{ overflowX: 'auto' }}>
+                            <Box>
                               {paginatedRecords.map((record, index) => {
                                 const globalIndex = (recordsPage - 1) * recordsRowsPerPage + index;
                                 const hasTimeIn = !!record.Time1;
@@ -3313,13 +3511,32 @@ const goToComputationModule = async (selectedComputationType) => {
                                 let specialTypeBadge = null;
                                 if (record.Time5 || record.Time6) {
                                   const type = record.specialType || 'UNCATEGORIZED';
-                                  const typeLabels = { HONORARIUM: 'Honorarium', SERVICE: 'Service Credit', OVERTIME: 'Overtime', UNCATEGORIZED: 'Uncategorized' };
                                   const colors = { HONORARIUM: '#4CAF50', SERVICE: '#2196F3', OVERTIME: '#FF9800', UNCATEGORIZED: '#9E9E9E' };
                                   const bc = colors[type] || colors.UNCATEGORIZED;
                                   specialTypeBadge = (
-                                    <Box sx={{ display: 'inline-flex', alignItems: 'center', px: 1, py: 0.3, borderRadius: '10px', bgcolor: alpha(bc, 0.12), border: `1px solid ${alpha(bc, 0.3)}` }}>
-                                      <Typography sx={{ fontSize: '0.65rem', fontWeight: 700, color: bc }}>
-                                        {typeLabels[type] || 'Uncategorized'}
+                                    <Box
+                                      sx={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        maxWidth: '100%',
+                                        px: 0.55,
+                                        py: 0.1,
+                                        borderRadius: '8px',
+                                        bgcolor: alpha(bc, 0.12),
+                                        border: `1px solid ${alpha(bc, 0.3)}`,
+                                      }}
+                                    >
+                                      <Typography
+                                        sx={{
+                                          fontSize: '0.56rem',
+                                          fontWeight: 700,
+                                          color: bc,
+                                          whiteSpace: 'nowrap',
+                                          overflow: 'hidden',
+                                          textOverflow: 'ellipsis',
+                                        }}
+                                      >
+                                        {type === 'HONORARIUM' ? 'Honor' : type === 'SERVICE' ? 'Service' : type === 'OVERTIME' ? 'OT' : 'Unset'}
                                       </Typography>
                                     </Box>
                                   );
@@ -3347,12 +3564,14 @@ const goToComputationModule = async (selectedComputationType) => {
                                     key={`${record.PersonID}-${record.Date}-${globalIndex}`}
                                     sx={{
                                       display: 'grid',
-                                      gridTemplateColumns: lockedRowCount > 0 ? RECORDS_GRID_COLS : '0.8fr 1fr 1fr 1.1fr 1.1fr 1.1fr 1.1fr 1fr 1fr 1fr',
-                                      px: 2.5,
-                                      py: 1.5,
-                                      gap: 1,
+                                      gridTemplateColumns: lockedRowCount > 0 ? RECORDS_GRID_COLS : RECORD_COLS,
+                                      px: 1.25,
+                                      py: 0.55,
+                                      gap: 0.5,
                                       alignItems: 'center',
-                                      minWidth: lockedRowCount > 0 ? 932 : 900,
+                                      width: '100%',
+                                      minWidth: 0,
+                                      '& > *': { minWidth: 0 },
                                       bgcolor: rowBg,
                                       borderBottom: isLocked
                                         ? '1px solid rgba(33,150,243,0.18)'
@@ -3378,6 +3597,7 @@ const goToComputationModule = async (selectedComputationType) => {
                                             }
                                             sx={{
                                               p: 0,
+                                              transform: 'scale(0.8)',
                                               color: '#1976d2',
                                               '&.Mui-checked': { color: '#1976d2' },
                                             }}
@@ -3385,9 +3605,9 @@ const goToComputationModule = async (selectedComputationType) => {
                                         ) : null}
                                       </Box>
                                     )}
-                                    <Typography sx={{ fontSize: '0.78rem', color: T.muted, fontWeight: 500 }}>{record.PersonID}</Typography>
-                                    <Box>
-                                      <Typography sx={{ fontSize: '0.78rem', fontWeight: 600, color: T.text }}>{record.Date}</Typography>
+                                    <Typography sx={{ fontSize: '0.66rem', color: T.muted, fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{record.PersonID}</Typography>
+                                    <Box sx={{ minWidth: 0 }}>
+                                      <Typography sx={{ fontSize: '0.66rem', fontWeight: 700, color: T.text, whiteSpace: 'nowrap' }}>{record.Date}</Typography>
                                       {isLocked && (
                                         <LockStatusChip
                                           modifiedBy={record.modified_by}
@@ -3397,29 +3617,36 @@ const goToComputationModule = async (selectedComputationType) => {
                                       )}
                                       {!isLocked && wasRecentlyRestored && <RestoredStatusChip />}
                                     </Box>
-                                    <Typography sx={{ fontSize: '0.78rem', color: T.muted }}>{getDayOfWeek(record.Date)}</Typography>
-                                    <TimeCell time={record.Time1} isUncategorized={timeInUncategorized} missingLabel={NO_TIME_IN_LABEL} />
-                                    <TimeCell time={record.Time3} isUncategorized={false} />
-                                    <TimeCell time={record.Time2} isUncategorized={false} />
-                                    <TimeCell time={record.Time4} isUncategorized={timeOutUncategorized} missingLabel={NO_TIME_OUT_LABEL} />
-                                    <Box>{specialTypeBadge || <Typography sx={{ fontSize: '0.75rem', color: T.faint }}>—</Typography>}</Box>
-                                    <Typography sx={{ fontSize: '0.78rem', color: T.text }}>{record.Time5 ? formatTime(record.Time5) : '—'}</Typography>
-                                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 0.35 }}>
-                                      <Typography sx={{ fontSize: '0.78rem', color: T.text }}>{record.Time6 ? formatTime(record.Time6) : '—'}</Typography>
+                                    <Typography sx={{ fontSize: '0.64rem', color: T.muted, minWidth: 0 }}>{getDayShort(record.Date)}</Typography>
+                                    <TimeCell compact time={record.Time1} isUncategorized={timeInUncategorized} missingLabel="No in" />
+                                    <TimeCell compact time={record.Time3} isUncategorized={false} />
+                                    <TimeCell compact time={record.Time2} isUncategorized={false} />
+                                    <TimeCell compact time={record.Time4} isUncategorized={timeOutUncategorized} missingLabel="No out" />
+                                    <Box sx={{ minWidth: 0 }}>{specialTypeBadge || <Typography sx={{ fontSize: '0.66rem', color: T.faint }}>—</Typography>}</Box>
+                                    <Typography sx={{ fontSize: '0.66rem', color: T.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{record.Time5 ? formatTime(record.Time5, true) : '—'}</Typography>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.35, minWidth: 0 }}>
+                                      <Typography sx={{ fontSize: '0.66rem', color: T.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{record.Time6 ? formatTime(record.Time6, true) : '—'}</Typography>
                                       {isLocked && (
                                         <Tooltip title="Restore raw device data for this day" placement="left" arrow>
                                           <span>
-                                            <RowBtn
-                                              icon={<Sync sx={{ fontSize: 11 }} />}
-                                              label="Restore"
-                                              color="#1976d2"
-                                              hoverBg="rgba(33,150,243,0.08)"
-                                              disabled={
-                                                bulkRestoring ||
-                                                restoringKey === rowRestoreKey
-                                              }
+                                            <IconButton
+                                              size="small"
+                                              disabled={bulkRestoring || restoringKey === rowRestoreKey}
                                               onClick={() => handleForceSync(record.PersonID, record.Date)}
-                                            />
+                                              sx={{
+                                                width: 18,
+                                                height: 18,
+                                                color: '#1976d2',
+                                                p: 0,
+                                                '&:hover': { bgcolor: 'rgba(33,150,243,0.08)' },
+                                              }}
+                                            >
+                                              {restoringKey === rowRestoreKey ? (
+                                                <CircularProgress size={10} sx={{ color: '#1976d2' }} />
+                                              ) : (
+                                                <Sync sx={{ fontSize: 12 }} />
+                                              )}
+                                            </IconButton>
                                           </span>
                                         </Tooltip>
                                       )}
@@ -3823,6 +4050,36 @@ const goToComputationModule = async (selectedComputationType) => {
                   />
                 )}
               </SectionCard>
+                {topTab === 'device' && viewMode === 'single' && (
+                  <AttendancePunchStatusSidebar
+                    personID={personID}
+                    startDate={startDate}
+                    endDate={endDate}
+                    enabled={Boolean(hasSearchedSingle && personID && startDate && endDate)}
+                    targetUsername={
+                      selectedEmployee?.username || personName || personID || ''
+                    }
+                    monthLabel={
+                      selectedMonth != null
+                        ? `${monthsShort[selectedMonth]} ${selectedYear}`
+                        : startDate && endDate
+                          ? `${startDate} – ${endDate}`
+                          : ''
+                    }
+                    onStatusUpdated={(info) => {
+                      showSnackbar(
+                        info?.label
+                          ? `Status updated to ${info.label}. Daily record will rebuild.`
+                          : 'Punch status updated',
+                        'success',
+                      );
+                      if (personID && startDate && endDate && hasSearchedSingle) {
+                        fetchRecordsRef.current?.(false);
+                      }
+                    }}
+                  />
+                )}
+              </Box>
             </Grid>
           </Grid>
         </Box>

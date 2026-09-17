@@ -3560,6 +3560,7 @@ const EarningsManagement = () => {
   const [employeePickerOpen, setEmployeePickerOpen] = useState(false);
   const employeePickerInputRef = useRef(null);
   const [deptMap, setDeptMap] = useState({});
+  const [deptNameMap, setDeptNameMap] = useState({});
   const [empCatMap, setEmpCatMap] = useState({});
   const [typeConfigs, setTypeConfigs] = useState([]);
   const [catFilter, setCatFilter] = useState("");
@@ -4359,13 +4360,18 @@ const EarningsManagement = () => {
         );
         if (deptRes.status === "fulfilled") {
           const map = {};
+          const names = {};
           (Array.isArray(deptRes.value.data) ? deptRes.value.data : []).forEach(
             (item) => {
-              if (item.employeeNumber && item.code)
-                map[String(item.employeeNumber)] = item.code;
+              if (!item.employeeNumber) return;
+              const num = String(item.employeeNumber);
+              if (item.code) map[num] = item.code;
+              const title = String(item.name || item.code || "").trim();
+              if (title) names[num] = title;
             },
           );
           setDeptMap(map);
+          setDeptNameMap(names);
         }
         if (empCatRes.status === "fulfilled") {
           const map = {};
@@ -5460,6 +5466,9 @@ const EarningsManagement = () => {
                   year={periodYear}
                   month={periodMonth}
                   manualRows={manualAbstractRows}
+                  deptMap={deptMap}
+                  deptNameMap={deptNameMap}
+                  empCatMap={empCatMap}
                 />
               </Box>
             </Box>

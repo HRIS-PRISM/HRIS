@@ -132,6 +132,9 @@ export function aggregateAttendanceResultsForAbstract(attendanceResults, year, m
       abstractRemarksShort,
       abstractRemarksTooltip: remarksJoined || abstractRemarksShort,
       abstractSourceRows,
+      employmentCategory: first.employment_category_label || "",
+      departmentCode: first.department_code || "",
+      departmentName: first.department_name || "",
     });
   }
 
