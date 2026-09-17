@@ -480,8 +480,11 @@ const AttendancePunchStatusSidebar = ({
   return (
     <SidebarCard
       sx={{
-        width: { xs: '100%', lg: 332 },
+        width: '100%',
+        maxWidth: '100%',
         flexShrink: 0,
+        minWidth: 0,
+        boxSizing: 'border-box',
         minHeight: 0,
         height: { xs: 'min(48vh, 420px)', lg: 'auto' },
         alignSelf: 'stretch',

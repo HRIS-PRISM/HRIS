@@ -381,6 +381,27 @@ export function logOfficialTimeAdd({
   });
 }
 
+/** Official Time — inactive schedule deleted. */
+export function logOfficialTimeDelete({
+  targetEmployeeNumber,
+  targetName,
+  periodStart,
+  periodEnd,
+}) {
+  logAttendanceModuleAction({
+    module: ATTENDANCE_AUDIT_MODULES.OFFICIAL_TIME,
+    auditButton: 'Deleted inactive schedule',
+    targetEmployeeNumber,
+    targetUsername: targetName || null,
+    targetEmployeeName: targetName || null,
+    periodStart,
+    periodEnd,
+    auditEvent: 'official_time_delete',
+    rowsChanged: 7,
+    changesSummary: periodStart && periodEnd ? `${periodStart} to ${periodEnd}` : null,
+  });
+}
+
 /** Official Time — existing schedule updated. */
 export function logOfficialTimeEdit({
   targetEmployeeNumber,

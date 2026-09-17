@@ -81,6 +81,14 @@ const OFFICIAL_TIME_ADMIN_ROLES = Array.isArray(ADMIN_ROLES)
 // PURE UTILITIES
 // ─────────────────────────────────────────────────────────────────────────────
 
+function lastDayOfMonth(year, month) {
+  if (month === 2) {
+    const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+    return leap ? 29 : 28;
+  }
+  return [4, 6, 9, 11].includes(month) ? 30 : 31;
+}
+
 function toDateOnlyString(val) {
   if (val == null || val === "") return val;
   if (typeof val === "string" && /^\d{4}-\d{2}-\d{2}/.test(val))
@@ -3451,6 +3459,135 @@ router.get("/officialtime/users-status", authenticateToken, (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// GET employees with a checked / not-yet status for one calendar month.
+// "Covered" means an active official-time schedule overlaps that month, so
+// payroll users can see who was already set up without opening each person.
+// Visibility matches /officialtime/users-status.
+// ─────────────────────────────────────────────────────────────────────────────
+router.get("/officialtime/month-coverage", authenticateToken, (req, res) => {
+  const loggedInEmployeeNumber = req.user.employeeNumber;
+  const year = parseInt(req.query.year, 10);
+  const month = parseInt(req.query.month, 10);
+
+  if (
+    !Number.isInteger(year) ||
+    year < 2000 ||
+    year > 2100 ||
+    !Number.isInteger(month) ||
+    month < 1 ||
+    month > 12
+  ) {
+    return res.status(400).json({ error: "A valid year and month are required." });
+  }
+
+  const monthStart = `${year}-${String(month).padStart(2, "0")}-01`;
+  const monthEnd = `${year}-${String(month).padStart(2, "0")}-${String(lastDayOfMonth(year, month)).padStart(2, "0")}`;
+
+  const sql = `
+    SELECT
+      u.employeeNumber,
+      p.firstName,
+      p.middleName,
+      p.lastName,
+      p.nameExtension,
+      MAX(dt.description) AS department,
+      MAX(overlap.academicYear) AS academicYear,
+      MAX(overlap.startDate) AS startDate,
+      MAX(overlap.endDate) AS endDate,
+      CASE
+        WHEN MAX(overlap.employeeID) IS NOT NULL THEN 1
+        ELSE 0
+      END AS covered
+    FROM users u
+    LEFT JOIN person_table p
+      ON u.employeeNumber = p.agencyEmployeeNum
+    LEFT JOIN department_assignment da
+      ON u.employeeNumber = da.employeeNumber
+    LEFT JOIN department_table dt
+      ON da.code = dt.code
+    LEFT JOIN (
+      SELECT
+        employeeID,
+        MAX(academicYear) AS academicYear,
+        MAX(startDate) AS startDate,
+        MAX(endDate) AS endDate
+      FROM officialtime
+      WHERE (status = 'active' OR status IS NULL)
+        AND startDate <= ?
+        AND (endDate IS NULL OR endDate = '' OR endDate >= ?)
+      GROUP BY employeeID
+    ) overlap
+      ON u.employeeNumber = overlap.employeeID
+    WHERE
+      (
+        EXISTS (
+          SELECT 1
+          FROM users currentUser
+          WHERE currentUser.employeeNumber = ?
+            AND LOWER(currentUser.role) IN (
+              'superadmin',
+              'technical',
+              'administrator',
+              'admin'
+            )
+        )
+        OR
+        EXISTS (
+          SELECT 1
+          FROM supervisor_assignment sa
+          WHERE sa.supervisorEmployeeNumber = ?
+            AND sa.departmentCode = da.code
+        )
+      )
+    GROUP BY
+      u.employeeNumber,
+      p.firstName,
+      p.middleName,
+      p.lastName,
+      p.nameExtension
+    ORDER BY
+      p.lastName,
+      p.firstName
+  `;
+
+  db.query(
+    sql,
+    [`${monthEnd} 23:59:59`, monthStart, loggedInEmployeeNumber, loggedInEmployeeNumber],
+    (err, results) => {
+      if (err) {
+        console.error("Error fetching official time month coverage:", err);
+        return res.status(500).json({ error: err.message });
+      }
+
+      res.json({
+        year,
+        month,
+        monthStart,
+        monthEnd,
+        employees: (results || []).map((row) => ({
+          employeeNumber: row.employeeNumber,
+          firstName: row.firstName || "",
+          middleName: row.middleName || "",
+          lastName: row.lastName || "",
+          nameExtension: row.nameExtension || "",
+          fullName:
+            `${row.firstName || ""} ${
+              row.middleName ? row.middleName + " " : ""
+            }${row.lastName || ""}${
+              row.nameExtension ? " " + row.nameExtension : ""
+            }`.trim(),
+          department: row.department || "",
+          academicYear: row.academicYear || null,
+          startDate: row.startDate ? toDateOnlyString(row.startDate) : null,
+          endDate: row.endDate ? toDateOnlyString(row.endDate) : null,
+          covered: row.covered === 1,
+        })),
+      });
+    },
+  );
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // POST set default official time for selected users
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -3859,6 +3996,123 @@ router.post(
         scope: "officialtime",
         personIDs: notified,
       });
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DELETE — remove an inactive official-time period only.
+// Active schedules are refused. Matches the period by employee + start/end.
+// ─────────────────────────────────────────────────────────────────────────────
+router.delete(
+  "/officialtimetable/:employeeID",
+  authenticateToken,
+  async (req, res) => {
+    const supervisorStatus = await ensureActiveSupervisorAssignment(req, res);
+    if (!supervisorStatus) return;
+
+    const { employeeID } = req.params;
+    if (
+      !(await assertEmployeesInSupervisorScope(res, supervisorStatus, [
+        employeeID,
+      ]))
+    )
+      return;
+
+    const startDate = normDate(req.query.startDate || req.body?.startDate);
+    const endDate = normDate(req.query.endDate || req.body?.endDate);
+    if (!startDate || !endDate) {
+      return res.status(400).json({
+        message: "startDate and endDate are required.",
+      });
+    }
+
+    try {
+      const rows = await new Promise((resolve, reject) => {
+        db.query(
+          `SELECT status, COUNT(*) AS cnt
+           FROM officialtime
+           WHERE employeeID = ?
+             AND DATE(startDate) = ?
+             AND DATE(endDate) = ?
+           GROUP BY status`,
+          [employeeID, startDate, endDate],
+          (err, result) => (err ? reject(err) : resolve(result || [])),
+        );
+      });
+
+      if (!rows.length) {
+        return res.status(404).json({
+          message: "No official time schedule found for that period.",
+        });
+      }
+
+      const activeCount = rows
+        .filter((r) => String(r.status || "").toLowerCase() === "active")
+        .reduce((sum, r) => sum + Number(r.cnt || 0), 0);
+      if (activeCount > 0) {
+        return res.status(409).json({
+          message:
+            "Only inactive official time can be deleted. Set this schedule inactive first, or delete a different period.",
+        });
+      }
+
+      const result = await new Promise((resolve, reject) => {
+        db.query(
+          `DELETE FROM officialtime
+           WHERE employeeID = ?
+             AND DATE(startDate) = ?
+             AND DATE(endDate) = ?
+             AND LOWER(status) = 'inactive'`,
+          [employeeID, startDate, endDate],
+          (err, deleteResult) => (err ? reject(err) : resolve(deleteResult)),
+        );
+      });
+
+      const deletedCount = Number(result?.affectedRows || 0);
+      if (!deletedCount) {
+        return res.status(404).json({
+          message: "No inactive official time was deleted for that period.",
+        });
+      }
+
+      try {
+        logAudit(
+          req.user,
+          "Delete",
+          "Official Time",
+          employeeID,
+          null,
+          buildOfficialTimeActionAuditDetails({
+            source: "delete-inactive-schedule",
+            employeeID,
+            affectedEmployeeNumbers: [employeeID],
+            startDate,
+            endDate,
+            rowCount: deletedCount,
+            notes: "Deleted inactive official time period",
+          }),
+        );
+      } catch (e) {
+        console.error("Audit log error:", e);
+      }
+
+      notifyAttendanceChanged("official-time-updated", {
+        scope: "officialtime",
+        personID: employeeID,
+        startDate,
+        endDate,
+      });
+
+      return res.json({
+        message: "Inactive official time deleted.",
+        deletedCount,
+        startDate,
+        endDate,
+      });
+    } catch (err) {
+      console.error("Error deleting inactive official time:", err);
+      return res.status(500).json({ error: err.message || "Database error" });
     }
   },
 );

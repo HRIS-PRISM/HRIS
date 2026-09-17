@@ -45,11 +45,14 @@
 //      system lookup by employeeNumber so the table still shows a readable
 //      name. This applies identically to all three analyze/validate flows
 //      (single-employee, department-scoped, category-scoped).
+//  [J] Right-side "Setup by month" card — checked indicator per employee
+//      for whether an active official-time schedule already covers that month.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import API_BASE_URL from "../../apiConfig";
 import {
   logOfficialTimeAdd,
+  logOfficialTimeDelete,
   logOfficialTimeEdit,
   logOfficialTimeSearch,
 } from "../../utils/moduleEmployeeSearchAudit";
@@ -122,6 +125,7 @@ import {
   ArrowBack,
   ArrowForward,
   CalendarToday,
+  RadioButtonUnchecked,
   ExpandMore,
   ExpandLess,
   Circle,
@@ -1401,6 +1405,308 @@ const UploadRestrictionNotice = ({ message }) => (
   </Box>
 );
 
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+const MonthSetupStatusCard = ({
+  year,
+  month,
+  onShiftMonth,
+  rows,
+  loading,
+  error,
+  filter,
+  onFilter,
+  query,
+  onQuery,
+  department,
+  onDepartment,
+  departments,
+  onSelectEmployee,
+  selectedEmployeeNumber,
+  doneCount = 0,
+  totalCount = 0,
+  embedded = false,
+}) => {
+  const PAGE_SIZE = 12;
+  const listRef = useRef(null);
+  const [page, setPage] = useState(0);
+  const pct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
+  const monthLabel = `${MONTH_NAMES[month - 1] || ""} ${year}`;
+  const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const pageStart = rows.length === 0 ? 0 : safePage * PAGE_SIZE;
+  const pageRows = rows.slice(pageStart, pageStart + PAGE_SIZE);
+
+  useEffect(() => {
+    setPage(0);
+  }, [query, filter, department, year, month]);
+
+  useEffect(() => {
+    if (listRef.current) listRef.current.scrollTop = 0;
+  }, [safePage, query, filter, department]);
+
+  return (
+    <SectionCard
+      sx={{
+        height: embedded ? "100%" : { lg: "calc(100vh - 295px)" },
+        minHeight: embedded ? 0 : { lg: "calc(100vh - 295px)" },
+        maxHeight: embedded ? "100%" : { lg: "calc(100vh - 295px)" },
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+        boxSizing: "border-box",
+      }}
+    >
+      <PanelHeader
+        icon={CalendarToday}
+        title="Setup by month"
+        rightContent={
+          <Box
+            component="span"
+            sx={{
+              fontSize: "0.68rem",
+              fontWeight: 800,
+              bgcolor: doneCount === totalCount && totalCount > 0 ? alpha("#2e7d32", 0.12) : alpha(T.accent, 0.1),
+              color: doneCount === totalCount && totalCount > 0 ? "#2e7d32" : T.accent,
+              border: `0.5px solid ${doneCount === totalCount && totalCount > 0 ? "rgba(46,125,50,0.28)" : T.accentBorder}`,
+              borderRadius: "9px",
+              px: 0.9,
+              py: 0.2,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {loading ? "…" : `${doneCount}/${totalCount}`}
+          </Box>
+        }
+      />
+
+      <Box sx={{ px: 1.75, pt: 1.5, pb: 1.25, display: "flex", flexDirection: "column", gap: 1.15, borderBottom: `1px solid ${T.divider}` }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+          <IconButton
+            size="small"
+            onClick={() => onShiftMonth(-1)}
+            aria-label="Previous month"
+            sx={{ width: 28, height: 28, color: T.accent, border: `1px solid ${T.accentBorder}`, borderRadius: 1.25, "&:hover": { bgcolor: T.accentFaint } }}
+          >
+            <ArrowBack sx={{ fontSize: 14 }} />
+          </IconButton>
+          <Box sx={{ flex: 1, minWidth: 0, textAlign: "center" }}>
+            <Typography sx={{ fontSize: "0.82rem", fontWeight: 800, color: T.accent, letterSpacing: "0.01em", lineHeight: 1.2 }}>
+              {monthLabel}
+            </Typography>
+            <Typography sx={{ fontSize: "0.62rem", color: T.faint, fontWeight: 600, lineHeight: 1.2, mt: 0.15 }}>
+              Check means already set up
+            </Typography>
+          </Box>
+          <IconButton
+            size="small"
+            onClick={() => onShiftMonth(1)}
+            aria-label="Next month"
+            sx={{ width: 28, height: 28, color: T.accent, border: `1px solid ${T.accentBorder}`, borderRadius: 1.25, "&:hover": { bgcolor: T.accentFaint } }}
+          >
+            <ArrowForward sx={{ fontSize: 14 }} />
+          </IconButton>
+        </Box>
+
+        <Box>
+          <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.4 }}>
+            <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: T.muted }}>
+              {totalCount === 0 ? "No employees loaded" : `${doneCount} of ${totalCount} already set up`}
+            </Typography>
+            <Typography sx={{ fontSize: "0.68rem", fontWeight: 800, color: pct === 100 && totalCount > 0 ? "#2e7d32" : T.accent }}>
+              {pct}%
+            </Typography>
+          </Box>
+          <Box sx={{ height: 6, borderRadius: 99, bgcolor: "rgba(0,0,0,0.08)", overflow: "hidden" }}>
+            <Box sx={{ width: `${pct}%`, height: "100%", bgcolor: pct === 100 && totalCount > 0 ? "#2e7d32" : T.accent, transition: "width 0.25s ease" }} />
+          </Box>
+        </Box>
+
+        <TextField
+          size="small"
+          placeholder="Search name or number"
+          value={query}
+          onChange={(e) => onQuery(e.target.value)}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon sx={{ fontSize: 16, color: T.faint }} />
+              </InputAdornment>
+            ),
+          }}
+          sx={{
+            "& .MuiOutlinedInput-root": {
+              borderRadius: "8px",
+              fontSize: "0.78rem",
+              bgcolor: "#fff",
+              "&:hover fieldset": { borderColor: T.accent },
+              "&.Mui-focused fieldset": { borderColor: T.accent },
+            },
+          }}
+        />
+
+        <Box sx={{ display: "flex", gap: 0.6 }}>
+          {[
+            { key: "all", label: "All" },
+            { key: "done", label: "Done" },
+            { key: "missing", label: "Not yet" },
+          ].map(({ key, label }) => {
+            const active = filter === key;
+            return (
+              <Button
+                key={key}
+                size="small"
+                onClick={() => onFilter(key)}
+                sx={{
+                  flex: 1,
+                  minWidth: 0,
+                  px: 0.5,
+                  py: 0.35,
+                  fontSize: "0.68rem",
+                  fontWeight: 700,
+                  textTransform: "none",
+                  borderRadius: "7px",
+                  color: active ? "#fff" : T.accent,
+                  bgcolor: active ? T.accent : "transparent",
+                  border: `1px solid ${active ? T.accent : T.accentBorder}`,
+                  "&:hover": { bgcolor: active ? T.accentDark : T.accentFaint },
+                }}
+              >
+                {label}
+              </Button>
+            );
+          })}
+        </Box>
+
+        {departments.length > 0 && (
+          <Select
+            size="small"
+            displayEmpty
+            value={department}
+            onChange={(e) => onDepartment(e.target.value)}
+            sx={{
+              fontSize: "0.75rem",
+              borderRadius: "8px",
+              bgcolor: "#fff",
+              "& .MuiSelect-select": { py: 0.7 },
+              "&:hover .MuiOutlinedInput-notchedOutline": { borderColor: T.accent },
+              "&.Mui-focused .MuiOutlinedInput-notchedOutline": { borderColor: T.accent },
+            }}
+          >
+            <MenuItem value="" sx={{ fontSize: "0.78rem" }}>All departments</MenuItem>
+            {departments.map((d) => (
+              <MenuItem key={d} value={d} sx={{ fontSize: "0.78rem" }}>{d}</MenuItem>
+            ))}
+          </Select>
+        )}
+      </Box>
+
+      <Box ref={listRef} sx={{ flex: 1, minHeight: 0, overflowY: "auto", "&::-webkit-scrollbar": { width: "6px" }, "&::-webkit-scrollbar-thumb": { background: "#d0b8b8", borderRadius: "4px" } }}>
+        {loading ? (
+          <Box sx={{ py: 4, display: "flex", alignItems: "center", justifyContent: "center", gap: 1 }}>
+            <CircularProgress size={18} sx={{ color: T.accent }} />
+            <Typography sx={{ fontSize: "0.78rem", color: T.muted }}>Checking schedules…</Typography>
+          </Box>
+        ) : error ? (
+          <Typography sx={{ px: 2, py: 3, fontSize: "0.78rem", color: "#c62828" }}>{error}</Typography>
+        ) : rows.length === 0 ? (
+          <Typography sx={{ px: 2, py: 3, fontSize: "0.78rem", color: T.faint, fontStyle: "italic" }}>
+            No employees match this month view.
+          </Typography>
+        ) : (
+          pageRows.map((row) => {
+            const selected = String(selectedEmployeeNumber || "") === String(row.employeeNumber || "");
+            const name = row.fullName || row.employeeNumber || "Unnamed";
+            return (
+              <Box
+                key={row.employeeNumber}
+                onClick={() => onSelectEmployee(row)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onSelectEmployee(row);
+                  }
+                }}
+                sx={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: 1,
+                  px: 1.5,
+                  py: 1,
+                  cursor: "pointer",
+                  borderBottom: `1px solid ${T.divider}`,
+                  bgcolor: selected ? alpha(T.accent, 0.07) : "transparent",
+                  borderLeft: selected ? `3px solid ${T.accent}` : "3px solid transparent",
+                  "&:hover": { bgcolor: T.accentFaint },
+                }}
+              >
+                <Tooltip title={row.covered ? "Official time covers this month" : "Not set up for this month"}>
+                  <Box sx={{ mt: 0.15, flexShrink: 0, display: "flex" }}>
+                    {row.covered ? (
+                      <CheckCircle sx={{ fontSize: 18, color: "#2e7d32" }} />
+                    ) : (
+                      <RadioButtonUnchecked sx={{ fontSize: 18, color: "#c4a0a0" }} />
+                    )}
+                  </Box>
+                </Tooltip>
+                <Box sx={{ minWidth: 0, flex: 1 }}>
+                  <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: T.text, lineHeight: 1.25 }} noWrap>
+                    {name}
+                  </Typography>
+                  <Typography sx={{ fontSize: "0.68rem", color: T.muted, mt: 0.15 }} noWrap>
+                    #{row.employeeNumber}{row.department ? ` · ${row.department}` : ""}
+                  </Typography>
+                  <Typography sx={{ fontSize: "0.66rem", color: row.covered ? "#2e7d32" : T.faint, fontWeight: row.covered ? 700 : 500, mt: 0.2 }} noWrap>
+                    {row.covered
+                      ? `${formatDateOnly(row.startDate)} – ${formatDateOnly(row.endDate)}`
+                      : "Not added for this month"}
+                  </Typography>
+                </Box>
+              </Box>
+            );
+          })
+        )}
+      </Box>
+
+      {!loading && !error && rows.length > 0 && (
+        <Box sx={{ flexShrink: 0, borderTop: `1px solid ${T.divider}`, px: 1, py: 0.6, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 0.5, bgcolor: "#fafafa" }}>
+          <Typography sx={{ fontSize: "0.66rem", fontWeight: 700, color: T.muted, whiteSpace: "nowrap" }}>
+            {pageStart + 1}–{Math.min(pageStart + PAGE_SIZE, rows.length)} of {rows.length}
+          </Typography>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.25 }}>
+            <IconButton
+              size="small"
+              disabled={safePage === 0}
+              onClick={() => setPage(safePage - 1)}
+              aria-label="Previous page"
+              sx={{ width: 26, height: 26, color: T.accent, "&.Mui-disabled": { color: T.faint } }}
+            >
+              <ArrowBack sx={{ fontSize: 14 }} />
+            </IconButton>
+            <Typography sx={{ fontSize: "0.68rem", fontWeight: 800, color: T.accent, minWidth: 42, textAlign: "center" }}>
+              {safePage + 1}/{pageCount}
+            </Typography>
+            <IconButton
+              size="small"
+              disabled={safePage >= pageCount - 1}
+              onClick={() => setPage(safePage + 1)}
+              aria-label="Next page"
+              sx={{ width: 26, height: 26, color: T.accent, "&.Mui-disabled": { color: T.faint } }}
+            >
+              <ArrowForward sx={{ fontSize: 14 }} />
+            </IconButton>
+          </Box>
+        </Box>
+      )}
+    </SectionCard>
+  );
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // MAIN COMPONENT
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1419,6 +1725,9 @@ const OfficialTimeForm = ({
 
   const seedEmp = initialContext?.employee || null;
   const seedEmpNum = String(initialContext?.employeeNumber || seedEmp?.employeeNumber || "").trim();
+  const seedMonthFrom = String(initialContext?.startDate || "").slice(0, 10);
+  const seedMonthMatch = seedMonthFrom.match(/^(\d{4})-(\d{2})-\d{2}$/);
+  const nowForStatus = new Date();
   const [selectedEmployee, setSelectedEmployee] = useState(() =>
     seedEmpNum
       ? {
@@ -1447,6 +1756,8 @@ const OfficialTimeForm = ({
   const [scheduleView, setScheduleView] = useState("workDays");
 
   const [showViewScheduleModal, setShowViewScheduleModal] = useState(false);
+  const [deleteScheduleTarget, setDeleteScheduleTarget] = useState(null);
+  const [deletingSchedule, setDeletingSchedule] = useState(false);
   const [viewScheduleInfo, setViewScheduleInfo] = useState(null);
   const [viewScheduleRecords, setViewScheduleRecords] = useState([]);
   const [viewScheduleView, setViewScheduleView] = useState("workDays");
@@ -1567,6 +1878,20 @@ const OfficialTimeForm = ({
   const [filterStartDate, setFilterStartDate] = useState("");
   const [filterEndDate, setFilterEndDate] = useState("");
 
+  const [statusYear, setStatusYear] = useState(
+    seedMonthMatch ? Number(seedMonthMatch[1]) : nowForStatus.getFullYear(),
+  );
+  const [statusMonth, setStatusMonth] = useState(
+    seedMonthMatch ? Number(seedMonthMatch[2]) : nowForStatus.getMonth() + 1,
+  );
+  const [monthStatusRows, setMonthStatusRows] = useState([]);
+  const [monthStatusLoading, setMonthStatusLoading] = useState(false);
+  const [monthStatusError, setMonthStatusError] = useState("");
+  const [monthStatusFilter, setMonthStatusFilter] = useState("all");
+  const [monthStatusQuery, setMonthStatusQuery] = useState("");
+  const [monthStatusDepartment, setMonthStatusDepartment] = useState("");
+  const monthStatusReqRef = useRef(0);
+
   const [successOpen, setSuccessOpen] = useState(false);
   const [successAction, setSuccessAction] = useState("");
   const [lastSaved, setLastSaved] = useState(null);
@@ -1583,9 +1908,34 @@ const OfficialTimeForm = ({
     setTimeout(() => setSuccessOpen(false), 3000);
   }, []);
 
+  const fetchMonthCoverage = useCallback(async () => {
+    const reqId = ++monthStatusReqRef.current;
+    setMonthStatusLoading(true);
+    setMonthStatusError("");
+    try {
+      const r = await axios.get(`${API_BASE_URL}/officialtime/month-coverage`, {
+        ...getAuthHeaders(),
+        params: { year: statusYear, month: statusMonth },
+      });
+      if (reqId !== monthStatusReqRef.current) return;
+      setMonthStatusRows(Array.isArray(r.data?.employees) ? r.data.employees : []);
+    } catch {
+      if (reqId !== monthStatusReqRef.current) return;
+      setMonthStatusRows([]);
+      setMonthStatusError("Couldn't load who is set up for this month.");
+    } finally {
+      if (reqId === monthStatusReqRef.current) setMonthStatusLoading(false);
+    }
+  }, [statusYear, statusMonth]);
+
+  useEffect(() => {
+    fetchMonthCoverage();
+  }, [fetchMonthCoverage]);
+
   const notifyScheduleSaved = useCallback(() => {
     if (typeof onScheduleSaved === "function") onScheduleSaved();
-  }, [onScheduleSaved]);
+    fetchMonthCoverage();
+  }, [onScheduleSaved, fetchMonthCoverage]);
 
   const buildDefaultRecords = useCallback(
     (empId) => DAYS_ORDER.map((day) => makeDefaultRow(empId, day)),
@@ -1746,6 +2096,58 @@ const OfficialTimeForm = ({
     checksumRef.current = null;
     setTamperDetected(false);
   }, []);
+
+  const requestDeleteInactiveSchedule = useCallback((block) => {
+    if (!block) return;
+    if (String(block.status || "active").toLowerCase() === "active") {
+      showToast("Only inactive official time can be deleted.");
+      return;
+    }
+    setDeleteScheduleTarget({
+      academicYear: block.academicYear,
+      startDate: block.startDate,
+      endDate: block.endDate,
+      status: block.status,
+    });
+  }, [showToast]);
+
+  const handleConfirmDeleteInactiveSchedule = useCallback(async () => {
+    if (!employeeID || !deleteScheduleTarget) return;
+    const startDate = normalizeDateStr(deleteScheduleTarget.startDate);
+    const endDate = normalizeDateStr(deleteScheduleTarget.endDate);
+    if (!startDate || !endDate) {
+      showToast("This schedule is missing a start or end date.");
+      return;
+    }
+    setDeletingSchedule(true);
+    try {
+      await axios.delete(`${API_BASE_URL}/officialtimetable/${employeeID}`, {
+        ...getAuthHeaders(),
+        params: { startDate, endDate },
+      });
+      logOfficialTimeDelete({
+        targetEmployeeNumber: employeeID,
+        targetName: selectedEmployee?.name || employeeID,
+        periodStart: startDate,
+        periodEnd: endDate,
+      });
+      showToast("Inactive official time deleted.");
+      setDeleteScheduleTarget(null);
+      setShowViewScheduleModal(false);
+      setIsEditingViewSchedule(false);
+      setActiveScheduleKey(null);
+      const res = await axios.get(`${API_BASE_URL}/officialtimetable/${employeeID}`, officialTimeGetConfig(true));
+      const allRows = res.data || [];
+      stampServerRecords(allRows.length > 0 ? allRows : buildDefaultRecords(employeeID));
+      setRecords(deepClone(allRows.length > 0 ? allRows : buildDefaultRecords(employeeID)));
+      setFound(allRows.length > 0);
+      notifyScheduleSaved();
+    } catch (err) {
+      showToast(err?.response?.data?.message || "Couldn't delete this inactive official time.");
+    } finally {
+      setDeletingSchedule(false);
+    }
+  }, [employeeID, deleteScheduleTarget, showToast, selectedEmployee, stampServerRecords, buildDefaultRecords, notifyScheduleSaved]);
 
   const handleRestoreFromServer = useCallback(async () => {
     if (!employeeID) return;
@@ -2183,9 +2585,10 @@ const OfficialTimeForm = ({
   useEffect(() => { if (showAllUsers) { fetchAllUsers(); setSelectedUsers(new Set()); } }, [showAllUsers, fetchAllUsers]);
 
   const socketRefresh = useCallback(() => {
+    fetchMonthCoverage();
     if (showAllUsers) { fetchAllUsers(); return; }
     if (employeeID && hasSearched) { handleRestoreFromServer(); }
-  }, [showAllUsers, employeeID, hasSearched, fetchAllUsers, handleRestoreFromServer]);
+  }, [showAllUsers, employeeID, hasSearched, fetchAllUsers, handleRestoreFromServer, fetchMonthCoverage]);
 
   useAttendanceRealtimeRefresh(socketRefresh, { personId: employeeID, requireDateRange: false, matchMode: "loose" });
 
@@ -2302,6 +2705,83 @@ const OfficialTimeForm = ({
     setShowBulkBlocksModal(false);
     setShowScheduleModal(true);
   }, [bulkScheduleBlocks, bulkTargetEmployees, showToast]);
+
+  const shiftStatusMonth = useCallback((delta) => {
+    const next = new Date(statusYear, statusMonth - 1 + delta, 1);
+    setStatusYear(next.getFullYear());
+    setStatusMonth(next.getMonth() + 1);
+  }, [statusYear, statusMonth]);
+
+  const monthStatusDepartments = useMemo(() => {
+    return [...new Set(monthStatusRows.map((r) => r.department).filter(Boolean))].sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: "base" }),
+    );
+  }, [monthStatusRows]);
+
+  const monthStatusSummary = useMemo(() => {
+    const scoped = monthStatusDepartment
+      ? monthStatusRows.filter((r) => r.department === monthStatusDepartment)
+      : monthStatusRows;
+    return {
+      total: scoped.length,
+      done: scoped.filter((r) => r.covered).length,
+    };
+  }, [monthStatusRows, monthStatusDepartment]);
+
+  const visibleMonthStatusRows = useMemo(() => {
+    let list = monthStatusRows;
+    if (monthStatusDepartment) list = list.filter((r) => r.department === monthStatusDepartment);
+    if (monthStatusFilter === "done") list = list.filter((r) => r.covered);
+    if (monthStatusFilter === "missing") list = list.filter((r) => !r.covered);
+    if (monthStatusQuery.trim()) {
+      const q = monthStatusQuery.trim().toLowerCase();
+      list = list.filter(
+        (r) =>
+          (r.fullName || "").toLowerCase().includes(q) ||
+          String(r.employeeNumber || "").toLowerCase().includes(q),
+      );
+    }
+    return sortEmployeesByLastName(list);
+  }, [monthStatusRows, monthStatusDepartment, monthStatusFilter, monthStatusQuery]);
+
+  const openEmployeeFromStatus = useCallback((row) => {
+    if (viewMode !== "single") setViewMode("single");
+    const monthStart = `${statusYear}-${String(statusMonth).padStart(2, "0")}-01`;
+    const last = new Date(statusYear, statusMonth, 0).getDate();
+    const monthEnd = `${statusYear}-${String(statusMonth).padStart(2, "0")}-${String(last).padStart(2, "0")}`;
+    handleEmployeeSelect({
+      employeeNumber: row.employeeNumber,
+      name: row.fullName || row.employeeNumber,
+      department: row.department || "",
+    });
+    if (!row.covered) {
+      setDraftStartDate(monthStart);
+      setDraftEndDate(monthEnd);
+    }
+  }, [viewMode, statusYear, statusMonth, handleEmployeeSelect]);
+
+  const monthStatusCard = (
+    <MonthSetupStatusCard
+      year={statusYear}
+      month={statusMonth}
+      onShiftMonth={shiftStatusMonth}
+      rows={visibleMonthStatusRows}
+      loading={monthStatusLoading}
+      error={monthStatusError}
+      filter={monthStatusFilter}
+      onFilter={setMonthStatusFilter}
+      query={monthStatusQuery}
+      onQuery={setMonthStatusQuery}
+      department={monthStatusDepartment}
+      onDepartment={setMonthStatusDepartment}
+      departments={monthStatusDepartments}
+      onSelectEmployee={openEmployeeFromStatus}
+      selectedEmployeeNumber={employeeID}
+      doneCount={monthStatusSummary.done}
+      totalCount={monthStatusSummary.total}
+      embedded={embedded}
+    />
+  );
 
   const dialogHeaderSx = {
     bgcolor: T.accent, px: 3, py: 2,
@@ -2430,16 +2910,16 @@ const OfficialTimeForm = ({
               <Box
                 sx={{
                   display: "grid",
-                  gridTemplateColumns: { xs: "1fr", lg: "360px 1fr" },
+                  gridTemplateColumns: { xs: "1fr", lg: "340px minmax(0, 1fr) 300px" },
                   gap: 2,
                   alignItems: "stretch",
                   ...(embedded
-                    ? { flex: 1, minHeight: 0, overflow: "hidden" }
-                    : { minHeight: { lg: "calc(100vh - 295px)" } }),
+                    ? { flex: 1, minHeight: 0, overflow: "hidden", height: "100%" }
+                    : { height: { lg: "calc(100vh - 295px)" }, minHeight: { lg: "calc(100vh - 295px)" }, maxHeight: { lg: "calc(100vh - 295px)" } }),
                 }}
               >
                 {/* ─── LEFT PANEL ─── */}
-                <SectionCard sx={{ position: embedded ? "relative" : { lg: "sticky" }, top: embedded ? undefined : { lg: 16 }, minHeight: embedded ? 0 : { lg: "calc(100vh - 295px)" }, height: "100%", display: "flex", flexDirection: "column", overflow: embedded ? "auto" : undefined }}>
+                <SectionCard sx={{ height: embedded ? "100%" : { lg: "calc(100vh - 295px)" }, minHeight: embedded ? 0 : { lg: "calc(100vh - 295px)" }, maxHeight: embedded ? "100%" : { lg: "calc(100vh - 295px)" }, display: "flex", flexDirection: "column", overflowY: "auto", overflowX: "hidden", boxSizing: "border-box" }}>
                   <PanelHeader icon={Person} title="Step 1 — Search employee" />
                   <Box sx={{ p: 2.5 }}>
                     <EmployeeSearchField onSelect={handleEmployeeSelect} selectedEmployee={selectedEmployee} onClear={handleEmployeeClear} />
@@ -2533,10 +3013,10 @@ const OfficialTimeForm = ({
                   </Box>
                 </SectionCard>
 
-                {/* ─── RIGHT PANEL ─── */}
-                <SectionCard sx={{ minHeight: { lg: "calc(100vh - 295px)" }, height: "100%", display: "flex", flexDirection: "column" }}>
+                {/* ─── CENTER PANEL ─── */}
+                <SectionCard sx={{ height: embedded ? "100%" : { lg: "calc(100vh - 295px)" }, minHeight: embedded ? 0 : { lg: "calc(100vh - 295px)" }, maxHeight: embedded ? "100%" : { lg: "calc(100vh - 295px)" }, display: "flex", flexDirection: "column", overflow: "hidden", boxSizing: "border-box" }}>
                   {!selectedEmployee ? (
-                    <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: { xs: 400, lg: "calc(100vh - 405px)" }, flex: 1, gap: 2, p: 4, textAlign: "center" }}>
+                    <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, minHeight: 0, gap: 2, p: 4, textAlign: "center" }}>
                       <Box sx={{ width: 72, height: 72, borderRadius: "50%", bgcolor: T.accentFaint, display: "flex", alignItems: "center", justifyContent: "center" }}>
                         <Schedule sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
                       </Box>
@@ -2546,12 +3026,12 @@ const OfficialTimeForm = ({
                       </Box>
                     </Box>
                   ) : loading ? (
-                    <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: { xs: 400, lg: "calc(100vh - 405px)" }, flex: 1, gap: 1.5 }}>
+                    <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", flex: 1, minHeight: 0, gap: 1.5 }}>
                       <CircularProgress size={22} sx={{ color: T.accent }} />
                       <Typography sx={{ fontSize: "0.88rem", color: T.muted }}>Loading schedules…</Typography>
                     </Box>
                   ) : !activeBlockData ? (
-                    <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: { xs: 400, lg: "calc(100vh - 405px)" }, flex: 1, gap: 2, p: 4, textAlign: "center" }}>
+                    <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, minHeight: 0, gap: 2, p: 4, textAlign: "center" }}>
                       <Box sx={{ width: 72, height: 72, borderRadius: "50%", bgcolor: T.accentFaint, display: "flex", alignItems: "center", justifyContent: "center" }}>
                         <Schedule sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
                       </Box>
@@ -2595,7 +3075,7 @@ const OfficialTimeForm = ({
                         }
                       />
 
-                      <Box sx={{ px: 3, py: 2, flex: 1 }}>
+                      <Box sx={{ px: 3, py: 2, flex: 1, minHeight: 0, overflow: "auto" }}>
                         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 3, mb: 2.5, p: 2, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, borderRadius: "10px", alignItems: "center" }}>
                           {[
                             { label: "Employee", value: selectedEmployee.name },
@@ -2659,6 +3139,19 @@ const OfficialTimeForm = ({
                                           <Visibility sx={{ fontSize: 11.5 }} />
                                         </IconButton>
                                       </Tooltip>
+                                      {!isActive && (
+                                        <Tooltip title="Delete inactive official time">
+                                          <IconButton size="small"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              requestDeleteInactiveSchedule(v);
+                                            }}
+                                            sx={{ width: 22, height: 22, border: "0.5px solid rgba(198,40,40,0.35)", borderRadius: 1.25, color: "#c62828", "&:hover": { bgcolor: "rgba(198,40,40,0.08)" } }}
+                                          >
+                                            <Delete sx={{ fontSize: 12 }} />
+                                          </IconButton>
+                                        </Tooltip>
+                                      )}
                                     </Box>
                                   );
                                 })}
@@ -2684,8 +3177,21 @@ const OfficialTimeForm = ({
                         </PremiumTableContainer>
                       </Box>
 
-                      <Box sx={{ borderTop: `1px solid ${T.divider}`, bgcolor: "#fafafa", px: 3, py: 1.75, display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 1.5 }}>
-                        <Typography sx={{ fontSize: "0.72rem", color: T.faint, flex: 1 }}>Viewing in read-only mode — click Edit to make changes</Typography>
+                      <Box sx={{ borderTop: `1px solid ${T.divider}`, bgcolor: "#fafafa", px: 3, py: 1.75, display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 1.5, flexShrink: 0 }}>
+                        <Typography sx={{ fontSize: "0.72rem", color: T.faint, flex: 1 }}>
+                          {String(activeBlockData.status || "active").toLowerCase() === "active"
+                            ? "Viewing in read-only mode — click Edit to make changes"
+                            : "This official time is inactive — Delete removes it permanently"}
+                        </Typography>
+                        {String(activeBlockData.status || "active").toLowerCase() !== "active" && (
+                          <Button
+                            variant="outlined" size="small" startIcon={<Delete sx={{ fontSize: 14 }} />}
+                            onClick={() => requestDeleteInactiveSchedule(activeBlockData)}
+                            sx={{ borderColor: "rgba(198,40,40,0.4)", color: "#c62828", textTransform: "none", fontWeight: 700, "&:hover": { bgcolor: "rgba(198,40,40,0.06)", borderColor: "#c62828" } }}
+                          >
+                            Delete
+                          </Button>
+                        )}
                         {String(activeBlockData.status || "active").toLowerCase() === "active" && (
                           <Button
                             variant="outlined" size="small" startIcon={<Edit sx={{ fontSize: 14 }} />}
@@ -2710,6 +3216,7 @@ const OfficialTimeForm = ({
                     </>
                   )}
                 </SectionCard>
+                {monthStatusCard}
               </Box>
             </Fade>
           )}
@@ -2720,22 +3227,25 @@ const OfficialTimeForm = ({
               <Box
                 sx={{
                   display: "grid",
-                  gridTemplateColumns: { xs: "1fr", lg: "360px 1fr" },
+                  gridTemplateColumns: { xs: "1fr", lg: "340px minmax(0, 1fr) 300px" },
                   gap: 2,
                   alignItems: "stretch",
+                  height: { lg: "calc(100vh - 295px)" },
                   minHeight: { lg: "calc(100vh - 295px)" },
+                  maxHeight: { lg: "calc(100vh - 295px)" },
                 }}
               >
                 {/* ─── LEFT PANEL ─── */}
                 <SectionCard
                   sx={{
-                    position: { lg: "sticky" },
-                    top: { lg: 16 },
+                    height: { lg: "calc(100vh - 295px)" },
                     minHeight: { lg: "calc(100vh - 295px)" },
-                    height: "100%",
+                    maxHeight: { lg: "calc(100vh - 295px)" },
                     display: "flex",
                     flexDirection: "column",
-                    overflowY: { lg: "auto" },
+                    overflowY: "auto",
+                    overflowX: "hidden",
+                    boxSizing: "border-box",
                   }}
                 >
                   <PanelHeader icon={PeopleIcon} title="Bulk actions" />
@@ -2925,7 +3435,7 @@ const OfficialTimeForm = ({
                 </SectionCard>
 
                 {/* ─── RIGHT PANEL — table card, with Search & Filter bar at the top ─── */}
-                <SectionCard sx={{ minHeight: { lg: "calc(100vh - 295px)" }, height: "100%", display: "flex", flexDirection: "column" }}>
+                <SectionCard sx={{ height: { lg: "calc(100vh - 295px)" }, minHeight: { lg: "calc(100vh - 295px)" }, maxHeight: { lg: "calc(100vh - 295px)" }, display: "flex", flexDirection: "column", overflow: "hidden", boxSizing: "border-box" }}>
                   <PanelHeader
                     icon={PeopleIcon}
                     title="All Users — Official Time Status"
@@ -3047,7 +3557,7 @@ const OfficialTimeForm = ({
                     </Box>
                   </Box>
 
-                  <Box sx={{ p: 2.5, flex: 1, display: "flex", flexDirection: "column" }}>
+                  <Box sx={{ p: 2.5, flex: 1, minHeight: 0, overflow: "auto", display: "flex", flexDirection: "column" }}>
                     {loadingUsers ? (
                       <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", flex: 1, gap: 1.5, py: 6 }}>
                         <CircularProgress size={22} sx={{ color: T.accent }} />
@@ -3133,6 +3643,7 @@ const OfficialTimeForm = ({
                     )}
                   </Box>
                 </SectionCard>
+                {monthStatusCard}
               </Box>
             </Fade>
           )}
@@ -3321,6 +3832,13 @@ const OfficialTimeForm = ({
               ) : (
                 <>
                   <Button variant="outlined" onClick={() => setShowViewScheduleModal(false)} sx={{ fontWeight: 700, textTransform: "none", borderColor: "#ccc", color: "#444", "&:hover": { bgcolor: "#f5f5f5" } }}>Close</Button>
+                  {viewScheduleInfo && String(viewScheduleInfo.status || "active").toLowerCase() !== "active" && (
+                    <Button variant="outlined" startIcon={<Delete />} onClick={() => requestDeleteInactiveSchedule(viewScheduleInfo)}
+                      sx={{ fontWeight: 700, textTransform: "none", borderColor: "rgba(198,40,40,0.4)", color: "#c62828", "&:hover": { bgcolor: "rgba(198,40,40,0.06)", borderColor: "#c62828" } }}
+                    >
+                      Delete
+                    </Button>
+                  )}
                   {viewScheduleInfo && String(viewScheduleInfo.status || "active").toLowerCase() === "active" && (
                     <Button variant="contained" disableElevation startIcon={<Edit />} onClick={handleStartEditViewSchedule}
                       sx={{ fontWeight: 700, textTransform: "none", bgcolor: T.accent, color: "#fff", "&:hover": { bgcolor: T.accentDark } }}
@@ -3330,6 +3848,52 @@ const OfficialTimeForm = ({
                   )}
                 </>
               )}
+            </Box>
+          </Dialog>
+
+          <Dialog
+            open={Boolean(deleteScheduleTarget)}
+            onClose={() => { if (!deletingSchedule) setDeleteScheduleTarget(null); }}
+            maxWidth="xs"
+            fullWidth
+            PaperProps={{ sx: { borderRadius: "16px", overflow: "hidden" } }}
+          >
+            <Box sx={dialogHeaderSx}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                <Delete sx={{ color: "#fff", fontSize: 20 }} />
+                <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "1rem" }}>Delete inactive official time</Typography>
+              </Box>
+              {dialogCloseBtn(() => { if (!deletingSchedule) setDeleteScheduleTarget(null); }, deletingSchedule)}
+            </Box>
+            <Box sx={{ bgcolor: "#fff", px: 3, pt: 2.5, pb: 2 }}>
+              <Typography sx={{ color: T.text, lineHeight: 1.7, fontSize: "0.93rem" }}>
+                This removes the inactive schedule and cannot be undone. Active official time is not affected.
+              </Typography>
+              {deleteScheduleTarget && (
+                <Box sx={{ mt: 1.5, px: 2, py: 1.25, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, borderRadius: "10px" }}>
+                  <Typography sx={{ fontWeight: 700, color: T.accent, fontSize: "0.88rem" }}>
+                    {formatScheduleDisplayText(deleteScheduleTarget.academicYear)}
+                  </Typography>
+                  <Typography sx={{ color: T.muted, fontSize: "0.8rem", mt: 0.35 }}>
+                    {formatDateLong(deleteScheduleTarget.startDate) || formatDateOnly(deleteScheduleTarget.startDate)} — {formatDateLong(deleteScheduleTarget.endDate) || formatDateOnly(deleteScheduleTarget.endDate)}
+                  </Typography>
+                </Box>
+              )}
+            </Box>
+            <Box sx={{ borderTop: `1px solid ${T.divider}`, bgcolor: "#fafafa", px: 3, py: 2, display: "flex", justifyContent: "flex-end", gap: 1.5 }}>
+              <Button variant="outlined" disabled={deletingSchedule} onClick={() => setDeleteScheduleTarget(null)} sx={{ fontWeight: 700, textTransform: "none", borderColor: "#ccc", color: "#444" }}>
+                Cancel
+              </Button>
+              <Button
+                variant="contained"
+                disableElevation
+                disabled={deletingSchedule}
+                onClick={handleConfirmDeleteInactiveSchedule}
+                startIcon={deletingSchedule ? <CircularProgress size={15} sx={{ color: "#fff" }} /> : <Delete />}
+                sx={{ bgcolor: "#c62828", color: "#fff", fontWeight: 700, textTransform: "none", "&:hover": { bgcolor: "#a31f1f" }, "&.Mui-disabled": { bgcolor: "#e0b4b4", color: "#fff" } }}
+              >
+                {deletingSchedule ? "Deleting…" : "Delete"}
+              </Button>
             </Box>
           </Dialog>
 

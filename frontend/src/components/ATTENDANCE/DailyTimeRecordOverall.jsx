@@ -3499,16 +3499,21 @@ const DailyTimeRecordFaculty = ({
                 </Grid>
 
                 {/* RIGHT: Content + punch-status rail */}
-                <Grid item xs={12} lg={9}>
+                <Grid item xs={12} lg={9} sx={{ minWidth: 0 }}>
                   <Box
                     sx={{
                       display: 'flex',
                       gap: 2,
+                      width: '100%',
+                      maxWidth: '100%',
+                      minWidth: 0,
                       ...attendanceMainPanelHeightSx,
                       flexDirection: { xs: 'column', lg: 'row' },
                       minHeight: 0,
                       alignItems: 'stretch',
                       overflow: 'hidden',
+                      boxSizing: 'border-box',
+                      pr: { lg: 0.25 },
                     }}
                   >
                   <SectionCard
@@ -3519,6 +3524,7 @@ const DailyTimeRecordFaculty = ({
                       display: 'flex',
                       flexDirection: 'column',
                       position: 'relative',
+                      overflow: 'hidden',
                     }}
                   >
                     {/* ── INDIVIDUAL DTR VIEW ── */}
@@ -5253,10 +5259,14 @@ const DailyTimeRecordFaculty = ({
                       className="no-print"
                       sx={{
                         display: 'flex',
-                        flexShrink: 0,
-                        width: { xs: '100%', lg: 332 },
+                        flex: { lg: '0 0 320px' },
+                        width: { xs: '100%', lg: 320 },
+                        maxWidth: '100%',
+                        minWidth: 0,
                         minHeight: 0,
                         alignSelf: 'stretch',
+                        boxSizing: 'border-box',
+                        overflow: 'hidden',
                       }}
                     >
                       <AttendancePunchStatusSidebar
