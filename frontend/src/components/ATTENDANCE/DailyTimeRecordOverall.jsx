@@ -122,9 +122,7 @@ import {
 import DTRTemplate from './DTRTemplate';
 import {
   DTRPrintStyles,
-  printDtrHtml,
-  printDtrHtmlPages,
-  downloadDtrHtml,
+  printDtrPdfPages,
   downloadDtrHtmlPages,
 } from './DailyTimeRecordPrintable';
 
@@ -466,6 +464,83 @@ const getAuthHeaders = () => {
 const ATTENDANCE_CHUNK = 80;
 /** Parallel attendance chunk requests while hydrating the table. */
 const ATTENDANCE_CONCURRENCY = 8;
+/** Quincena / custom range. Filters cell data only; day rows stay 1–31. */
+const pad2 = (n) => String(n).padStart(2, '0');
+const toYmd = (year, monthIndex, day) =>
+  `${year}-${pad2(monthIndex + 1)}-${pad2(day)}`;
+const parseYmd = (value) => {
+  const m = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return null;
+  return { y: Number(m[1]), mo: Number(m[2]), d: Number(m[3]) };
+};
+
+const inferPrintPeriodPreset = (start, end, year, monthIndex) => {
+  const last = new Date(year, monthIndex + 1, 0).getDate();
+  const a = parseYmd(start);
+  const b = parseYmd(end);
+  if (!a || !b) return 'full';
+  if (
+    a.y !== year ||
+    b.y !== year ||
+    a.mo !== monthIndex + 1 ||
+    b.mo !== monthIndex + 1
+  ) {
+    return 'custom';
+  }
+  if (a.d === 1 && b.d === last) return 'full';
+  if (a.d === 1 && b.d === 15) return 'first';
+  if (a.d === 16 && b.d === last) return 'second';
+  return 'custom';
+};
+
+const printPeriodLabel = (quincena, lastDay = 31, start = '', end = '') => {
+  if (quincena === 'first') return '1st Quincena (1–15)';
+  if (quincena === 'second') return `2nd Quincena (16–${lastDay})`;
+  if (quincena === 'custom') {
+    const a = parseYmd(start);
+    const b = parseYmd(end);
+    if (a && b) return `Custom (${a.d}–${b.d})`;
+    return 'Custom range';
+  }
+  return 'Full Month';
+};
+
+const printPeriodDateFieldSx = {
+  ...selectSx,
+  '& .MuiInputBase-input': {
+    py: '6px',
+    fontSize: '0.72rem',
+    fontFamily: 'inherit',
+  },
+};
+
+const PrintPeriodDateField = ({ label, value, min, max, onChange }) => (
+  <Box sx={{ flex: 1, minWidth: 0 }}>
+    <Typography
+      sx={{
+        fontSize: '0.62rem',
+        fontWeight: 700,
+        letterSpacing: '0.08em',
+        textTransform: 'uppercase',
+        color: alpha(T.accent, 0.45),
+        mb: 0.4,
+      }}
+    >
+      {label}:
+    </Typography>
+    <TextField
+      type="date"
+      size="small"
+      fullWidth
+      value={value || ''}
+      onChange={(e) => onChange(e.target.value)}
+      InputLabelProps={{ shrink: true }}
+      inputProps={{ min: min || undefined, max: max || undefined }}
+      sx={printPeriodDateFieldSx}
+    />
+  </Box>
+);
+
 /** Skip holiday/suspension refresh for quiet/recent batch loads. */
 const HOLIDAY_CACHE_TTL_MS = 5 * 60 * 1000;
 
@@ -542,6 +617,10 @@ const DailyTimeRecordFaculty = ({
 
   const [printStatusFilter, setPrintStatusFilter] = useState('all');
   const [printStatusMap, setPrintStatusMap] = useState(new Map());
+  /** Filters punches and marks inside the DTR. Day rows stay 1–31. */
+  const [printQuincena, setPrintQuincena] = useState('full');
+  const [printRangeStart, setPrintRangeStart] = useState('');
+  const [printRangeEnd, setPrintRangeEnd] = useState('');
 
   const [alertModal, setAlertModal] = useState({
     open: false,
@@ -682,6 +761,16 @@ const DailyTimeRecordFaculty = ({
       setSelectedMonth(sm - 1);
       setStartDate(inboundDtrNavState.startDate);
       setEndDate(inboundDtrNavState.endDate);
+      setPrintRangeStart(inboundDtrNavState.startDate);
+      setPrintRangeEnd(inboundDtrNavState.endDate);
+      setPrintQuincena(
+        inferPrintPeriodPreset(
+          inboundDtrNavState.startDate,
+          inboundDtrNavState.endDate,
+          sy,
+          sm - 1,
+        ),
+      );
       setHasSearchedSingle(false);
       const nums = new Set(
         inboundDtrNavState.users
@@ -699,6 +788,16 @@ const DailyTimeRecordFaculty = ({
       setEmployeeName(inboundDtrNavState.fullName);
     setStartDate(inboundDtrNavState.startDate);
     setEndDate(inboundDtrNavState.endDate);
+    setPrintRangeStart(inboundDtrNavState.startDate);
+    setPrintRangeEnd(inboundDtrNavState.endDate);
+    setPrintQuincena(
+      inferPrintPeriodPreset(
+        inboundDtrNavState.startDate,
+        inboundDtrNavState.endDate,
+        sy,
+        sm - 1,
+      ),
+    );
     setHasSearchedSingle(true);
   }, [inboundDtrNavState]);
 
@@ -757,8 +856,18 @@ const DailyTimeRecordFaculty = ({
     if (payload.fullName) setEmployeeName(payload.fullName);
     setStartDate(payload.startDate);
     setEndDate(payload.endDate);
+    setPrintRangeStart(payload.startDate || '');
+    setPrintRangeEnd(payload.endDate || '');
     if (payload.selectedYear != null) setSelectedYear(payload.selectedYear);
     if (payload.selectedMonth != null) setSelectedMonth(payload.selectedMonth);
+    if (payload.startDate && payload.endDate) {
+      const [hy, hm] = String(payload.startDate).split('-').map(Number);
+      if (Number.isFinite(hy) && Number.isFinite(hm)) {
+        setPrintQuincena(
+          inferPrintPeriodPreset(payload.startDate, payload.endDate, hy, hm - 1),
+        );
+      }
+    }
     setHasSearchedSingle(true);
   }, []);
 
@@ -1898,8 +2007,13 @@ const DailyTimeRecordFaculty = ({
   const handleMonthClick = (idx) => {
     const start = new Date(Date.UTC(selectedYear, idx, 1));
     const end = new Date(Date.UTC(selectedYear, idx + 1, 0));
-    setStartDate(start.toISOString().substring(0, 10));
-    setEndDate(end.toISOString().substring(0, 10));
+    const nextStart = start.toISOString().substring(0, 10);
+    const nextEnd = end.toISOString().substring(0, 10);
+    setStartDate(nextStart);
+    setEndDate(nextEnd);
+    setPrintRangeStart(nextStart);
+    setPrintRangeEnd(nextEnd);
+    setPrintQuincena('full');
     setSelectedMonth(idx);
     if (viewMode === 'single') {
       setHasSearchedSingle(false);
@@ -1917,6 +2031,150 @@ const DailyTimeRecordFaculty = ({
       setEmployeeName('');
     }
   };
+
+  const printPeriodMonth = useMemo(() => {
+    if (selectedMonth != null && Number.isFinite(selectedYear)) {
+      return { year: selectedYear, month: selectedMonth };
+    }
+    if (startDate && /^\d{4}-\d{2}/.test(startDate)) {
+      const [y, m] = startDate.split('-').map(Number);
+      if (Number.isFinite(y) && Number.isFinite(m)) {
+        return { year: y, month: m - 1 };
+      }
+    }
+    return null;
+  }, [selectedMonth, selectedYear, startDate]);
+
+  const printPeriodLastDay = useMemo(() => {
+    if (!printPeriodMonth) return 31;
+    return new Date(printPeriodMonth.year, printPeriodMonth.month + 1, 0).getDate();
+  }, [printPeriodMonth]);
+
+  const printPeriodMinDate = printPeriodMonth
+    ? toYmd(printPeriodMonth.year, printPeriodMonth.month, 1)
+    : '';
+  const printPeriodMaxDate = printPeriodMonth
+    ? toYmd(printPeriodMonth.year, printPeriodMonth.month, printPeriodLastDay)
+    : '';
+
+  const applyPrintDates = useCallback(
+    (from, to) => {
+      let nextFrom = from || '';
+      let nextTo = to || '';
+      if (nextFrom && nextTo && nextFrom > nextTo) {
+        const swap = nextFrom;
+        nextFrom = nextTo;
+        nextTo = swap;
+      }
+      setPrintRangeStart(nextFrom);
+      setPrintRangeEnd(nextTo);
+      if (printPeriodMonth) {
+        setPrintQuincena(
+          inferPrintPeriodPreset(
+            nextFrom,
+            nextTo,
+            printPeriodMonth.year,
+            printPeriodMonth.month,
+          ),
+        );
+      } else {
+        setPrintQuincena(nextFrom && nextTo ? 'custom' : 'full');
+      }
+    },
+    [printPeriodMonth],
+  );
+
+  const handlePrintPeriodPreset = (preset) => {
+    if (!printPeriodMonth) return;
+    const { year, month } = printPeriodMonth;
+    const last = printPeriodLastDay;
+    if (preset === 'full') applyPrintDates(toYmd(year, month, 1), toYmd(year, month, last));
+    else if (preset === 'first') applyPrintDates(toYmd(year, month, 1), toYmd(year, month, 15));
+    else if (preset === 'second') applyPrintDates(toYmd(year, month, 16), toYmd(year, month, last));
+  };
+
+  const getPrintPeriodDates = useCallback(() => {
+    const from = printRangeStart || startDate;
+    const to = printRangeEnd || endDate;
+    const a = parseYmd(from);
+    const b = parseYmd(to);
+    if (!a || !b) {
+      return { startDate: from, endDate: to, dayFrom: undefined, dayTo: undefined };
+    }
+    const sameMonth =
+      printPeriodMonth &&
+      a.y === printPeriodMonth.year &&
+      b.y === printPeriodMonth.year &&
+      a.mo === printPeriodMonth.month + 1 &&
+      b.mo === printPeriodMonth.month + 1;
+    if (
+      printQuincena === 'full' ||
+      (sameMonth && a.d === 1 && b.d === printPeriodLastDay)
+    ) {
+      return {
+        startDate: from,
+        endDate: to,
+        dayFrom: undefined,
+        dayTo: undefined,
+      };
+    }
+    if (sameMonth) {
+      const dayFrom = Math.min(a.d, b.d);
+      const dayTo = Math.max(a.d, b.d);
+      return { startDate: from, endDate: to, dayFrom, dayTo };
+    }
+    return { startDate: from, endDate: to, dayFrom: a.d, dayTo: b.d };
+  }, [
+    printRangeStart,
+    printRangeEnd,
+    printQuincena,
+    printPeriodMonth,
+    printPeriodLastDay,
+    startDate,
+    endDate,
+  ]);
+
+  const printPeriodCaption = printPeriodLabel(
+    printQuincena,
+    printPeriodLastDay,
+    printRangeStart,
+    printRangeEnd,
+  );
+
+  const printPeriodPresetOptions = [
+    { val: 'full', label: 'Full' },
+    { val: 'first', label: '1–15' },
+    { val: 'second', label: `16–${printPeriodLastDay}` },
+  ];
+
+  const renderPrintPeriodControls = () => (
+    <>
+      <AttendanceFilterToggleRow
+        options={printPeriodPresetOptions}
+        value={printQuincena}
+        onChange={handlePrintPeriodPreset}
+      />
+      <AttendanceFilterSectionLabel icon={CalendarToday}>
+        Range Picker
+      </AttendanceFilterSectionLabel>
+      <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: '6px', mb: 1.25 }}>
+        <PrintPeriodDateField
+          label="From"
+          value={printRangeStart}
+          min={printPeriodMinDate}
+          max={printPeriodMaxDate}
+          onChange={(value) => applyPrintDates(value, printRangeEnd || value)}
+        />
+        <PrintPeriodDateField
+          label="To"
+          value={printRangeEnd}
+          min={printPeriodMinDate}
+          max={printPeriodMaxDate}
+          onChange={(value) => applyPrintDates(printRangeStart || value, value)}
+        />
+      </Box>
+    </>
+  );
 
   const handleSingleSearch = async () => {
     if (!personID || !startDate || !endDate) {
@@ -2077,10 +2335,25 @@ const DailyTimeRecordFaculty = ({
   });
 
   const resolvePdfFileName = (users) => {
-    if (users.length === 1) {
-      return formatDtrPdfFileName(users[0], startDate);
-    }
-    return formatDtrBulkPdfFileName(startDate, resolveBulkPdfFilterLabels());
+    const { startDate: printStart, dayFrom, dayTo } = getPrintPeriodDates();
+    const periodSuffix =
+      printQuincena === 'first'
+        ? ' 1st Quincena'
+        : printQuincena === 'second'
+          ? ' 2nd Quincena'
+          : printQuincena === 'custom'
+            ? ` ${printRangeStart} to ${printRangeEnd}`
+            : '';
+    const base =
+      users.length === 1
+        ? formatDtrPdfFileName(users[0], printStart || startDate)
+        : formatDtrBulkPdfFileName(
+            printStart || startDate,
+            resolveBulkPdfFilterLabels(),
+          );
+    return periodSuffix
+      ? base.replace(/\.pdf$/i, `${periodSuffix}.pdf`)
+      : base;
   };
 
   const getRegistrationStatusCounts = () => {
@@ -2185,14 +2458,15 @@ const DailyTimeRecordFaculty = ({
 
   const markDtrsPrinted = async (users) => {
     const employeeNumbers = users.map((u) => u.employeeNumber);
+    const { startDate: printStart, endDate: printEnd } = getPrintPeriodDates();
     await axios.post(
       `${API_BASE_URL}/attendance/api/mark-dtr-printed`,
       {
         employeeNumbers,
-        year: new Date(startDate).getFullYear(),
-        month: new Date(startDate).getMonth() + 1,
-        startDate,
-        endDate,
+        year: new Date(printStart || startDate).getFullYear(),
+        month: new Date(printStart || startDate).getMonth() + 1,
+        startDate: printStart || startDate,
+        endDate: printEnd || endDate,
       },
       getAuthHeaders(),
     );
@@ -2206,43 +2480,18 @@ const DailyTimeRecordFaculty = ({
     });
   };
 
-  const printPage = async () => {
-    if (!dtrRef.current) return;
-    if (!verifyIntegrity()) return;
-    restoreDOMFromOriginal();
-    const singleUser = {
-      lastName: selectedEmployee?.lastName,
-      firstName: selectedEmployee?.firstName,
-      middleName: selectedEmployee?.middleName,
-      fullName: employeeName,
-    };
-    await printDtrHtml(dtrRef.current, {
-      title: formatDtrPdfFileName(singleUser, startDate).replace(/\.pdf$/i, ''),
-    });
-  };
-
-  const downloadPDF = async () => {
-    if (!dtrRef.current) return;
-    if (!verifyIntegrity()) return;
-    restoreDOMFromOriginal();
-    const singleUser = {
-      lastName: selectedEmployee?.lastName,
-      firstName: selectedEmployee?.firstName,
-      middleName: selectedEmployee?.middleName,
-      fullName: employeeName,
-    };
-    setPrintingAll(true);
-    setPrintingStatus('Preparing PDF download…');
-    try {
-      await downloadDtrHtml(
-        dtrRef.current,
-        formatDtrPdfFileName(singleUser, startDate),
-      );
-    } finally {
-      setPrintingStatus('');
-      setPrintingAll(false);
-    }
-  };
+  const getSinglePrintUser = () => ({
+    employeeNumber: personID,
+    records,
+    fullName: employeeName,
+    lastName: selectedEmployee?.lastName,
+    firstName: selectedEmployee?.firstName,
+    middleName: selectedEmployee?.middleName,
+    rawUser: selectedEmployee,
+    employmentCategory: selectedEmployee?.employmentCategory,
+    branch:
+      selectedEmployee?.branch ?? selectedEmployee?.rawUser?.branch,
+  });
 
   /** Print any set of employees as HTML — one sheet per employee, one job. */
   const printUsersDtr = async (users, { markPrinted = true } = {}) => {
@@ -2261,7 +2510,18 @@ const DailyTimeRecordFaculty = ({
       const pages = buildDtrPrintPages(users, calendar);
       if (!pages.length) throw new Error('No DTRs could be prepared.');
 
-      await printDtrHtmlPages(pages, { title: printJobTitle(users) });
+      await printDtrPdfPages(pages, {
+        title: printJobTitle(users),
+        onProgress: (done, total) => {
+          if (done === 1 || done === total || done % 5 === 0) {
+            setPrintingStatus(
+              total === 1
+                ? 'Preparing DTR…'
+                : `Preparing DTR ${done} of ${total}…`,
+            );
+          }
+        },
+      });
 
       if (markPrinted) {
         try {
@@ -2344,6 +2604,28 @@ const DailyTimeRecordFaculty = ({
       await downloadUsersDtr(previewUsers);
     } catch (error) {
       console.error('Error preparing DTRs for download:', error);
+      showAlert('Download Error', `Error: ${error.message || 'Unknown error'}`);
+    }
+  };
+
+  const printPage = async () => {
+    if (!verifyIntegrity()) return;
+    restoreDOMFromOriginal();
+    try {
+      await printUsersDtr([getSinglePrintUser()], { markPrinted: false });
+    } catch (error) {
+      console.error('Error printing DTR:', error);
+      showAlert('Print Error', `Error printing DTR: ${error.message}`);
+    }
+  };
+
+  const downloadPDF = async () => {
+    if (!verifyIntegrity()) return;
+    restoreDOMFromOriginal();
+    try {
+      await downloadUsersDtr([getSinglePrintUser()]);
+    } catch (error) {
+      console.error('Error preparing DTR for download:', error);
       showAlert('Download Error', `Error: ${error.message || 'Unknown error'}`);
     }
   };
@@ -2436,21 +2718,58 @@ const DailyTimeRecordFaculty = ({
       employeeBranch === ''
         ? undefined
         : Number(employeeBranch);
+    const displayPeriod = getPrintPeriodDates();
+    const dayInDisplayRange = (value) => {
+      if (displayPeriod.dayFrom == null) return true;
+      const parsed = parseYmd(value);
+      if (!parsed) return true;
+      return parsed.d >= displayPeriod.dayFrom && parsed.d <= displayPeriod.dayTo;
+    };
+    const rangedRecords = (sourceRecords || []).filter((row) =>
+      dayInDisplayRange(row?.date),
+    );
+    const lateMap = computedLateByEmployee[empKey] || {};
+    const rangedLate = Object.fromEntries(
+      Object.entries(lateMap).filter(([date]) => dayInDisplayRange(date)),
+    );
+    const rangedHalfDays = new Set(
+      [...(halfDayDatesByEmployee[empKey] || [])].filter((date) =>
+        dayInDisplayRange(date),
+      ),
+    );
+    const reviewMap = halfDayReviewByEmployee[empKey] || {};
+    const rangedReview = Object.fromEntries(
+      Object.entries(reviewMap).filter(([date]) => dayInDisplayRange(date)),
+    );
+    const calendarOverlapsRange = (entry) => {
+      if (displayPeriod.dayFrom == null) return true;
+      const start = parseYmd(entry?.date_start || entry?.date);
+      const end = parseYmd(entry?.date_end || entry?.date) || start;
+      if (!start || !end) return true;
+      return end.d >= displayPeriod.dayFrom && start.d <= displayPeriod.dayTo;
+    };
+    const sourceHolidays = calendarOverrides?.holidays ?? holidays;
+    const sourceSuspensions = calendarOverrides?.suspensions ?? suspensions;
     return {
       employeeName: nameDisplay,
-      records: sourceRecords,
+      records: rangedRecords,
       officialTime: officialTimesForUser,
       showOfficialTimeOnDtr,
       startDate,
       endDate,
       selectedYear,
       selectedMonth,
-      holidays: calendarOverrides?.holidays ?? holidays,
-      suspensions: calendarOverrides?.suspensions ?? suspensions,
-      approvedLeaves: leaves,
-      computedLateByDate: computedLateByEmployee[empKey] || {},
-      suggestedHalfDayDatesSet: halfDayDatesByEmployee[empKey] || new Set(),
-      halfDayReviewByDate: halfDayReviewByEmployee[empKey] || {},
+      holidays: sourceHolidays.filter(calendarOverlapsRange),
+      suspensions: sourceSuspensions.filter(calendarOverlapsRange),
+      approvedLeaves: (leaves || []).filter((leave) =>
+        calendarOverlapsRange({
+          date_start: leave?.startDate || leave?.date_start || leave?.date,
+          date_end: leave?.endDate || leave?.date_end || leave?.date,
+        }),
+      ),
+      computedLateByDate: rangedLate,
+      suggestedHalfDayDatesSet: rangedHalfDays,
+      halfDayReviewByDate: rangedReview,
       // Do not invent NON_TEACHING — that hid academic-scoped suspensions when
       // the computation module had not been saved yet for this employee.
       computationModuleType: knownModuleType || undefined,
@@ -2485,16 +2804,20 @@ const DailyTimeRecordFaculty = ({
   const renderDTRForModal = (user) => (
     <div className="table-container">
       <div className="table-wrapper" style={{ position: 'relative' }}>
-        {renderDTRTablePair(
-          user.records,
-          user.fullName,
-          String(user.employeeNumber) === String(personID)
-            ? officialTimes
-            : batchOfficialTimesMap[user.employeeNumber] || {},
-          user.employeeNumber,
-          user.rawUser?.employmentCategory ?? user.employmentCategory ?? null,
-          user.rawUser?.branch ?? user.branch,
-        )}
+        <DTRTemplate
+          {...buildDtrTemplateProps(
+            user.records,
+            user.fullName,
+            String(user.employeeNumber) === String(personID)
+              ? officialTimes
+              : batchOfficialTimesMap[user.employeeNumber] || {},
+            user.employeeNumber,
+            user.rawUser?.employmentCategory ?? user.employmentCategory ?? null,
+            user.rawUser?.branch ?? user.branch,
+            approvedLeaves,
+            null,
+          )}
+        />
       </div>
     </div>
   );
@@ -2644,6 +2967,9 @@ const DailyTimeRecordFaculty = ({
         onYearChange={(e) => {
           setSelectedYear(parseInt(e.target.value));
           setSelectedMonth(null);
+          setPrintRangeStart('');
+          setPrintRangeEnd('');
+          setPrintQuincena('full');
           setHasSearchedSingle(false);
           setRecords([]);
           setEmployeeName('');
@@ -2663,12 +2989,34 @@ const DailyTimeRecordFaculty = ({
           setEmployeeName('');
           setStartDate('');
           setEndDate('');
+          setPrintRangeStart('');
+          setPrintRangeEnd('');
+          setPrintQuincena('full');
           setAllUsersDTR([]);
           setBatchOfficialTimesMap({});
         }}
         onQuickDate={handleQuickDateSelect}
         months={monthsShort}
       />
+
+      <AttendanceFilterSectionLabel icon={CalendarToday}>
+        Date Range
+      </AttendanceFilterSectionLabel>
+      {renderPrintPeriodControls()}
+      <Typography
+        sx={{
+          fontSize: '0.68rem',
+          color: T.muted,
+          lineHeight: 1.35,
+          mt: -0.5,
+          mb: 1.25,
+          px: 0.25,
+        }}
+      >
+        Days 1–{printPeriodLastDay} stay on the form. From and To only hide
+        times and marks outside the chosen quincena or custom range.
+        {printQuincena !== 'full' ? ` Showing ${printPeriodCaption}.` : ''}
+      </Typography>
 
       {/* ── Show official time checkbox ── */}
       <Box
@@ -3576,6 +3924,9 @@ const DailyTimeRecordFaculty = ({
                                 Download generates a PDF of the DTR for{' '}
                                 {employeeName} — {monthsShort[selectedMonth]}{' '}
                                 {selectedYear}
+                                {printQuincena !== 'full'
+                                  ? ` · ${printPeriodCaption}`
+                                  : ''}
                               </Typography>
                             </Box>
                             <Box
@@ -3586,7 +3937,7 @@ const DailyTimeRecordFaculty = ({
                                 flexShrink: 0,
                               }}
                             >
-                              <Tooltip title="Print this Daily Time Record" placement="top">
+                              <Tooltip title={`Print this Daily Time Record${printQuincena !== 'full' ? ` — ${printPeriodCaption}` : ''}`} placement="top">
                                 <span>
                                   <AccentButton
                                     variant="contained"
@@ -3609,15 +3960,15 @@ const DailyTimeRecordFaculty = ({
                                             employeeName || null,
                                           targetUsername:
                                             selectedEmployee?.username || null,
-                                          periodStart: startDate,
-                                          periodEnd: endDate,
-                                          monthLabel: buildAuditPeriodLabel({
+                                          periodStart: getPrintPeriodDates().startDate,
+                                          periodEnd: getPrintPeriodDates().endDate,
+                                          monthLabel: `${buildAuditPeriodLabel({
                                             selectedMonth,
                                             monthNames: monthsShort,
                                             selectedYear,
                                             startDate,
                                             endDate,
-                                          }),
+                                          })}${printQuincena !== 'full' ? ` · ${printPeriodCaption}` : ''}`,
                                           auditEvent: 'dtr_overall_print',
                                         });
                                       } catch (e) {
@@ -3640,7 +3991,7 @@ const DailyTimeRecordFaculty = ({
                                   </AccentButton>
                                 </span>
                               </Tooltip>
-                              <Tooltip title="Download this DTR as a PDF file" placement="top">
+                              <Tooltip title={`Download this DTR as a PDF file${printQuincena !== 'full' ? ` — ${printPeriodCaption}` : ''}`} placement="top">
                                 <span>
                                   <AccentButton
                                     variant="contained"
@@ -3662,15 +4013,15 @@ const DailyTimeRecordFaculty = ({
                                             employeeName || null,
                                           targetUsername:
                                             selectedEmployee?.username || null,
-                                          periodStart: startDate,
-                                          periodEnd: endDate,
-                                          monthLabel: buildAuditPeriodLabel({
+                                          periodStart: getPrintPeriodDates().startDate,
+                                          periodEnd: getPrintPeriodDates().endDate,
+                                          monthLabel: `${buildAuditPeriodLabel({
                                             selectedMonth,
                                             monthNames: monthsShort,
                                             selectedYear,
                                             startDate,
                                             endDate,
-                                          }),
+                                          })}${printQuincena !== 'full' ? ` · ${printPeriodCaption}` : ''}`,
                                           auditEvent: 'dtr_overall_download',
                                         });
                                       } catch (e) {
@@ -3761,6 +4112,27 @@ const DailyTimeRecordFaculty = ({
                                   </Typography>
                                 </Box>
                               )}
+                              <Box
+                                sx={{
+                                  px: 1.5,
+                                  py: 0.3,
+                                  borderRadius: 6,
+                                  bgcolor: printQuincena === 'full'
+                                    ? 'transparent'
+                                    : alpha(T.accent, 0.08),
+                                  border: `1px solid ${T.accentBorder}`,
+                                }}
+                              >
+                                <Typography
+                                  sx={{
+                                    fontSize: '0.7rem',
+                                    color: T.accent,
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  {printPeriodCaption}
+                                </Typography>
+                              </Box>
                               {!!loadPhase && !loadingAllUsers && (
                                 <Typography
                                   sx={{
@@ -4731,6 +5103,7 @@ const DailyTimeRecordFaculty = ({
                       {previewUsers[currentPreviewIndex].fullName}
                       {startDate &&
                         ` · ${formatMonth(startDate)} ${new Date(startDate).getFullYear()}`}
+                      {printQuincena !== 'full' ? ` · ${printPeriodCaption}` : ''}
                     </Typography>
                   )}
                 </Box>
@@ -4799,6 +5172,43 @@ const DailyTimeRecordFaculty = ({
                   flexDirection: 'column',
                 }}
               >
+                {!printingAll && (
+                  <Box
+                    sx={{
+                      px: 2,
+                      py: 1.25,
+                      bgcolor: '#fff',
+                      borderBottom: `1px solid ${T.divider}`,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 1.5,
+                      flexWrap: 'wrap',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <Box>
+                      <Typography
+                        sx={{
+                          fontSize: '0.62rem',
+                          fontWeight: 700,
+                          letterSpacing: '0.08em',
+                          textTransform: 'uppercase',
+                          color: alpha(T.accent, 0.55),
+                          mb: 0.4,
+                        }}
+                      >
+                        Print period
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.72rem', color: T.muted }}>
+                        The full day list still prints. Only times outside this range are blank.
+                      </Typography>
+                    </Box>
+                    <Box sx={{ minWidth: 280 }}>
+                      {renderPrintPeriodControls()}
+                    </Box>
+                  </Box>
+                )}
                 {!printingAll && (
                   <Box
                     sx={{
@@ -5085,6 +5495,7 @@ const DailyTimeRecordFaculty = ({
                       </Typography>
                       <Typography sx={{ fontSize: '0.75rem', color: T.muted }}>
                         {formatMonth(startDate)}
+                        {printQuincena !== 'full' ? ` · ${printPeriodCaption}` : ''}
                       </Typography>
                     </Box>
                   </Box>

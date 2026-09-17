@@ -398,9 +398,10 @@ const Settings = () => {
     if (ticketId) _pendingTicketId.current = Number(ticketId);
     if (section === "contact") _pendingFromNotification.current = true;
     if (section === "contact") setContactStatusFilter("all");
-    window.history.replaceState({}, "");
+    // Consume one-shot navigation state so ticket deep-links don't retrigger.
+    navigate(location.pathname, { replace: true, state: null });
     if (section === activeSection) { fetchTickets(); } else { setActiveSection(section); }
-  }, [pageLoading]); // eslint-disable-line
+  }, [pageLoading, location.key]); // eslint-disable-line
 
   useEffect(() => {
     const token = localStorage.getItem("token") || sessionStorage.getItem("token");

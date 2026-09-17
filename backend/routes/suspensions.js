@@ -138,8 +138,8 @@ router.post(
           let completed = 0;
           employeeNumbers.forEach((empNum) => {
             db.query(
-              "INSERT INTO notifications (employeeNumber, description, read_status, notification_type, action_link) VALUES (?, ?, 0, ?, NULL)",
-              [empNum, notificationDescription, "suspension"],
+              "INSERT INTO notifications (employeeNumber, description, read_status, notification_type, action_link) VALUES (?, ?, 0, ?, ?)",
+              [empNum, notificationDescription, "suspension", `/suspension/${suspensionId}`],
               (notifErr) => {
                 if (notifErr) {
                   db.query(

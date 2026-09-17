@@ -12,7 +12,6 @@ import {
   Box,
   Typography,
   Alert,
-  Collapse,
   Card,
   Button,
   alpha,
@@ -25,6 +24,9 @@ import {
   MenuItem,
   IconButton,
   Tooltip,
+  Avatar,
+  Modal,
+  CircularProgress,
 } from '@mui/material';
 import WorkIcon from '@mui/icons-material/Work';
 import Refresh from '@mui/icons-material/Refresh';
@@ -32,6 +34,9 @@ import Download from '@mui/icons-material/Download';
 import Person from '@mui/icons-material/Person';
 import CalendarToday from '@mui/icons-material/CalendarToday';
 import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutline';
+import Search from '@mui/icons-material/Search';
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
+import { Close } from '@mui/icons-material';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import axios from 'axios';
@@ -41,6 +46,12 @@ import AccessDenied from '../AccessDenied';
 import usePayrollRealtimeRefresh from '../../hooks/usePayrollRealtimeRefresh';
 import LoadingOverlay from '../LoadingOverlay';
 import SuccessfulOverlay from '../SuccessfulOverlay';
+import {
+  AttendanceFilterMonthHeader,
+  AttendanceFilterMonthGrid,
+  AttendanceFilterSummaryBox,
+  MONTHS_SHORT,
+} from '../ATTENDANCE/attendanceFilterLayout';
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 const generateHash = (data) => {
@@ -71,7 +82,9 @@ const T = {
   accentBorder: 'rgba(109,35,35,0.14)',
   accentHover: 'rgba(109,35,35,0.10)',
   headerGrad: 'linear-gradient(180deg,#6d2323 0%,#7e2c2c 100%)',
+  rowEven: '#ffffff',
   rowOdd: 'rgba(109,35,35,0.025)',
+  rowHover: 'rgba(109,35,35,0.055)',
   text: '#1a1a1a',
   muted: '#6b6b6b',
   faint: '#a0a0a0',
@@ -85,7 +98,7 @@ const SectionCard = styled(Card)({
   boxShadow: '0 1px 4px rgba(0,0,0,0.07), 0 4px 24px rgba(0,0,0,0.04)',
   border: '0.5px solid rgba(0,0,0,0.09)',
   overflow: 'hidden',
-  background: '#fff',
+  background: T.surface,
 });
 
 const AccentButton = styled(Button)({
@@ -218,6 +231,52 @@ const monthFromLocationState = (val) => {
   return '';
 };
 
+// ─── Error Modal (matches PayslipDistribution) ────────────────────────────────
+const ErrorModal = ({ open, onClose, title, message, icon: Icon = ErrorOutlineIcon, iconColor = '#C62828', iconBg = '#FFEBEE' }) => (
+  <Modal open={open} onClose={onClose} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', p: 2, zIndex: 1500 }}>
+    <Fade in={open}>
+      <Box sx={{ width: '100%', maxWidth: 420, borderRadius: 3, overflow: 'hidden', boxShadow: '0 24px 64px rgba(0,0,0,0.22)', bgcolor: T.surface, display: 'flex', flexDirection: 'column' }}>
+        <Box sx={{ px: 3.5, py: 2.5, background: `linear-gradient(180deg,${iconColor} 0%,${alpha(iconColor, 0.82)} 100%)`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', overflow: 'hidden' }}>
+          <Box sx={{ position: 'absolute', top: -40, right: -30, width: 140, height: 140, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.05)' }} />
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, position: 'relative', zIndex: 1 }}>
+            <Box sx={{ width: 36, height: 36, borderRadius: 2, bgcolor: 'rgba(255,255,255,0.18)', border: '1px solid rgba(255,255,255,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Icon sx={{ fontSize: 17, color: '#fff' }} />
+            </Box>
+            <Typography sx={{ fontWeight: 700, color: '#fff', fontSize: '0.93rem' }}>{title}</Typography>
+          </Box>
+          <IconButton onClick={onClose} size="small" sx={{ color: 'rgba(255,255,255,0.75)', position: 'relative', zIndex: 1, '&:hover': { bgcolor: 'rgba(255,255,255,0.12)' } }}>
+            <Close sx={{ fontSize: 16 }} />
+          </IconButton>
+        </Box>
+        <Box sx={{ px: 3.5, py: 3 }}>
+          <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+            <Box sx={{ width: 40, height: 40, borderRadius: '50%', bgcolor: iconBg, border: `1px solid ${alpha(iconColor, 0.2)}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, mt: 0.25 }}>
+              <Icon sx={{ fontSize: 18, color: iconColor }} />
+            </Box>
+            <Typography sx={{ fontSize: '0.875rem', color: T.text, lineHeight: 1.65, pt: 0.5, whiteSpace: 'pre-line' }}>{message}</Typography>
+          </Box>
+        </Box>
+        <Box sx={{ px: 3.5, py: 2, borderTop: `1px solid ${T.divider}`, bgcolor: '#f9f9f9', display: 'flex', justifyContent: 'flex-end' }}>
+          <AccentButton onClick={onClose} variant="contained" sx={{ fontSize: '0.8rem', bgcolor: T.accent, color: '#fff', boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`, '&:hover': { bgcolor: T.accentDark } }}>
+            Understood
+          </AccentButton>
+        </Box>
+      </Box>
+    </Fade>
+  </Modal>
+);
+
+// ─── Empty state helper ───────────────────────────────────────────────────────
+const EmptyPanel = ({ icon: Icon, title, subtitle }) => (
+  <Box sx={{ py: 10, textAlign: 'center' }}>
+    <Box sx={{ width: 72, height: 72, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
+      <Icon sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
+    </Box>
+    <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted, mb: 0.5 }}>{title}</Typography>
+    <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>{subtitle}</Typography>
+  </Box>
+);
+
 // ─── "No Data" placeholder for a month slot ───────────────────────────────────
 const NoDataSlip = ({ label }) => (
   <Box sx={{
@@ -235,6 +294,72 @@ const NoDataSlip = ({ label }) => (
     <CalendarToday sx={{ fontSize: 48, color: alpha(T.accent, 0.18) }} />
     <Typography sx={{ fontSize: '26px', fontWeight: 800, color: alpha(T.accent, 0.35), fontFamily: '"Poppins",sans-serif' }}>No Data</Typography>
     <Typography sx={{ fontSize: '18px', color: alpha(T.accent, 0.25), fontFamily: '"Poppins",sans-serif' }}>{label}</Typography>
+  </Box>
+);
+
+// ─── 3-month side-by-side payslip display (matches PayslipDistribution) ───────
+const ThreeMonthPayslipDisplay = ({ slots, renderPayslipPreview, PayslipInstitutionHeader, hrisLogo }) => (
+  <Box sx={{
+    bgcolor: '#e8e0e0',
+    p: 2,
+    minHeight: '100%',
+    display: 'flex',
+    flexDirection: 'row',
+    gap: 1.5,
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+    minWidth: 'max-content',
+    width: '100%',
+  }}>
+    {slots.map((slot, idx) => (
+      <Box key={idx} sx={{ display: 'flex', flexDirection: 'column', gap: 0.75, flexShrink: 0 }}>
+        <Box sx={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.75,
+          px: 1.5, py: 0.5, borderRadius: '6px',
+          bgcolor: idx === 0 ? T.accent : alpha(T.accent, 0.12),
+          border: `1px solid ${idx === 0 ? T.accent : T.accentBorder}`,
+          alignSelf: 'flex-start',
+        }}>
+          <Typography sx={{
+            fontSize: '0.72rem', fontWeight: 800, letterSpacing: '0.06em',
+            color: idx === 0 ? '#fff' : T.accent,
+            textTransform: 'uppercase',
+          }}>
+            {idx === 0 ? '● ' : ''}{slot.label}
+            {idx === 0 ? ' (Selected)' : idx === 1 ? ' — 1 month prior' : ' — 2 months prior'}
+          </Typography>
+        </Box>
+        <Paper
+          elevation={idx === 0 ? 4 : 2}
+          sx={{
+            zoom: 0.38,
+            width: '920px',
+            p: 1.5,
+            borderRadius: '8px',
+            bgcolor: '#fff',
+            fontFamily: '"Poppins",sans-serif',
+            position: 'relative',
+            boxSizing: 'border-box',
+            border: idx === 0 ? `2px solid ${T.accent}` : '2px solid transparent',
+            transition: 'box-shadow 0.2s ease',
+          }}
+        >
+          {slot.payroll ? (
+            <>
+              {hrisLogo && (
+                <Box component="img" src={hrisLogo} alt="Watermark" sx={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', opacity: 0.08, width: '70%', pointerEvents: 'none', userSelect: 'none', zIndex: 2, mixBlendMode: 'multiply' }} />
+              )}
+              <PayslipInstitutionHeader />
+              <Box sx={{ position: 'relative', zIndex: 1 }}>
+                {renderPayslipPreview(slot.payroll)}
+              </Box>
+            </>
+          ) : (
+            <NoDataSlip label={slot.label} />
+          )}
+        </Paper>
+      </Box>
+    ))}
   </Box>
 );
 
@@ -341,6 +466,10 @@ const Payslip = forwardRef(({ employee }, ref) => {
   }, [accessLoading, loading]);
 
   const myPayrollRows = allPayroll.filter((p) => p.employeeNumber?.toString() === personID.toString());
+  const employeeDisplayName =
+    displayEmployee?.name ||
+    myPayrollRows.find((r) => r.name)?.name ||
+    '';
   const filteredPayrollCount = selectedMonth
     ? allPayroll.filter((emp) => {
         if (!emp.startDate) return false;
@@ -649,37 +778,53 @@ const Payslip = forwardRef(({ employee }, ref) => {
         </SectionCard>
 
         {/* ── Alerts ── */}
-        <Collapse in={alertState.open}>
-          <Alert severity={alertState.severity} onClose={() => setAlertState((a) => ({ ...a, open: false }))} sx={{ mb: 1.5, borderRadius: 2, fontSize: '0.82rem' }}>{alertState.message}</Alert>
-        </Collapse>
-        {error && <Collapse in={!!error}><Alert severity="error" sx={{ mb: 1.5, borderRadius: 2, fontSize: '0.82rem' }}>{error}</Alert></Collapse>}
+        {alertState.open && (
+          <Alert severity={alertState.severity} onClose={() => setAlertState((a) => ({ ...a, open: false }))} sx={{ mb: 2, borderRadius: 2 }}>
+            {alertState.message}
+          </Alert>
+        )}
+        {error && <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }}>{error}</Alert>}
 
         {/* ── Two-column layout ── */}
+        <Fade in timeout={250}>
         <Grid container spacing={2}>
 
           {/* LEFT: Period selector panel */}
           <Grid item xs={12} lg={3}>
             <SectionCard sx={{ height: 'calc(100vh - 280px)', display: 'flex', flexDirection: 'column' }}>
               <Box sx={{ px: 3.5, py: 1.25, borderBottom: `1px solid ${T.divider}`, display: 'flex', alignItems: 'center', gap: 1.5, bgcolor: T.accentFaint }}>
-                <CalendarToday sx={{ fontSize: 15, color: T.accent }} />
-                <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.accent }}>Pay Period</Typography>
+                <Person sx={{ fontSize: 15, color: T.accent }} />
+                <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.accent }}>My Payslip</Typography>
               </Box>
 
               <Box sx={{ px: 3.5, py: 3, flexGrow: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 0, '&::-webkit-scrollbar': { width: 4 }, '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 } }}>
 
-                {/* Employee (read-only) */}
+                {/* Employee (read-only avatar card — matches Distribution selected employee) */}
                 <FormSectionLabel icon={Person}>Employee</FormSectionLabel>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1.5, py: 1.1, mb: 2.5, borderRadius: '8px', border: `1px dashed ${T.accentBorder}`, bgcolor: alpha(T.accent, 0.03), cursor: 'not-allowed', userSelect: 'none' }}>
-                  <Person sx={{ fontSize: 14, color: alpha(T.accent, 0.4), flexShrink: 0 }} />
-                  <Typography sx={{ fontSize: '0.82rem', color: T.muted, fontWeight: 600, flex: 1 }}>{personID || '—'}</Typography>
-                  <Box sx={{ px: 0.75, py: 0.2, borderRadius: '4px', bgcolor: alpha(T.accent, 0.08), border: `1px solid ${alpha(T.accent, 0.15)}` }}>
-                    <Typography sx={{ fontSize: '0.58rem', color: T.accent, fontWeight: 700, letterSpacing: '0.05em' }}>AUTO</Typography>
+                {personID ? (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, px: 1.75, py: 1.25, mb: 2.5, borderRadius: 2, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
+                    <Avatar sx={{ width: 30, height: 30, bgcolor: alpha(T.accent, 0.15), fontSize: '0.78rem', color: T.accent, fontWeight: 700, flexShrink: 0 }}>
+                      {(employeeDisplayName?.[0] || personID?.[0] || '?').toUpperCase()}
+                    </Avatar>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.text, lineHeight: 1.2 }} noWrap>
+                        {employeeDisplayName || 'Employee'}
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.7rem', color: T.muted }}>#{personID}</Typography>
+                    </Box>
+                    <Box sx={{ px: 0.75, py: 0.2, borderRadius: '4px', bgcolor: alpha(T.accent, 0.08), border: `1px solid ${alpha(T.accent, 0.15)}` }}>
+                      <Typography sx={{ fontSize: '0.58rem', color: T.accent, fontWeight: 700, letterSpacing: '0.05em' }}>YOU</Typography>
+                    </Box>
                   </Box>
-                </Box>
+                ) : (
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', border: `1.5px dashed ${T.accentBorder}`, borderRadius: 2, py: 1.5, mb: 2.5, bgcolor: alpha(T.accent, 0.02) }}>
+                    <Typography sx={{ fontSize: '0.75rem', color: T.faint, fontStyle: 'italic' }}>Loading employee profile…</Typography>
+                  </Box>
+                )}
 
                 {/* Year */}
                 <FormSectionLabel icon={CalendarToday}>Year</FormSectionLabel>
-                <Box sx={{ mb: 2.5 }}>
+                <Box sx={{ mb: 1.25 }}>
                   <FieldInput
                     fullWidth
                     size="small"
@@ -694,52 +839,26 @@ const Payslip = forwardRef(({ employee }, ref) => {
                   </FieldInput>
                 </Box>
 
-                {/* Month grid */}
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                    <CalendarToday sx={{ fontSize: 12, color: alpha(T.accent, 0.45) }} />
-                    <Typography sx={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: alpha(T.accent, 0.45) }}>Month</Typography>
-                  </Box>
-                  {!!selectedMonth && (
-                    <Box
-                      onClick={() => setSelectedMonth('')}
-                      sx={{ fontSize: '0.65rem', color: T.accent, cursor: 'pointer', fontWeight: 700, '&:hover': { textDecoration: 'underline' } }}
-                    >
-                      Clear
-                    </Box>
-                  )}
-                </Box>
-                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '8px', mb: 1.25 }}>
-                  {MONTHS.map((m) => (
-                    <Box
-                      key={m}
-                      onClick={() => setSelectedMonth(m === selectedMonth ? '' : m)}
-                      sx={{
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        minHeight: 42, px: 1, py: 0.65, borderRadius: '6px', cursor: 'pointer',
-                        border: `1px solid ${selectedMonth === m ? T.accent : 'transparent'}`,
-                        bgcolor: selectedMonth === m ? T.accent : 'transparent',
-                        transition: 'all 0.14s ease',
-                        '&:hover': selectedMonth === m ? {} : { bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` },
-                      }}
-                    >
-                      <Typography sx={{ fontSize: '0.78rem', fontWeight: selectedMonth === m ? 700 : 600, color: selectedMonth === m ? '#fff' : T.text, lineHeight: 1, letterSpacing: '0.03em', textAlign: 'center', width: '100%' }}>
-                        {m}
-                      </Typography>
-                    </Box>
-                  ))}
-                </Box>
+                {/* Month grid — same compact control as DailyTimeRecord */}
+                <AttendanceFilterMonthHeader
+                  showClear={!!selectedMonth}
+                  onClear={() => setSelectedMonth('')}
+                />
+                <AttendanceFilterMonthGrid
+                  months={MONTHS_SHORT}
+                  selectedMonth={selectedMonth ? MONTHS.indexOf(selectedMonth) : null}
+                  onMonthClick={(idx) => {
+                    const m = MONTHS[idx];
+                    setSelectedMonth(m === selectedMonth ? '' : m);
+                  }}
+                />
 
-                <Box sx={{ mt: 2, p: 1.5, borderRadius: 2, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
-                  <Typography sx={{ fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: alpha(T.accent, 0.6), mb: 0.5 }}>
-                    Total Records
-                  </Typography>
-                  <Typography sx={{ fontSize: '0.9rem', fontWeight: 800, color: T.text, lineHeight: 1.3 }}>
-                    {selectedMonth ? filteredPayrollCount : 0} {(selectedMonth ? filteredPayrollCount : 0) === 1 ? 'record' : 'records'} found
-                  </Typography>
-                  <Typography sx={{ fontSize: '0.75rem', color: T.muted, mt: 0.4 }}>
-                    Counts loaded payroll entries for the selected month and year.
-                  </Typography>
+                <Box sx={{ mt: 1.5 }}>
+                  <AttendanceFilterSummaryBox
+                    title="Total Records"
+                    primary={`${selectedMonth ? filteredPayrollCount : 0} ${(selectedMonth ? filteredPayrollCount : 0) === 1 ? 'record' : 'records'} found`}
+                    secondary="Counts loaded payroll entries for the selected month and year."
+                  />
                 </Box>
               </Box>
             </SectionCard>
@@ -767,13 +886,14 @@ const Payslip = forwardRef(({ employee }, ref) => {
                   </Box>
                   {hasAnySlipData && (
                     <AccentButton
-                      variant="contained"
+                      variant="outlined"
                       size="small"
-                      startIcon={<Download sx={{ fontSize: '13px !important' }} />}
+                      startIcon={pdfBusy ? <CircularProgress size={12} sx={{ color: T.accent }} /> : <Download sx={{ fontSize: '13px !important' }} />}
                       onClick={downloadPDF}
-                      sx={{ fontSize: '0.78rem', bgcolor: T.accent, color: '#fff', boxShadow: `0 2px 8px ${alpha(T.accent, 0.3)}`, '&:hover': { bgcolor: T.accentDark } }}
+                      disabled={pdfBusy}
+                      sx={{ fontSize: '0.78rem', borderColor: T.accentBorder, color: T.accent, '&:hover': { bgcolor: T.accentFaint } }}
                     >
-                      Download PDF
+                      {pdfBusy ? 'Generating…' : 'Download PDF'}
                     </AccentButton>
                   )}
                 </Box>
@@ -783,81 +903,26 @@ const Payslip = forwardRef(({ employee }, ref) => {
               <Box sx={{ flexGrow: 1, overflowY: 'auto', overflowX: 'auto', '&::-webkit-scrollbar': { width: 6, height: 6 }, '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 } }}>
 
                 {!selectedMonth ? (
-                  /* ── No month selected ── */
-                  <Box sx={{ py: 10, textAlign: 'center' }}>
-                    <Box sx={{ width: 72, height: 72, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
-                      <CalendarToday sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
-                    </Box>
-                    <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted, mb: 0.5 }}>Select a Month</Typography>
-                    <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>Choose a month from the left panel to view your 3-month payslip.</Typography>
-                  </Box>
+                  <EmptyPanel
+                    icon={CalendarToday}
+                    title="Select a Pay Period"
+                    subtitle="Choose a month from the left panel to view your 3-month payslip."
+                  />
+                ) : !hasAnySlipData ? (
+                  <EmptyPanel
+                    icon={Search}
+                    title="No Payslip Found"
+                    subtitle={`No record for ${selectedMonth} ${selectedYear} matching your account.`}
+                  />
                 ) : (
-                  /* ── 3-month side-by-side layout (mirrors the PDF) ── */
                   <Fade in timeout={250}>
-                    <Box sx={{
-                      bgcolor: '#e8e0e0',
-                      p: 2,
-                      minHeight: '100%',
-                      display: 'flex',
-                      flexDirection: 'row',
-                      gap: 1.5,
-                      alignItems: 'flex-start',
-                      justifyContent: 'center',
-                      minWidth: 'max-content',
-                      width: '100%',
-                    }}>
-                      {threeMonthSlots.map((slot, idx) => (
-                        <Box key={idx} sx={{ display: 'flex', flexDirection: 'column', gap: 0.75, flexShrink: 0 }}>
-                          {/* Month label badge above each slip */}
-                          <Box sx={{
-                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.75,
-                            px: 1.5, py: 0.5, borderRadius: '6px',
-                            bgcolor: idx === 0 ? T.accent : alpha(T.accent, 0.12),
-                            border: `1px solid ${idx === 0 ? T.accent : T.accentBorder}`,
-                            alignSelf: 'flex-start',
-                          }}>
-                            <Typography sx={{
-                              fontSize: '0.72rem', fontWeight: 800, letterSpacing: '0.06em',
-                              color: idx === 0 ? '#fff' : T.accent,
-                              textTransform: 'uppercase',
-                            }}>
-                              {idx === 0 ? '● ' : ''}{slot.label}
-                              {idx === 0 ? ' (Selected)' : idx === 1 ? ' — 1 month prior' : ' — 2 months prior'}
-                            </Typography>
-                          </Box>
-
-                          {/* The payslip paper or no-data placeholder */}
-                          <Paper
-                            elevation={idx === 0 ? 4 : 2}
-                            sx={{
-                              zoom: 0.38,
-                              width: '920px',
-                              p: 1.5,
-                              borderRadius: '8px',
-                              bgcolor: '#fff',
-                              fontFamily: '"Poppins",sans-serif',
-                              position: 'relative',
-                              boxSizing: 'border-box',
-                              border: idx === 0 ? `2px solid ${T.accent}` : '2px solid transparent',
-                              transition: 'box-shadow 0.2s ease',
-                            }}
-                          >
-                            {slot.payroll ? (
-                              <>
-                                {dynamicHrisLogo && (
-                                  <Box component="img" src={dynamicHrisLogo} alt="Watermark" sx={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)', opacity: 0.08, width: '70%', pointerEvents: 'none', userSelect: 'none', zIndex: 2, mixBlendMode: 'multiply' }} />
-                                )}
-                                <PayslipInstitutionHeader />
-                                <Box sx={{ position: 'relative', zIndex: 1 }}>
-                                  {renderPayslipPreview(slot.payroll)}
-                                </Box>
-                              </>
-                            ) : (
-                              <NoDataSlip label={slot.label} />
-                            )}
-                          </Paper>
-                        </Box>
-                      ))}
+                    <Box>
+                      <ThreeMonthPayslipDisplay
+                        slots={threeMonthSlots}
+                        renderPayslipPreview={renderPayslipPreview}
+                        PayslipInstitutionHeader={PayslipInstitutionHeader}
+                        hrisLogo={dynamicHrisLogo}
+                      />
                     </Box>
                   </Fade>
                 )}
@@ -868,24 +933,21 @@ const Payslip = forwardRef(({ employee }, ref) => {
                 <Box sx={{ px: 3.5, py: 1.25, borderTop: `1px solid ${T.divider}`, bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', gap: 1 }}>
                   <Download sx={{ fontSize: 13, color: alpha(T.accent, 0.45) }} />
                   <Typography sx={{ fontSize: '0.7rem', color: T.faint }}>
-                    Showing {selectedMonth} {selectedYear} and the 2 prior months side-by-side — exactly as they appear in the downloaded PDF.
+                    Showing {selectedMonth} {selectedYear} and the 2 prior months side-by-side — exactly as they appear in the PDF.
                   </Typography>
                 </Box>
               )}
             </SectionCard>
           </Grid>
         </Grid>
+        </Fade>
 
-        {/* ── Error modal ── */}
-        {modal.open && modal.type === 'error' && (
-          <Box sx={{ position: 'fixed', inset: 0, bgcolor: 'rgba(0,0,0,0.35)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setModal({ ...modal, open: false })}>
-            <Box sx={{ bgcolor: '#fff', borderRadius: 3, p: 4, maxWidth: 380, textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }} onClick={(e) => e.stopPropagation()}>
-              <Typography sx={{ fontWeight: 700, mb: 1.5, color: T.accent }}>Error</Typography>
-              <Typography sx={{ fontSize: '0.88rem', color: T.muted }}>{modal.message || 'An error occurred.'}</Typography>
-              <AccentButton onClick={() => setModal({ ...modal, open: false })} sx={{ mt: 2.5, border: `1px solid ${T.accentBorder}`, color: T.accent }}>Close</AccentButton>
-            </Box>
-          </Box>
-        )}
+        <ErrorModal
+          open={modal.open && modal.type === 'error'}
+          onClose={() => setModal({ ...modal, open: false })}
+          title="Error"
+          message={modal.message || 'An error occurred.'}
+        />
 
         <LoadingOverlay
           open={loading || pdfBusy}
@@ -898,7 +960,7 @@ const Payslip = forwardRef(({ employee }, ref) => {
         />
 
         <Snackbar open={snackbar.open} autoHideDuration={5000} onClose={() => setSnackbar({ ...snackbar, open: false })} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}>
-          <Alert onClose={() => setSnackbar({ ...snackbar, open: false })} severity={snackbar.severity} sx={{ width: '100%', borderRadius: 2, fontSize: '0.82rem' }}>{snackbar.message}</Alert>
+          <Alert onClose={() => setSnackbar({ ...snackbar, open: false })} severity={snackbar.severity} sx={{ width: '100%', borderRadius: 2 }}>{snackbar.message}</Alert>
         </Snackbar>
       </Box>
     </Fade>

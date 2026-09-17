@@ -1,5 +1,17 @@
 import API_BASE_URL from "../apiConfig";
 import { getAuthHeaders } from "../utils/auth";
+import {
+  employeeNumbersMatch,
+  extractNotificationList,
+  findById,
+  inferNotificationType,
+  latestByDate,
+  normalizeNotification,
+  parseNotificationTargetId,
+  resolveEmployeeNumber,
+  scopeNotificationsToEmployee,
+  sortNotificationsLatestFirst,
+} from "../utils/notifications";
 import React, {
   useState,
   useEffect,
@@ -321,7 +333,9 @@ const TICKET_STATUS_LABEL = {
 };
 
 const TicketStatusBadge = ({ notifId, contactTicketStatuses }) => {
-  const ticketStatus = (contactTicketStatuses || {})[notifId] || "new";
+  const entry = (contactTicketStatuses || {})[notifId];
+  const ticketStatus =
+    (entry && typeof entry === "object" ? entry.status : entry) || "new";
   const s = TICKET_STATUS_STYLE[ticketStatus] || TICKET_STATUS_STYLE.new;
   return (
     <Box
@@ -576,7 +590,7 @@ const STAT_CARDS = (settings, stats = {}) => [
     layout: "split",
     splitPeers: [
       { valueKey: "administrator", textValue: "Admin" },
-      { valueKey: "staff", textValue: "Staff" },
+      { valueKey: "staff", textValue: "Faculty" },
     ],
     icon: <SupervisorAccount />,
     gradient: `linear-gradient(135deg, ${settings.secondaryColor}, ${settings.primaryColor})`,
@@ -667,7 +681,7 @@ const useAuth = () => {
       const decoded = JSON.parse(atob(token.split(".")[1]));
       return {
         role: decoded.role,
-        employeeNumber: decoded.employeeNumber,
+        employeeNumber: decoded.employeeNumber || resolveEmployeeNumber(),
         username: decoded.username,
       };
     } catch {
@@ -678,7 +692,8 @@ const useAuth = () => {
   useEffect(() => {
     const u = getUserInfo();
     if (u.username) setUsername(u.username);
-    if (u.employeeNumber) setEmployeeNumber(u.employeeNumber);
+    const emp = u.employeeNumber || resolveEmployeeNumber();
+    if (emp) setEmployeeNumber(emp);
   }, [getUserInfo]);
 
   useEffect(() => {
@@ -2949,8 +2964,8 @@ const NeedsAttention = () => {
   );
 };
 
-// ─── WorkforcePulse (org attendance + leave/payroll snapshot) ─────────────────
-const WorkforcePulse = ({ stats, holidays = [], suspensions = [] }) => {
+// ─── Overview (org attendance + leave/payroll snapshot) ───────────────────────
+const Overview = ({ stats, holidays = [], suspensions = [] }) => {
   const navigate = useNavigate();
   const [leaveStats, setLeaveStats] = useState({
     pending: 0,
@@ -3048,7 +3063,7 @@ const WorkforcePulse = ({ stats, holidays = [], suspensions = [] }) => {
         overflow: "hidden",
       }}
     >
-      <PanelHeader icon={Assessment} title="Workforce Pulse" />
+      <PanelHeader icon={Assessment} title="Overview" />
 
       <Box
         sx={{
@@ -3538,19 +3553,16 @@ const AdminHome = () => {
   };
 
   const fetchNotifications = useCallback(async () => {
-    if (!employeeNumber) return;
-    const empNum = String(employeeNumber).trim();
+    const empNum = String(employeeNumber || resolveEmployeeNumber()).trim();
     if (!empNum) return;
     try {
       const notifRes = await axios.get(
         `${API_BASE_URL}/api/notifications/${empNum}`,
         getAuthHeaders(),
       );
-      const filteredNotifications = Array.isArray(notifRes.data)
-        ? notifRes.data.filter(
-            (notif) => String(notif.employeeNumber).trim() === empNum,
-          )
-        : [];
+      const filteredNotifications = sortNotificationsLatestFirst(
+        scopeNotificationsToEmployee(extractNotificationList(notifRes.data), empNum).map(normalizeNotification),
+      );
       setNotifications((prev) => {
         const localReadIds = new Set(
           prev.filter((n) => n.read_status === 1).map((n) => n.id),
@@ -3573,16 +3585,12 @@ const AdminHome = () => {
           });
           const notifStatusMap = {};
           contactNotifs.forEach((notif) => {
-            const contactMatch = (notif.action_link || "").match(
-              /\/settings\/contact\/(\d+)/,
-            );
-            const ticketId = contactMatch ? Number(contactMatch[1]) : null;
+            const ticketId = parseNotificationTargetId(notif, "contact");
             if (ticketId && ticketIdMap[ticketId]) {
               notifStatusMap[notif.id] = ticketIdMap[ticketId];
             } else {
-              const empNum2 = String(notif.employeeNumber || "").trim();
-              const empTickets = ticketList.filter(
-                (t) => String(t.employee_number || "").trim() === empNum2,
+              const empTickets = ticketList.filter((t) =>
+                employeeNumbersMatch(t.employee_number, empNum),
               );
               if (empTickets.length > 0) {
                 const latest = empTickets.sort(
@@ -3598,7 +3606,7 @@ const AdminHome = () => {
         } catch {}
       }
       const announcementNotifs = filteredNotifications.filter(
-        (n) => n.notification_type === "announcement" && n.announcement_id,
+        (n) => n.notification_type === "announcement",
       );
       if (announcementNotifs.length > 0) {
         try {
@@ -3608,18 +3616,17 @@ const AdminHome = () => {
             : [];
           const detailsMap = {};
           announcementNotifs.forEach((notif) => {
-            const announcement = announcementList.find(
-              (ann) =>
-                ann.id === notif.announcement_id ||
-                ann.id === parseInt(notif.announcement_id),
-            );
+            const targetId = parseNotificationTargetId(notif, "announcement");
+            const announcement =
+              findById(announcementList, targetId) ||
+              latestByDate(announcementList, ["date_start", "date", "id"]);
             if (announcement) detailsMap[notif.id] = announcement;
           });
           setAnnouncementDetails(detailsMap);
         } catch {}
       }
-    } catch {
-      setNotifications([]);
+    } catch (err) {
+      console.error("Error fetching notifications:", err);
     }
   }, [employeeNumber]);
 
@@ -3640,8 +3647,56 @@ const AdminHome = () => {
       }, 250);
     };
     socket.on("notificationCreated", scheduleRefresh);
-    return () => socket.off("notificationCreated", scheduleRefresh);
+    socket.on("announcementChanged", scheduleRefresh);
+    socket.on("adminDashboardUpdated", scheduleRefresh);
+    socket.on("payrollChanged", scheduleRefresh);
+    return () => {
+      socket.off("notificationCreated", scheduleRefresh);
+      socket.off("announcementChanged", scheduleRefresh);
+      socket.off("adminDashboardUpdated", scheduleRefresh);
+      socket.off("payrollChanged", scheduleRefresh);
+    };
   }, [socket, connected]);
+
+  const openDetailFromNotification = (item) => {
+    if (!item) {
+      setNotifModalOpen(false);
+      return;
+    }
+    setNotifModalOpen(false);
+    // Defer so the notifications Modal can unmount before the detail Modal opens
+    // (avoids MUI dual-modal focus/aria-hidden leaving a blank screen).
+    window.setTimeout(() => {
+      setSelectedAnnouncement(item);
+      setOpenModal(true);
+    }, 200);
+  };
+
+  const mapHolidayToDetail = (h) =>
+    h
+      ? {
+          id: `holiday-${h.id}`,
+          title: h.title || h.description || "",
+          about: h.about || "Official holiday.",
+          date: h.date_start || h.date_end || h.date,
+          date_start: h.date_start || h.date,
+          date_end: h.date_end || h.date,
+          image: h.image || null,
+        }
+      : null;
+
+  const mapSuspensionToDetail = (s) =>
+    s
+      ? {
+          id: `suspension-${s.id}`,
+          title: s.title || "",
+          about: s.about || "",
+          date: s.date_start || s.date_end || s.date,
+          date_start: s.date_start || s.date,
+          date_end: s.date_end || s.date,
+          image: s.image || null,
+        }
+      : null;
 
   const handleNotificationClick = async (notification) => {
     if (notification.read_status === 0) {
@@ -3660,7 +3715,7 @@ const AdminHome = () => {
         console.error("Error marking notification as read:", err);
       }
     }
-    const type = notification.notification_type;
+    const type = inferNotificationType(notification);
     const link = notification.action_link || "";
     if (type === "payslip" || link.includes("payslip")) {
       setNotifModalOpen(false);
@@ -3671,16 +3726,17 @@ const AdminHome = () => {
       link.includes("settings")
     ) {
       setNotifModalOpen(false);
-      const contactMatch = (notification.action_link || "").match(
-        /\/settings\/contact\/(\d+)/,
-      );
-      const ticketIdFromLink = contactMatch ? Number(contactMatch[1]) : null;
+      const ticketIdFromLink = parseNotificationTargetId(notification, "contact");
       const statusMatch = (notification.action_link || "").match(
         /[?&]status=([^&]+)/,
       );
-      const liveStatus = ticketIdFromLink
-        ? contactTicketStatuses[ticketIdFromLink]
-        : null;
+      const ticketEntry = contactTicketStatuses[notification.id];
+      const liveStatus =
+        ticketEntry && typeof ticketEntry === "object"
+          ? ticketEntry.status
+          : typeof ticketEntry === "string"
+            ? ticketEntry
+            : null;
       const ticketStatusFromLink =
         liveStatus || (statusMatch ? statusMatch[1] : null);
       navigate("/settings", {
@@ -3692,32 +3748,56 @@ const AdminHome = () => {
       });
     } else if (type === "announcement" || link.includes("announcement")) {
       try {
-        const annRes = await axios.get(`${API_BASE_URL}/api/announcements`, getAuthHeaders());
-        const list = Array.isArray(annRes.data) ? annRes.data : [];
-        let match = notification.announcement_id
-          ? list.find(
-              (a) =>
-                a.id === notification.announcement_id ||
-                a.id === parseInt(notification.announcement_id),
-            )
-          : null;
-        if (!match && notification.announcement_id)
-          match = announcementDetails[notification.id];
-        if (!match && list.length > 0) match = list[0];
-        setNotifModalOpen(false);
-        if (match) {
-          setSelectedAnnouncement(match);
-          setOpenModal(true);
+        const targetId = parseNotificationTargetId(notification, "announcement");
+        let match =
+          findById(announcements, targetId) ||
+          announcementDetails[notification.id] ||
+          null;
+        if (!match) {
+          const annRes = await axios.get(
+            `${API_BASE_URL}/api/announcements`,
+            getAuthHeaders(),
+          );
+          const list = Array.isArray(annRes.data) ? annRes.data : [];
+          match =
+            findById(list, targetId) ||
+            latestByDate(list, ["date_start", "date", "id"]);
         }
+        openDetailFromNotification(match);
       } catch (err) {
         console.error("Error fetching announcement:", err);
         setNotifModalOpen(false);
       }
-    } else if (type === "holiday" || type === "suspension") {
+    } else if (type === "holiday") {
+      const targetId = parseNotificationTargetId(notification, "holiday");
+      openDetailFromNotification(
+        mapHolidayToDetail(findById(rawHolidays, targetId)) ||
+          mapHolidayToDetail(latestByDate(rawHolidays, ["date_start", "date", "id"])),
+      );
+    } else if (type === "suspension") {
+      const targetId = parseNotificationTargetId(notification, "suspension");
+      openDetailFromNotification(
+        mapSuspensionToDetail(findById(suspensions, targetId)) ||
+          mapSuspensionToDetail(latestByDate(suspensions, ["date_start", "date", "id"])),
+      );
+    } else if (type === "leave") {
       setNotifModalOpen(false);
+      navigate("/leave-request");
     } else if (link) {
       setNotifModalOpen(false);
-      navigate(link);
+      if (link.includes("/settings/contact/")) {
+        const contactMatch = link.match(/\/settings\/contact\/(\d+)/);
+        const statusMatch = link.match(/[?&]status=([^&]+)/);
+        navigate("/settings", {
+          state: {
+            section: "contact",
+            ticketId: contactMatch ? Number(contactMatch[1]) : null,
+            ticketStatus: statusMatch ? statusMatch[1] : null,
+          },
+        });
+      } else {
+        navigate(link);
+      }
     }
   };
 
@@ -3727,25 +3807,44 @@ const AdminHome = () => {
 
   const getCarouselItemForNotif = useCallback(
     (notif) => {
-      const type = notif.notification_type;
-      if (type === "announcement") return announcementDetails[notif.id] || null;
-      if (type === "holiday") return scheduledHolidaysForCarousel[0] || null;
-      if (type === "suspension") return suspensionsForCarousel[0] || null;
+      const type = inferNotificationType(notif);
+      if (type === "announcement") {
+        return (
+          announcementDetails[notif.id] ||
+          findById(announcements, parseNotificationTargetId(notif, "announcement")) ||
+          null
+        );
+      }
+      if (type === "holiday") {
+        const id = parseNotificationTargetId(notif, "holiday");
+        return (
+          mapHolidayToDetail(findById(rawHolidays, id)) ||
+          scheduledHolidaysForCarousel[0] ||
+          mapHolidayToDetail(latestByDate(rawHolidays))
+        );
+      }
+      if (type === "suspension") {
+        const id = parseNotificationTargetId(notif, "suspension");
+        return (
+          mapSuspensionToDetail(findById(suspensions, id)) ||
+          suspensionsForCarousel[0] ||
+          mapSuspensionToDetail(latestByDate(suspensions))
+        );
+      }
       return null;
     },
-    [announcementDetails, scheduledHolidaysForCarousel, suspensionsForCarousel],
+    [announcementDetails, announcements, rawHolidays, suspensions, scheduledHolidaysForCarousel, suspensionsForCarousel],
   );
 
   const filteredNotifications = useMemo(() => {
     if (!Array.isArray(notifications)) return [];
     return notifications.filter((n) => {
+      const type = inferNotificationType(n);
       if (notifFilter === "all") return true;
       if (notifFilter === "unread") return n.read_status === 0;
       if (notifFilter === "contact")
-        return (
-          n.notification_type === "contact" || n.notification_type === "ticket"
-        );
-      return n.notification_type === notifFilter;
+        return type === "contact" || type === "ticket";
+      return type === notifFilter;
     });
   }, [notifications, notifFilter]);
 
@@ -3936,8 +4035,8 @@ const AdminHome = () => {
                   <IconButton
                     size="small"
                     onClick={async () => {
-                      if (!notifications.length) await fetchNotifications();
                       setNotifModalOpen(true);
+                      await fetchNotifications();
                     }}
                     sx={{
                       bgcolor: T.accentFaint,
@@ -4469,7 +4568,7 @@ const AdminHome = () => {
                       flexDirection: "column",
                     }}
                   >
-                    <WorkforcePulse
+                    <Overview
                       stats={stats}
                       holidays={holidays}
                       suspensions={suspensions}
@@ -4875,6 +4974,7 @@ const AdminHome = () => {
                   right: { xs: "50%", md: "20px" },
                   transform: { xs: "translate(50%, -50%)", md: "none" },
                   width: { xs: "92%", sm: "400px" },
+                  height: { xs: "80vh", md: "min(85vh, 640px)" },
                   maxHeight: "85vh",
                   display: "flex",
                   flexDirection: "column",
@@ -4984,6 +5084,7 @@ const AdminHome = () => {
                 <Box
                   sx={{
                     flex: 1,
+                    minHeight: 280,
                     overflowY: "auto",
                     bgcolor: "#fff",
                     "&::-webkit-scrollbar": { width: 3 },
@@ -4995,12 +5096,13 @@ const AdminHome = () => {
                 >
                   {Array.isArray(notifications) && notifications.length > 0 ? (
                     filteredNotifications.length > 0 ? (
-                      filteredNotifications
-                        .slice(0, 15)
+                      filteredNotifications 
+                        .slice(0, 50)
                         .map((notif, idx, arr) => {
+                          const notifType = inferNotificationType(notif);
                           const isContact =
-                            notif.notification_type === "contact" ||
-                            notif.notification_type === "ticket";
+                            notifType === "contact" ||
+                            notifType === "ticket";
                           const isRead = notif.read_status === 1;
                           const TYPE_CONFIG = {
                             payslip: {
@@ -5033,8 +5135,13 @@ const AdminHome = () => {
                               accent: T.accent,
                               iconBg: T.accentFaint,
                             },
+                            leave: {
+                              label: "Leave",
+                              accent: "#2e7d32",
+                              iconBg: "#e8f5e9",
+                            },
                           };
-                          const cfg = TYPE_CONFIG[notif.notification_type] || {
+                          const cfg = TYPE_CONFIG[notifType] || {
                             label: "Notification",
                             accent: T.accent,
                             iconBg: T.accentFaint,
@@ -5068,8 +5175,11 @@ const AdminHome = () => {
                                 sx={{ fontSize: 14, color: cfg.accent }}
                               />
                             ),
+                            leave: (
+                              <Event sx={{ fontSize: 14, color: cfg.accent }} />
+                            ),
                           };
-                          const icon = ICON_MAP[notif.notification_type] || (
+                          const icon = ICON_MAP[notifType] || (
                             <NotificationsIcon
                               sx={{ fontSize: 14, color: cfg.accent }}
                             />
@@ -5129,11 +5239,11 @@ const AdminHome = () => {
                           const showDayLabel =
                             idx === 0 || dayLabel !== prevDayLabel;
                           const isImageType =
-                            notif.notification_type === "announcement" ||
-                            notif.notification_type === "holiday" ||
-                            notif.notification_type === "suspension";
+                            notifType === "announcement" ||
+                            notifType === "holiday" ||
+                            notifType === "suspension";
                           const isAnnouncementCard =
-                            notif.notification_type === "announcement";
+                            notifType === "announcement";
                           const carouselItem = isImageType
                             ? getCarouselItemForNotif(notif)
                             : null;

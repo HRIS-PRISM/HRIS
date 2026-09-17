@@ -159,6 +159,13 @@ export const DTR_PRINT_CSS = `
       background: white !important;
       page-break-inside: avoid !important;
     }
+
+    /* Right copy only. Leave table size alone; pull it off the page edge
+       so printer margins do not clip U-time. */
+    .dtr-print-area .dtr-page > .dtr-sheet:last-child {
+      position: relative !important;
+      left: -2mm !important;
+    }
   }
 `;
 
@@ -257,6 +264,10 @@ const DTR_CAPTURE_LAYOUT_CSS = `
     background: #fff;
   }
   .dtr-print-scale { transform-origin: top left; }
+  .dtr-page > .dtr-sheet:last-child {
+    position: relative;
+    left: -2mm;
+  }
 `;
 
 const normalizeHtmlPages = (htmlPages) =>
@@ -336,58 +347,19 @@ export const triggerFileDownload = (blob, fileName) => {
 };
 
 /**
- * Print one or more already-rendered DTRs as HTML in an isolated document.
- * No canvas/PDF — opens the browser print dialog.
+ * Same A4 image layout as Download PDF. Shared so Print and Download match.
  */
-export async function printDtrHtmlPages(htmlPages, { title } = {}) {
-  const pages = normalizeHtmlPages(htmlPages);
-  if (!pages.length) return;
-
-  const frame = await createDtrFrameDocument(pages, { title });
-  if (!frame) return;
-
-  const removeFrame = () => {
-    window.setTimeout(() => frame.remove(), 0);
-  };
-
-  frame.contentWindow.addEventListener('afterprint', removeFrame, {
-    once: true,
-  });
-  frame.contentWindow.focus();
-  frame.contentWindow.print();
-
-  window.setTimeout(() => {
-    if (frame.isConnected) frame.remove();
-  }, 60000);
-}
-
-/**
- * Build a multi-page PDF from DTR HTML and trigger an automatic download.
- * Print stays on the fast HTML path; only Download uses this raster step.
- */
-export async function downloadDtrHtmlPages(
-  htmlPages,
-  fileName,
-  { title, onProgress } = {},
-) {
+const renderDtrPdfBlob = async (htmlPages, { title, onProgress } = {}) => {
   const pages = normalizeHtmlPages(htmlPages);
   if (!pages.length) return null;
 
-  const safeName = sanitizePdfFileName(
-    fileName?.toLowerCase?.().endsWith('.pdf')
-      ? fileName
-      : `${fileName || 'Daily Time Record'}.pdf`,
-  );
-
-  const frame = await createDtrFrameDocument(pages, {
-    title: title || safeName.replace(/\.pdf$/i, ''),
-  });
+  const frame = await createDtrFrameDocument(pages, { title });
   if (!frame) return null;
 
   try {
     const doc = frame.contentDocument;
     const areas = Array.from(doc.querySelectorAll('.dtr-print-area'));
-    if (!areas.length) throw new Error('No DTR pages to download.');
+    if (!areas.length) throw new Error('No DTR pages to print.');
 
     const pdf = new jsPDF({
       orientation: 'portrait',
@@ -423,12 +395,102 @@ export async function downloadDtrHtmlPages(
       pdf.addImage(imgData, 'PNG', x, y, drawW, drawH);
     }
 
-    const blob = pdf.output('blob');
-    triggerFileDownload(blob, safeName);
-    return safeName;
+    return pdf.output('blob');
   } finally {
     frame.remove();
   }
+};
+
+const printPdfBlob = (blob) => {
+  const url = URL.createObjectURL(blob);
+  const frame = document.createElement('iframe');
+  frame.setAttribute('title', 'DTR print');
+  frame.style.cssText =
+    'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+  frame.src = url;
+  document.body.appendChild(frame);
+
+  const cleanup = () => {
+    window.setTimeout(() => {
+      if (frame.isConnected) frame.remove();
+      URL.revokeObjectURL(url);
+    }, 1000);
+  };
+
+  const trigger = () => {
+    try {
+      frame.contentWindow?.focus();
+      frame.contentWindow?.print();
+    } catch (e) {
+      const tab = window.open(url, '_blank');
+      tab?.addEventListener('load', () => tab.print(), { once: true });
+    }
+    frame.contentWindow?.addEventListener('afterprint', cleanup, { once: true });
+    window.setTimeout(cleanup, 60000);
+  };
+
+  frame.onload = () => window.setTimeout(trigger, 300);
+};
+
+/**
+ * Print one or more already-rendered DTRs as HTML in an isolated document.
+ * No canvas/PDF — opens the browser print dialog.
+ */
+export async function printDtrHtmlPages(htmlPages, { title } = {}) {
+  const pages = normalizeHtmlPages(htmlPages);
+  if (!pages.length) return;
+
+  const frame = await createDtrFrameDocument(pages, { title });
+  if (!frame) return;
+
+  const removeFrame = () => {
+    window.setTimeout(() => frame.remove(), 0);
+  };
+
+  frame.contentWindow.addEventListener('afterprint', removeFrame, {
+    once: true,
+  });
+  frame.contentWindow.focus();
+  frame.contentWindow.print();
+
+  window.setTimeout(() => {
+    if (frame.isConnected) frame.remove();
+  }, 60000);
+}
+
+/**
+ * Print using the same PDF image as Download, then open the print dialog.
+ */
+export async function printDtrPdfPages(htmlPages, { title, onProgress } = {}) {
+  const blob = await renderDtrPdfBlob(htmlPages, { title, onProgress });
+  if (!blob) return;
+  printPdfBlob(blob);
+}
+
+/**
+ * Build a multi-page PDF from DTR HTML and trigger an automatic download.
+ */
+export async function downloadDtrHtmlPages(
+  htmlPages,
+  fileName,
+  { title, onProgress } = {},
+) {
+  const pages = normalizeHtmlPages(htmlPages);
+  if (!pages.length) return null;
+
+  const safeName = sanitizePdfFileName(
+    fileName?.toLowerCase?.().endsWith('.pdf')
+      ? fileName
+      : `${fileName || 'Daily Time Record'}.pdf`,
+  );
+
+  const blob = await renderDtrPdfBlob(pages, {
+    title: title || safeName.replace(/\.pdf$/i, ''),
+    onProgress,
+  });
+  if (!blob) return null;
+  triggerFileDownload(blob, safeName);
+  return safeName;
 }
 
 /** Print a single on-screen DTR element. */

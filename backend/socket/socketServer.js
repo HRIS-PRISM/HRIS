@@ -72,8 +72,13 @@ function initializeSocket(server) {
   io.on('connection', (socket) => {
     console.log(`✓ User connected: ${socket.userId} [${socket.id}]`);
 
-    // Join user-specific room based on employeeNumber
-    socket.join(socket.userId);
+    // Join user-specific room based on employeeNumber (raw + normalized)
+    socket.join(String(socket.userId || ''));
+    const { normalizeEmployeeNumber } = require('../middleware/auth');
+    const normalizedId = normalizeEmployeeNumber(socket.userId);
+    if (normalizedId && normalizedId !== String(socket.userId || '')) {
+      socket.join(normalizedId);
+    }
     console.log(`  → User ${socket.userId} joined room: ${socket.userId}`);
 
     // Optional: Join role-based room

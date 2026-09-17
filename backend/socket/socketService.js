@@ -95,12 +95,19 @@ function notifyPageAccessChanged(employeeNumber, action, pageData) {
 function notifyMultipleUsers(employeeNumbers, eventName, data) {
   try {
     const io = getIO();
-    
+    const { normalizeEmployeeNumber } = require('../middleware/auth');
+
     employeeNumbers.forEach((employeeNumber) => {
-      io.to(employeeNumber).emit(eventName, {
+      const raw = String(employeeNumber || '');
+      const normalized = normalizeEmployeeNumber(raw);
+      const payload = {
         ...data,
         timestamp: new Date().toISOString(),
-      });
+      };
+      io.to(raw).emit(eventName, payload);
+      if (normalized && normalized !== raw) {
+        io.to(normalized).emit(eventName, payload);
+      }
     });
 
     console.log(`✓ Notified ${employeeNumbers.length} users: ${eventName}`);
