@@ -88,6 +88,11 @@ import {
   useAttendanceCompactPage,
 } from './attendanceFilterLayout';
 import AttendanceEmployeeSearchField from './AttendanceEmployeeSearchField';
+import AttendancePunchStatusSidebar from './AttendancePunchStatusSidebar';
+import {
+  detectUnmountedPunches,
+  filterUnmountedIssuesByPeriod,
+} from '../../utils/unmountedPunchIssues';
 import LoadingOverlay from '../LoadingOverlay';
 import useAttendanceWorkflow from '../../hooks/useAttendanceWorkflow';
 import AttendanceWorkflowNav from './AttendanceWorkflowNav';
@@ -628,6 +633,18 @@ const DailyTimeRecordFaculty = ({
     message: '',
   });
   const [confirmModal, setConfirmModal] = useState({ open: false, user: null });
+  const [railPunchReview, setRailPunchReview] = useState({ issues: [], ready: false });
+  const railPunchReviewRef = useRef({ issues: [], ready: false });
+  railPunchReviewRef.current = railPunchReview;
+  const [reviewFocusToken, setReviewFocusToken] = useState(0);
+  const [unmountedPrintDialog, setUnmountedPrintDialog] = useState({
+    open: false,
+    issues: [],
+    pending: null,
+  });
+  const handlePunchIssuesChange = useCallback((payload) => {
+    setRailPunchReview(payload || { issues: [], ready: false });
+  }, []);
   const showAlert = (title, message) =>
     setAlertModal({ open: true, title, message });
   const closeAlert = () =>
@@ -2567,13 +2584,133 @@ const DailyTimeRecordFaculty = ({
     }
   };
 
+  const collectUnmountedIssues = async (users) => {
+    const period = getPrintPeriodDates();
+    const ids = [
+      ...new Set(
+        (users || [])
+          .map((user) => String(user?.employeeNumber || '').trim())
+          .filter(Boolean),
+      ),
+    ];
+    const nameById = new Map(
+      (users || []).map((user) => [
+        String(user?.employeeNumber || '').trim(),
+        user?.fullName ||
+          [user?.firstName, user?.lastName].filter(Boolean).join(' ') ||
+          '',
+      ]),
+    );
+    const openId = String(personID || '').trim();
+    const rail = railPunchReviewRef.current;
+    if (ids.length === 1 && ids[0] === openId && rail.ready) {
+      return filterUnmountedIssuesByPeriod(
+        rail.issues,
+        period.startDate,
+        period.endDate,
+      ).map((issue) => ({
+        ...issue,
+        employeeName: nameById.get(openId) || employeeName || openId,
+      }));
+    }
+
+    const response = await axios.post(
+      `${API_BASE_URL}/attendance/api/attendance-raw-batch`,
+      {
+        personIDs: ids,
+        startDate: period.startDate,
+        endDate: period.endDate,
+      },
+      getAuthHeaders(),
+    );
+    return filterUnmountedIssuesByPeriod(
+      detectUnmountedPunches(Array.isArray(response.data) ? response.data : []),
+      period.startDate,
+      period.endDate,
+    ).map((issue) => ({
+      ...issue,
+      employeeName:
+        nameById.get(String(issue.personID)) || String(issue.personID),
+    }));
+  };
+
+  const runPendingDtrOutput = async (pending) => {
+    if (!pending?.users?.length) return;
+    if (pending.kind === 'download') {
+      await downloadUsersDtr(pending.users);
+      return;
+    }
+    await printUsersDtr(pending.users, { markPrinted: pending.markPrinted !== false });
+  };
+
+  const guardUnmountedPrint = async (users, kind, { markPrinted = true } = {}) => {
+    if (!users?.length) return;
+    try {
+      const issues = await collectUnmountedIssues(users);
+      if (!issues.length) {
+        await runPendingDtrOutput({ users, kind, markPrinted });
+        return;
+      }
+      setUnmountedPrintDialog({
+        open: true,
+        issues,
+        pending: { users, kind, markPrinted },
+      });
+    } catch (error) {
+      console.error('Unmounted punch check failed:', error);
+      showAlert(
+        'Punch check failed',
+        'Could not verify punches that will be missing from the DTR. Printing was not started.',
+      );
+    }
+  };
+
+  const handleReviewUnmountedPunches = () => {
+    const issues = unmountedPrintDialog.issues || [];
+    setUnmountedPrintDialog({ open: false, issues: [], pending: null });
+    const ids = [...new Set(issues.map((issue) => String(issue.personID || '').trim()).filter(Boolean))];
+    if (ids.length === 1) {
+      if (ids[0] !== String(personID || '').trim()) {
+        setPersonID(ids[0]);
+        setEmployeeName(issues.find((issue) => String(issue.personID) === ids[0])?.employeeName || '');
+        setSelectedEmployee(null);
+        setHasSearchedSingle(true);
+        setViewMode('single');
+        setTimeout(() => {
+          fetchRecordsRef.current?.();
+        }, 250);
+      }
+      setReviewFocusToken((token) => token + 1);
+      return;
+    }
+    setSnackbar({
+      open: true,
+      severity: 'warning',
+      message: `${ids.length} employees have punches that will not print. Open each in individual view and correct the status on the right.`,
+    });
+  };
+
+  const handlePrintDespiteUnmounted = async () => {
+    const pending = unmountedPrintDialog.pending;
+    setUnmountedPrintDialog({ open: false, issues: [], pending: null });
+    try {
+      await runPendingDtrOutput(pending);
+    } catch (error) {
+      console.error('Error continuing DTR output:', error);
+      showAlert(
+        pending?.kind === 'download' ? 'Download Error' : 'Print Error',
+        error.message || 'Unknown error',
+      );
+    }
+  };
+
   const handleIndividualPrintConfirmed = async (user) => {
     closeConfirm();
     setPreviewUsers([user]);
     setCurrentPreviewIndex(0);
 
     try {
-      await printUsersDtr([user]);
+      await guardUnmountedPrint([user], 'print');
     } catch (error) {
       console.error('Error printing individual DTR:', error);
       showAlert('Print Error', `Error printing DTR: ${error.message}`);
@@ -2587,7 +2724,7 @@ const DailyTimeRecordFaculty = ({
     }
 
     try {
-      await printUsersDtr(previewUsers);
+      await guardUnmountedPrint(previewUsers, 'print');
     } catch (error) {
       console.error('Error printing DTRs:', error);
       showAlert('Print Error', `Error: ${error.message || 'Unknown error'}`);
@@ -2601,7 +2738,7 @@ const DailyTimeRecordFaculty = ({
     }
 
     try {
-      await downloadUsersDtr(previewUsers);
+      await guardUnmountedPrint(previewUsers, 'download');
     } catch (error) {
       console.error('Error preparing DTRs for download:', error);
       showAlert('Download Error', `Error: ${error.message || 'Unknown error'}`);
@@ -2612,7 +2749,7 @@ const DailyTimeRecordFaculty = ({
     if (!verifyIntegrity()) return;
     restoreDOMFromOriginal();
     try {
-      await printUsersDtr([getSinglePrintUser()], { markPrinted: false });
+      await guardUnmountedPrint([getSinglePrintUser()], 'print', { markPrinted: false });
     } catch (error) {
       console.error('Error printing DTR:', error);
       showAlert('Print Error', `Error printing DTR: ${error.message}`);
@@ -2623,7 +2760,7 @@ const DailyTimeRecordFaculty = ({
     if (!verifyIntegrity()) return;
     restoreDOMFromOriginal();
     try {
-      await downloadUsersDtr([getSinglePrintUser()]);
+      await guardUnmountedPrint([getSinglePrintUser()], 'download', { markPrinted: false });
     } catch (error) {
       console.error('Error preparing DTR for download:', error);
       showAlert('Download Error', `Error: ${error.message || 'Unknown error'}`);
@@ -3161,6 +3298,11 @@ const DailyTimeRecordFaculty = ({
     </Box>
   );
 
+  const unmountedBannerIssues =
+    viewMode === 'single'
+      ? filterUnmountedIssuesByPeriod(railPunchReview.issues, startDate, endDate)
+      : [];
+
   // ─── Render ────────────────────────────────────────────────────────────
   return (
     <>
@@ -3356,11 +3498,24 @@ const DailyTimeRecordFaculty = ({
                   </SectionCard>
                 </Grid>
 
-                {/* RIGHT: Content */}
+                {/* RIGHT: Content + punch-status rail */}
                 <Grid item xs={12} lg={9}>
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      gap: 2,
+                      ...attendanceMainPanelHeightSx,
+                      flexDirection: { xs: 'column', lg: 'row' },
+                      minHeight: 0,
+                      alignItems: 'stretch',
+                      overflow: 'hidden',
+                    }}
+                  >
                   <SectionCard
                     sx={{
-                      ...attendanceMainPanelHeightSx,
+                      flex: 1,
+                      minWidth: 0,
+                      minHeight: 0,
                       display: 'flex',
                       flexDirection: 'column',
                       position: 'relative',
@@ -3663,6 +3818,42 @@ const DailyTimeRecordFaculty = ({
                           >
                             No Official Time schedule for this employee/period.
                             Set official time before computation or late/undertime.
+                          </Alert>
+                        )}
+
+                        {viewMode === 'single' && unmountedBannerIssues.length > 0 && (
+                          <Alert
+                            className="no-print"
+                            severity="warning"
+                            sx={{ mx: 2, mt: 1.5, borderRadius: 2, fontSize: '0.78rem' }}
+                            action={
+                              <Button
+                                color="inherit"
+                                size="small"
+                                onClick={() => setReviewFocusToken((token) => token + 1)}
+                                sx={{ fontWeight: 700, textTransform: 'none', whiteSpace: 'nowrap' }}
+                              >
+                                Review punches
+                              </Button>
+                            }
+                          >
+                            <Typography sx={{ fontSize: '0.78rem', fontWeight: 800, mb: 0.4 }}>
+                              {unmountedBannerIssues.length} punch
+                              {unmountedBannerIssues.length === 1 ? '' : 'es'} will not print on the DTR
+                            </Typography>
+                            {unmountedBannerIssues.slice(0, 4).map((issue) => (
+                              <Typography
+                                key={issue.rowKey}
+                                sx={{ fontSize: '0.72rem', lineHeight: 1.45 }}
+                              >
+                                {issue.dateLabel} {issue.time} — {issue.reason}
+                              </Typography>
+                            ))}
+                            {unmountedBannerIssues.length > 4 && (
+                              <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, mt: 0.3 }}>
+                                and {unmountedBannerIssues.length - 4} more
+                              </Typography>
+                            )}
                           </Alert>
                         )}
 
@@ -5057,6 +5248,52 @@ const DailyTimeRecordFaculty = ({
                       </>
                     )}
                   </SectionCard>
+                  {viewMode === 'single' && (
+                    <Box
+                      className="no-print"
+                      sx={{
+                        display: 'flex',
+                        flexShrink: 0,
+                        width: { xs: '100%', lg: 332 },
+                        minHeight: 0,
+                        alignSelf: 'stretch',
+                      }}
+                    >
+                      <AttendancePunchStatusSidebar
+                        personID={personID}
+                        startDate={startDate}
+                        endDate={endDate}
+                        enabled={Boolean(
+                          hasSearchedSingle && personID && startDate && endDate,
+                        )}
+                        targetUsername={
+                          selectedEmployee?.username || employeeName || personID || ''
+                        }
+                        monthLabel={
+                          selectedMonth != null
+                            ? `${monthsShort[selectedMonth]} ${selectedYear}`
+                            : startDate && endDate
+                              ? `${startDate} – ${endDate}`
+                              : ''
+                        }
+                        onIssuesChange={handlePunchIssuesChange}
+                        reviewFocusToken={reviewFocusToken}
+                        onStatusUpdated={(info) => {
+                          setSnackbar({
+                            open: true,
+                            message: info?.label
+                              ? `Status updated to ${info.label}. Daily record will rebuild.`
+                              : 'Punch status updated',
+                            severity: 'success',
+                          });
+                          if (personID && startDate && endDate && hasSearchedSingle) {
+                            fetchRecordsRef.current?.();
+                          }
+                        }}
+                      />
+                    </Box>
+                  )}
+                  </Box>
                 </Grid>
               </Grid>
             </Box>
@@ -5400,6 +5637,93 @@ const DailyTimeRecordFaculty = ({
                   }}
                 >
                   OK
+                </AccentButton>
+              </Box>
+            </Dialog>
+
+            {/* ── Punches that will not print ── */}
+            <Dialog
+              open={unmountedPrintDialog.open}
+              onClose={() =>
+                setUnmountedPrintDialog({ open: false, issues: [], pending: null })
+              }
+              maxWidth="sm"
+              fullWidth
+              className="no-print"
+              PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden' } }}
+            >
+              <Box
+                sx={{
+                  px: 2.5,
+                  py: 2,
+                  bgcolor: '#fdf5f5',
+                  borderBottom: `1px solid ${T.divider}`,
+                }}
+              >
+                <Typography sx={{ fontSize: '1rem', fontWeight: 800, color: T.text }}>
+                  {unmountedPrintDialog.issues.length} punch
+                  {unmountedPrintDialog.issues.length === 1 ? '' : 'es'} will not print
+                </Typography>
+                <Typography sx={{ fontSize: '0.78rem', color: T.muted, mt: 0.5, lineHeight: 1.45 }}>
+                  These taps are Uncategorized or an extra click of the same status, so the DTR cell stays blank. Correct them in the punch list. Nothing is changed automatically.
+                </Typography>
+              </Box>
+              <DialogContent sx={{ px: 2.5, py: 1.5, maxHeight: 360 }}>
+                {(unmountedPrintDialog.issues || []).slice(0, 8).map((issue) => (
+                  <Box
+                    key={`${issue.personID}-${issue.rowKey}`}
+                    sx={{
+                      py: 1,
+                      borderBottom: `1px solid ${T.divider}`,
+                    }}
+                  >
+                    <Typography sx={{ fontSize: '0.78rem', fontWeight: 700, color: T.text }}>
+                      {issue.employeeName || issue.personID} · {issue.dateLabel} {issue.time}
+                    </Typography>
+                    <Typography sx={{ fontSize: '0.72rem', color: T.muted, mt: 0.25 }}>
+                      {issue.statusLabel} — {issue.reason}
+                    </Typography>
+                  </Box>
+                ))}
+                {unmountedPrintDialog.issues.length > 8 && (
+                  <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: T.muted, mt: 1 }}>
+                    and {unmountedPrintDialog.issues.length - 8} more
+                  </Typography>
+                )}
+              </DialogContent>
+              <Box
+                sx={{
+                  px: 2.5,
+                  py: 1.75,
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                  gap: 1,
+                  borderTop: `1px solid ${T.divider}`,
+                }}
+              >
+                <AccentButton
+                  variant="outlined"
+                  onClick={handleReviewUnmountedPunches}
+                  sx={{
+                    borderColor: T.accentBorder,
+                    color: T.accent,
+                    '&:hover': { bgcolor: T.accentFaint, borderColor: T.accent },
+                  }}
+                >
+                  Review punches
+                </AccentButton>
+                <AccentButton
+                  variant="contained"
+                  onClick={handlePrintDespiteUnmounted}
+                  sx={{
+                    bgcolor: T.accent,
+                    color: '#fff',
+                    '&:hover': { bgcolor: T.accentDark },
+                  }}
+                >
+                  {unmountedPrintDialog.pending?.kind === 'download'
+                    ? 'Download anyway'
+                    : 'Print anyway'}
                 </AccentButton>
               </Box>
             </Dialog>

@@ -28,6 +28,10 @@ import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import useAttendanceRealtimeRefresh from '../../hooks/useAttendanceRealtimeRefresh';
 import { logAttendanceStateChange } from '../../utils/moduleEmployeeSearchAudit';
+import {
+  detectUnmountedPunches,
+  indexUnmountedIssues,
+} from '../../utils/unmountedPunchIssues';
 
 const T = {
   accent: '#6d2323',
@@ -145,7 +149,7 @@ const recordSortTimestamp = (record) => {
 };
 
 const enrichAttendanceRecords = (rows) =>
-  rows.map((record) => {
+  rows.map((record, index) => {
     const iso = toISODateFromRecord(record?.Date);
     const dateForLabel = iso ? new Date(`${iso}T12:00:00`) : null;
     const dateLabel =
@@ -161,7 +165,7 @@ const enrichAttendanceRecords = (rows) =>
       _isoDate: iso,
       _sortTs: recordSortTimestamp(record),
       _dateLabel: dateLabel,
-      _rowKey: `${record?.AttendanceDateTime ?? record?.PersonID ?? ''}|${record?.Date ?? ''}|${record?.Time ?? ''}`,
+      _rowKey: `${record?.AttendanceDateTime ?? ''}|${record?.Date ?? ''}|${record?.Time ?? ''}|${index}`,
     };
   });
 
@@ -240,6 +244,8 @@ const AttendancePunchStatusSidebar = ({
   targetUsername = '',
   monthLabel = '',
   onStatusUpdated,
+  onIssuesChange,
+  reviewFocusToken = 0,
 }) => {
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -252,6 +258,8 @@ const AttendancePunchStatusSidebar = ({
   const [rangeEnd, setRangeEnd] = useState(null);
   const requestControllerRef = useRef(null);
   const fetchRef = useRef(null);
+  const autoReviewRef = useRef(true);
+  const onIssuesChangeRef = useRef(onIssuesChange);
 
   const fetchPunches = useCallback(
     async (showLoading = true) => {
@@ -312,10 +320,16 @@ const AttendancePunchStatusSidebar = ({
   }, [fetchPunches]);
 
   useEffect(() => {
+    autoReviewRef.current = true;
     setStatusFilter('all');
     setRangeStart(startDate ? dayjs(startDate) : null);
     setRangeEnd(endDate ? dayjs(endDate) : null);
   }, [personID, startDate, endDate]);
+
+  useEffect(() => {
+    if (!reviewFocusToken) return;
+    setStatusFilter('review');
+  }, [reviewFocusToken]);
 
   useAttendanceRealtimeRefresh(
     useCallback(() => {
@@ -332,10 +346,48 @@ const AttendancePunchStatusSidebar = ({
     },
   );
 
+  const unmountedIssues = useMemo(() => detectUnmountedPunches(records), [records]);
+  const highlightedRowKeys = useMemo(() => {
+    const keys = new Set();
+    const seen = new Set();
+    unmountedIssues.forEach((issue) => {
+      const fingerprint = `${issue.date}|${issue.time}|${issue.state}|${issue.reason}`;
+      if (seen.has(fingerprint) || !issue.rowKey) return;
+      seen.add(fingerprint);
+      keys.add(issue.rowKey);
+    });
+    return keys;
+  }, [unmountedIssues]);
+  const issueByKey = useMemo(() => {
+    const map = indexUnmountedIssues(unmountedIssues);
+    [...map.keys()].forEach((key) => {
+      if (!highlightedRowKeys.has(key)) map.delete(key);
+    });
+    return map;
+  }, [unmountedIssues, highlightedRowKeys]);
+
+  useEffect(() => {
+    onIssuesChangeRef.current = onIssuesChange;
+  }, [onIssuesChange]);
+
+  useEffect(() => {
+    const reviewIssues = unmountedIssues.filter((issue) => highlightedRowKeys.has(issue.rowKey));
+    onIssuesChangeRef.current?.({
+      issues: enabled ? reviewIssues : [],
+      ready: Boolean(enabled && !loading),
+    });
+  }, [enabled, loading, unmountedIssues, highlightedRowKeys]);
+
+  useEffect(() => {
+    if (!autoReviewRef.current || loading || !enabled) return;
+    autoReviewRef.current = false;
+    if (unmountedIssues.length) setStatusFilter('review');
+  }, [enabled, loading, unmountedIssues]);
+
   const periodStart = startDate ? dayjs(startDate) : null;
   const periodEnd = endDate ? dayjs(endDate) : null;
   const filtersActive =
-    statusFilter !== 'all' ||
+    (statusFilter !== 'all' && statusFilter !== 'review') ||
     (rangeStart?.isValid() && startDate && rangeStart.format('YYYY-MM-DD') !== startDate) ||
     (rangeEnd?.isValid() && endDate && rangeEnd.format('YYYY-MM-DD') !== endDate);
 
@@ -344,7 +396,14 @@ const AttendancePunchStatusSidebar = ({
     const toIso = rangeEnd?.isValid() ? rangeEnd.format('YYYY-MM-DD') : '';
     return records
       .filter((record) => {
-        if (statusFilter !== 'all' && Number(record.AttendanceState || 0) !== Number(statusFilter)) {
+        if (statusFilter === 'review' && !highlightedRowKeys.has(record._rowKey)) {
+          return false;
+        }
+        if (
+          statusFilter !== 'all' &&
+          statusFilter !== 'review' &&
+          Number(record.AttendanceState || 0) !== Number(statusFilter)
+        ) {
           return false;
         }
         if (fromIso && record._isoDate && record._isoDate < fromIso) return false;
@@ -355,7 +414,7 @@ const AttendancePunchStatusSidebar = ({
         const diff = (a._sortTs ?? 0) - (b._sortTs ?? 0);
         return sortOrder === 'asc' ? diff : -diff;
       });
-  }, [records, sortOrder, statusFilter, rangeStart, rangeEnd]);
+  }, [records, sortOrder, statusFilter, rangeStart, rangeEnd, issueByKey, highlightedRowKeys]);
 
   const handleStatusMenuOpen = (event, record) => {
     event.stopPropagation();
@@ -500,6 +559,9 @@ const AttendancePunchStatusSidebar = ({
                   '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: T.accent },
                 }}
               >
+                <MenuItem value="review" sx={{ fontSize: '0.74rem', fontWeight: 700 }}>
+                  Needs review{unmountedIssues.length ? ` (${unmountedIssues.length})` : ''}
+                </MenuItem>
                 <MenuItem value="all" sx={{ fontSize: '0.74rem' }}>
                   All statuses
                 </MenuItem>
@@ -685,65 +747,97 @@ const AttendancePunchStatusSidebar = ({
         ) : filteredRecords.length === 0 ? (
           <Box sx={{ py: 7, px: 2, textAlign: 'center' }}>
             <Typography sx={{ fontSize: '0.8rem', fontWeight: 600, color: T.muted, mb: 0.4 }}>
-              {records.length > 0 ? 'No punches match' : 'No punches found'}
+              {statusFilter === 'review' && records.length > 0
+                ? 'No punches need review'
+                : records.length > 0
+                  ? 'No punches match'
+                  : 'No punches found'}
             </Typography>
             <Typography sx={{ fontSize: '0.7rem', color: T.faint }}>
-              {records.length > 0
-                ? 'Try another status or date range.'
-                : error || 'No device punches in this period.'}
+              {statusFilter === 'review' && records.length > 0
+                ? 'Every tap in this period will print on the DTR.'
+                : records.length > 0
+                  ? 'Try another status or date range.'
+                  : error || 'No device punches in this period.'}
             </Typography>
           </Box>
         ) : (
           filteredRecords.map((record, index) => {
             const state = record.AttendanceState;
             const canEdit = Boolean(record.AttendanceDateTime);
+            const issue = highlightedRowKeys.has(record._rowKey)
+              ? issueByKey.get(record._rowKey)
+              : null;
             return (
               <Box
-                key={record._rowKey || index}
+                key={`${record._rowKey}-${index}`}
                 sx={{
-                  display: 'grid',
-                  gridTemplateColumns: '1.25fr 0.85fr 1.15fr',
                   px: 1.25,
-                  py: 0.85,
-                  gap: 0.75,
-                  alignItems: 'center',
-                  bgcolor: index % 2 === 0 ? '#fff' : T.rowOdd,
+                  py: 0.75,
+                  bgcolor: issue
+                    ? alpha('#c62828', 0.06)
+                    : index % 2 === 0
+                      ? '#fff'
+                      : T.rowOdd,
                   borderBottom: `1px solid ${T.divider}`,
-                  '&:hover': { bgcolor: T.rowHover },
+                  borderLeft: issue ? '3px solid #c62828' : '3px solid transparent',
+                  '&:hover': { bgcolor: issue ? alpha('#c62828', 0.1) : T.rowHover },
                 }}
               >
-                <Typography
+                <Box
                   sx={{
-                    fontWeight: 600,
-                    fontSize: '0.7rem',
-                    color: T.text,
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
+                    display: 'grid',
+                    gridTemplateColumns: '1.25fr 0.85fr 1.15fr',
+                    gap: 0.75,
+                    alignItems: 'center',
                   }}
                 >
-                  {record._dateLabel}
-                </Typography>
-                <Typography
-                  sx={{
-                    fontSize: '0.68rem',
-                    color: T.muted,
-                    fontWeight: 500,
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                  }}
-                >
-                  {record.Time}
-                </Typography>
-                <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
-                  <AttendanceStatusChip
-                    value={state}
-                    saving={savingStatusKey === record._rowKey}
-                    editable={canEdit}
-                    onOpenMenu={(e) => handleStatusMenuOpen(e, record)}
-                  />
+                  <Typography
+                    sx={{
+                      fontWeight: 600,
+                      fontSize: '0.7rem',
+                      color: T.text,
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}
+                  >
+                    {record._dateLabel}
+                  </Typography>
+                  <Typography
+                    sx={{
+                      fontSize: '0.68rem',
+                      color: T.muted,
+                      fontWeight: 500,
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    }}
+                  >
+                    {record.Time}
+                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
+                    <AttendanceStatusChip
+                      value={state}
+                      saving={savingStatusKey === record._rowKey}
+                      editable={canEdit}
+                      onOpenMenu={(e) => handleStatusMenuOpen(e, record)}
+                    />
+                  </Box>
                 </Box>
+                {issue && (
+                  <Typography
+                    sx={{
+                      mt: 0.35,
+                      fontSize: '0.6rem',
+                      fontWeight: 700,
+                      color: '#c62828',
+                      lineHeight: 1.35,
+                    }}
+                  >
+                    {issue.reason}
+                  </Typography>
+                )}
               </Box>
             );
           })
@@ -768,7 +862,7 @@ const AttendancePunchStatusSidebar = ({
         }}
       >
         <Typography sx={{ fontSize: '0.64rem', color: T.faint, lineHeight: 1.4 }}>
-          Click a status chip to change punch type. The daily record rebuilds after you save.
+          Highlighted rows will not print on the DTR. Click a status chip to correct them — the daily record rebuilds after you save.
         </Typography>
       </Box>
 

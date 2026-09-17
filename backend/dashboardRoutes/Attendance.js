@@ -763,6 +763,59 @@
     });
   });
 
+  // Raw device taps for several employees, so print can flag punches that will not mount.
+  router.post('/api/attendance-raw-batch', authenticateToken, (req, res) => {
+    const personIDs = [...new Set(
+      (Array.isArray(req.body?.personIDs) ? req.body.personIDs : [])
+        .map((id) => String(id ?? '').trim())
+        .filter(Boolean),
+    )].slice(0, 50);
+    const startDate = String(req.body?.startDate || '').slice(0, 10);
+    const endDate = String(req.body?.endDate || '').slice(0, 10);
+
+    if (!personIDs.length || !startDate || !endDate) {
+      return res.status(400).json({ error: 'personIDs, startDate, and endDate are required' });
+    }
+
+    const { startTimestamp, endTimestamp } = manilaDayRangeMs(startDate, endDate);
+    const placeholders = personIDs.map(() => '?').join(',');
+    const query = `
+      SELECT PersonID, AttendanceDateTime, AttendanceState
+      FROM AttendanceRecordInfo
+      WHERE TRIM(CAST(PersonID AS CHAR)) IN (${placeholders})
+        AND AttendanceDateTime BETWEEN ? AND ?
+    `;
+
+    db.query(query, [...personIDs, startTimestamp, endTimestamp], (err, results) => {
+      if (err) {
+        console.error('attendance-raw-batch error:', err.message || err);
+        return res.status(500).json({ error: err.message || 'Failed to fetch punch records' });
+      }
+
+      const records = (results || []).map((record) => {
+        const date = new Date(record.AttendanceDateTime);
+        const manilaDate = date.toLocaleString('en-PH', {
+          timeZone: 'Asia/Manila',
+          year: 'numeric',
+          month: 'numeric',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: 'numeric',
+          second: 'numeric',
+        });
+        return {
+          PersonID: record.PersonID,
+          Date: manilaDate.split(',')[0],
+          Time: manilaDate.split(',')[1]?.trim() || '',
+          AttendanceState: record.AttendanceState,
+          AttendanceDateTime: record.AttendanceDateTime,
+        };
+      });
+
+      res.json(records);
+    });
+  });
+
   // Send to DTR Module endpoint
   router.post('/api/send-to-dtr', authenticateToken, async (req, res) => {
     const { personID, startDate, endDate } = req.body;
