@@ -1180,6 +1180,11 @@ const DailyTimeRecordFaculty = ({
     [],
   );
 
+  const autoLateAttemptedRef = useRef(new Set());
+  const lateLoadSettledRef = useRef('');
+  const computedLateRef = useRef({});
+  const applyingLateRef = useRef(false);
+
   const loadComputedLateForEmployee = useCallback(
     async (employeeNumber) => {
       if (!employeeNumber || !startDate || !endDate) return;
@@ -1190,7 +1195,19 @@ const DailyTimeRecordFaculty = ({
         computation_module_type,
       } = await fetchDailyLateUndertime(employeeNumber, startDate, endDate);
       const key = String(employeeNumber);
-      setComputedLateByEmployee((prev) => ({ ...prev, [key]: byDate }));
+      const incoming = byDate || {};
+      const existing = computedLateRef.current[key];
+      if (
+        Object.keys(incoming).length === 0 &&
+        existing &&
+        Object.keys(existing).length > 0
+      ) {
+        lateLoadSettledRef.current = `${key}|${startDate}|${endDate}`;
+        return;
+      }
+      computedLateRef.current = { ...computedLateRef.current, [key]: incoming };
+      lateLoadSettledRef.current = `${key}|${startDate}|${endDate}`;
+      setComputedLateByEmployee((prev) => ({ ...prev, [key]: incoming }));
       setHalfDayDatesByEmployee((prev) => ({
         ...prev,
         [key]: parseHalfDayDatesSet(halfDayDates),
@@ -1212,8 +1229,6 @@ const DailyTimeRecordFaculty = ({
     [startDate, endDate],
   );
 
-  const autoLateAttemptedRef = useRef(new Set());
-
   const applyLateFromEmploymentCategory = useCallback(
     async (employeeNumber) => {
       if (!employeeNumber || !startDate || !endDate || dtrType !== 'regular') return;
@@ -1224,6 +1239,7 @@ const DailyTimeRecordFaculty = ({
       const moduleType = resolveAttendanceModuleFromEmployment(meta);
       if (!moduleType) return;
       autoLateAttemptedRef.current.add(attemptKey);
+      applyingLateRef.current = true;
       try {
         const applied = await computeAndApplyModuleLateUndertime({
           personID: key,
@@ -1232,6 +1248,7 @@ const DailyTimeRecordFaculty = ({
           moduleType,
         });
         if (!applied?.byDate) return;
+        computedLateRef.current = { ...computedLateRef.current, [key]: applied.byDate };
         setComputedLateByEmployee((prev) => ({ ...prev, [key]: applied.byDate }));
         setHalfDayDatesByEmployee((prev) => ({
           ...prev,
@@ -1252,6 +1269,8 @@ const DailyTimeRecordFaculty = ({
           'Could not fill DTR late/undertime from employment category:',
           err?.message || err,
         );
+      } finally {
+        applyingLateRef.current = false;
       }
     },
     [startDate, endDate, dtrType, empCatMap],
@@ -1262,6 +1281,7 @@ const DailyTimeRecordFaculty = ({
       return;
     }
     const key = String(personID);
+    if (lateLoadSettledRef.current !== `${key}|${startDate}|${endDate}`) return;
     const byDate = computedLateByEmployee[key];
     if (byDate && Object.keys(byDate).length > 0) return;
     if (!empCatMap[key]) return;
@@ -1647,6 +1667,7 @@ const DailyTimeRecordFaculty = ({
       setSummaryRefreshKey((k) => k + 1);
     };
     const handleComputedLateUpdated = () => {
+      if (applyingLateRef.current) return;
       if (!personID || !startDate || !endDate) return;
       loadComputedLateForEmployeeRef.current?.(personID);
       setSummaryRefreshKey((k) => k + 1);
