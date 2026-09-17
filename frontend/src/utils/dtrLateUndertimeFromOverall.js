@@ -127,7 +127,23 @@ export const formatLateUndertimeDisplay = (value) => {
     if (h === 0 && m === 0) return '';
   }
 
-  return stripSecondsFromDuration(s);
+  const stripped = stripSecondsFromDuration(s);
+  return /^\d{1,3}:\d{2}$/.test(stripped) ? stripped.replace(/^0+(\d)/, '$1') : '';
+};
+
+/** Late + undertime as one H:MM value. Clock times are ignored. */
+export const combineDtrLateUndertime = (lateDisplay, undertimeDisplay) => {
+  const toMinutes = (value) => {
+    const s = formatLateUndertimeDisplay(value);
+    const m = s.match(/^(\d{1,3}):(\d{2})$/);
+    if (!m) return 0;
+    return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+  };
+  const total = toMinutes(lateDisplay) + toMinutes(undertimeDisplay);
+  if (total <= 0) return '';
+  const hours = Math.floor(total / 60);
+  const minutes = total % 60;
+  return `${hours}:${String(minutes).padStart(2, '0')}`;
 };
 
 /**
@@ -154,6 +170,18 @@ export const resolveDtrLateUndertimeDisplay = ({
   return {
     lateDisplay: hideLate ? '' : lateFmt,
     undertimeDisplay: hideUt ? '' : undertimeFmt,
+  };
+};
+
+/** Split a formatted Late / Undertime value into the Hrs | Mins pair on the DTR. */
+export const splitDtrDurationHm = (value) => {
+  const s = formatLateUndertimeDisplay(value);
+  if (!s) return null;
+  const m = s.match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return { hours: s, minutes: '' };
+  return {
+    hours: String(parseInt(m[1], 10)),
+    minutes: m[2],
   };
 };
 

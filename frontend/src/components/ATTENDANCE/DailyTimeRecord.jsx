@@ -47,6 +47,7 @@
     DTR_COMPUTED_LATE_UPDATE_EVENT,
     DTR_COMPUTED_LATE_STORAGE_KEY,
   } from '../../utils/dtrLateUndertimeFromOverall';
+  import { personnelScopeFromEmployment } from '../../utils/earningsEmpCatRules';
   import {
     buildReviewByDate,
     parseHalfDayReviewJson,
@@ -129,24 +130,10 @@
     return null;
   };
 
-  /**
-   * Employment category → personnel_scope when computation_module_type is not
-   * yet loaded for this employee/period.
-   * 3 = Teaching 30hrs, 4 = Designated 40hrs → academic;
-   * 0/1 JO + 2 Regular Non-Teaching → non_teaching.
-   */
-  const scopeForEmploymentCategory = (cat) => {
-    if (cat == null || cat === '') return null;
-    const n = Number(cat);
-    if (n === 3 || n === 4) return 'academic';
-    if (n === 0 || n === 1 || n === 2) return 'non_teaching';
-    return null;
-  };
-
   const resolveEmployeeSuspensionScope = (moduleType, employmentCategory) => {
     const fromMod = scopeForModuleType(moduleType);
     if (fromMod) return fromMod;
-    return scopeForEmploymentCategory(employmentCategory);
+    return personnelScopeFromEmployment(employmentCategory);
   };
 
   // ─── DESIGN TOKENS (unified with DailyTimeRecordFaculty / Payslip) ───────────
@@ -595,11 +582,22 @@
         const match = rows.find(
           (item) => String(item.employeeNumber) === String(empID),
         );
-        const cat =
-          match?.employmentCategory != null && match.employmentCategory !== ''
-            ? Number(match.employmentCategory)
-            : null;
-        setEmploymentCategory(Number.isFinite(cat) ? cat : null);
+        setEmploymentCategory(
+          match
+            ? {
+                employmentCategory:
+                  match.employmentCategory != null && match.employmentCategory !== ''
+                    ? Number(match.employmentCategory)
+                    : null,
+                parentGroup: match.parentGroup || '',
+                typeName: match.typeName || '',
+                label:
+                  match.parentGroup && match.typeName
+                    ? `${match.parentGroup} | ${match.typeName}`
+                    : match.categoryLabel || '',
+              }
+            : null,
+        );
       } catch (err) {
         console.error('Error fetching employee category:', err);
         setEmploymentCategory(null);

@@ -20,6 +20,35 @@ export const DTR_NON_WORKING_DAY_LABEL = 'NON-WORKING DAY';
 
 export const DTR_ABSENT_LABEL = 'ABSENT';
 
+/**
+ * On-form marks admins can show or hide. Display only — late / undertime
+ * math is unchanged. `key` matches indicator.type where that exists.
+ */
+export const DTR_INDICATOR_OPTIONS = [
+  { key: 'absent', label: 'Absent', color: '#b71c1c', bg: 'rgba(183, 28, 28, 0.2)' },
+  { key: 'nonWorkingDay', label: 'Non-working day', color: '#757575', bg: 'rgba(128, 128, 128, 0.18)' },
+  { key: 'weekdayBanner', label: 'Unscheduled weekday', color: '#9e9e9e', bg: 'rgba(128, 128, 128, 0.12)' },
+  { key: 'halfDay', label: 'Half day', color: '#6a1b9a', bg: 'rgba(106, 27, 154, 0.2)' },
+  { key: 'notHalfDay', label: 'Not half day', color: '#6d2323', bg: 'rgba(109, 35, 35, 0.15)' },
+  { key: 'holiday', label: 'Holiday', color: '#ed6c02', bg: 'rgba(237,108,2,0.25)' },
+  { key: 'leave', label: 'On leave', color: '#2e7d32', bg: 'rgba(46,125,50,0.2)' },
+  { key: 'suspension', label: 'Suspension', color: '#d32f2f', bg: 'rgba(211,47,47,0.2)' },
+];
+
+export const defaultDtrIndicatorVisibility = () =>
+  Object.fromEntries(DTR_INDICATOR_OPTIONS.map((opt) => [opt.key, true]));
+
+/** Missing map means all marks stay on (pages that do not pass the setting). */
+export const isDtrIndicatorEnabled = (visibility, key) =>
+  visibility == null || visibility[key] !== false;
+
+/** Drop a holiday / leave / suspension banner when that mark is turned off. */
+export const visibleDtrDateIndicator = (indicator, visibility) => {
+  if (!indicator?.type) return indicator || null;
+  if (!isDtrIndicatorEnabled(visibility, indicator.type)) return null;
+  return indicator;
+};
+
 export const DTR_CELL_WATERMARK_LABELS = [
   'HOLIDAY',
   'ON LEAVE',

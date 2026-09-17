@@ -11,6 +11,7 @@ import {
   Card,
   styled,
   FormControl,
+  IconButton,
   Select,
 } from '@mui/material';
 import {
@@ -19,6 +20,8 @@ import {
   Cancel,
   CheckCircle,
   KeyboardArrowDown,
+  KeyboardArrowLeft,
+  KeyboardArrowRight,
   KeyboardArrowUp,
   Person,
 } from '@mui/icons-material';
@@ -67,6 +70,8 @@ const SidebarCard = styled(Card)({
   overflow: 'hidden',
   background: '#fff',
 });
+
+const PUNCH_PAGE_SIZE = 25;
 
 const ATTENDANCE_STATE_OPTIONS = [
   { value: 1, label: 'Time IN' },
@@ -256,9 +261,10 @@ const AttendancePunchStatusSidebar = ({
   const [statusFilter, setStatusFilter] = useState('all');
   const [rangeStart, setRangeStart] = useState(null);
   const [rangeEnd, setRangeEnd] = useState(null);
+  const [page, setPage] = useState(0);
   const requestControllerRef = useRef(null);
   const fetchRef = useRef(null);
-  const autoReviewRef = useRef(true);
+  const listRef = useRef(null);
   const onIssuesChangeRef = useRef(onIssuesChange);
 
   const fetchPunches = useCallback(
@@ -320,16 +326,14 @@ const AttendancePunchStatusSidebar = ({
   }, [fetchPunches]);
 
   useEffect(() => {
-    autoReviewRef.current = true;
     setStatusFilter('all');
     setRangeStart(startDate ? dayjs(startDate) : null);
     setRangeEnd(endDate ? dayjs(endDate) : null);
   }, [personID, startDate, endDate]);
 
   useEffect(() => {
-    if (!reviewFocusToken) return;
-    setStatusFilter('review');
-  }, [reviewFocusToken]);
+    if (listRef.current) listRef.current.scrollTop = 0;
+  }, [personID, startDate, endDate, reviewFocusToken, page]);
 
   useAttendanceRealtimeRefresh(
     useCallback(() => {
@@ -378,12 +382,6 @@ const AttendancePunchStatusSidebar = ({
     });
   }, [enabled, loading, unmountedIssues, highlightedRowKeys]);
 
-  useEffect(() => {
-    if (!autoReviewRef.current || loading || !enabled) return;
-    autoReviewRef.current = false;
-    if (unmountedIssues.length) setStatusFilter('review');
-  }, [enabled, loading, unmountedIssues]);
-
   const periodStart = startDate ? dayjs(startDate) : null;
   const periodEnd = endDate ? dayjs(endDate) : null;
   const filtersActive =
@@ -411,10 +409,29 @@ const AttendancePunchStatusSidebar = ({
         return true;
       })
       .sort((a, b) => {
+        const aNeedsReview = highlightedRowKeys.has(a._rowKey) ? 0 : 1;
+        const bNeedsReview = highlightedRowKeys.has(b._rowKey) ? 0 : 1;
+        if (aNeedsReview !== bNeedsReview) return aNeedsReview - bNeedsReview;
         const diff = (a._sortTs ?? 0) - (b._sortTs ?? 0);
         return sortOrder === 'asc' ? diff : -diff;
       });
   }, [records, sortOrder, statusFilter, rangeStart, rangeEnd, issueByKey, highlightedRowKeys]);
+
+  const pageCount = Math.max(1, Math.ceil(filteredRecords.length / PUNCH_PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const pageStart = safePage * PUNCH_PAGE_SIZE;
+  const pageRecords = useMemo(
+    () => filteredRecords.slice(pageStart, pageStart + PUNCH_PAGE_SIZE),
+    [filteredRecords, pageStart],
+  );
+
+  useEffect(() => {
+    setPage(0);
+  }, [personID, startDate, endDate, statusFilter, rangeStart, rangeEnd, sortOrder, reviewFocusToken]);
+
+  useEffect(() => {
+    if (page > pageCount - 1) setPage(Math.max(0, pageCount - 1));
+  }, [page, pageCount]);
 
   const handleStatusMenuOpen = (event, record) => {
     event.stopPropagation();
@@ -707,6 +724,7 @@ const AttendancePunchStatusSidebar = ({
       </Box>
 
       <Box
+        ref={listRef}
         sx={{
           flex: 1,
           minHeight: 0,
@@ -765,7 +783,7 @@ const AttendancePunchStatusSidebar = ({
             </Typography>
           </Box>
         ) : (
-          filteredRecords.map((record, index) => {
+          pageRecords.map((record, index) => {
             const state = record.AttendanceState;
             const canEdit = Boolean(record.AttendanceDateTime);
             const issue = highlightedRowKeys.has(record._rowKey)
@@ -779,7 +797,7 @@ const AttendancePunchStatusSidebar = ({
                   py: 0.75,
                   bgcolor: issue
                     ? alpha('#c62828', 0.06)
-                    : index % 2 === 0
+                    : (pageStart + index) % 2 === 0
                       ? '#fff'
                       : T.rowOdd,
                   borderBottom: `1px solid ${T.divider}`,
@@ -855,6 +873,52 @@ const AttendancePunchStatusSidebar = ({
         </Box>
       )}
 
+      {enabled && filteredRecords.length > 0 && (
+        <Box
+          sx={{
+            px: 0.5,
+            py: 0.35,
+            borderTop: `1px solid ${T.divider}`,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 0.5,
+            flexShrink: 0,
+            bgcolor: '#fff',
+          }}
+        >
+          <IconButton
+            size="small"
+            aria-label="Previous punches"
+            disabled={safePage === 0}
+            onClick={() => setPage((current) => Math.max(0, current - 1))}
+            sx={{ color: T.accent, '&.Mui-disabled': { color: T.faint } }}
+          >
+            <KeyboardArrowLeft sx={{ fontSize: 18 }} />
+          </IconButton>
+          <Typography
+            sx={{
+              fontSize: '0.64rem',
+              fontWeight: 700,
+              color: T.muted,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {pageStart + 1}–{Math.min(pageStart + PUNCH_PAGE_SIZE, filteredRecords.length)} of{' '}
+            {filteredRecords.length}
+          </Typography>
+          <IconButton
+            size="small"
+            aria-label="Next punches"
+            disabled={safePage >= pageCount - 1}
+            onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))}
+            sx={{ color: T.accent, '&.Mui-disabled': { color: T.faint } }}
+          >
+            <KeyboardArrowRight sx={{ fontSize: 18 }} />
+          </IconButton>
+        </Box>
+      )}
+
       <Box
         sx={{
           px: 1.5,
@@ -865,7 +929,7 @@ const AttendancePunchStatusSidebar = ({
         }}
       >
         <Typography sx={{ fontSize: '0.64rem', color: T.faint, lineHeight: 1.4 }}>
-          Highlighted rows will not print on the DTR. Click a status chip to correct them — the daily record rebuilds after you save.
+          Punches that need review stay at the top and stay highlighted. Click a status chip to correct them — the daily record rebuilds after you save.
         </Typography>
       </Box>
 

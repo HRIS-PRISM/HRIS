@@ -5,6 +5,7 @@ import {
   isDtrDateScheduledByOfficialTime,
   isDtrHalfDayLateUndertimePending,
 } from '../../utils/dtrLateUndertimeFromOverall';
+import { personnelScopeFromEmployment } from '../../utils/earningsEmpCatRules';
 import {
   MODULE_TYPES,
   getRowHalfDayUiStatus,
@@ -23,6 +24,8 @@ import {
   DTR_ABSENT_LABEL,
   isDtrNonWorkingDayRow,
   getDtrUnscheduledWeekdayBanner,
+  isDtrIndicatorEnabled,
+  visibleDtrDateIndicator,
   formatDtrLeaveLabel,
   findApprovedLeaveForDate,
   isDtrCalendarBannerRow,
@@ -252,13 +255,10 @@ const scopeForModuleType = (mod) => {
   return null;
 };
 
-const scopeForEmploymentCategory = (cat) => {
-  if (cat == null || cat === '') return null;
-  const n = Number(cat);
-  if (n === 3 || n === 4) return 'academic';
-  if (n === 0 || n === 1 || n === 2) return 'non_teaching';
-  return null;
-};
+const scopeForEmploymentCategory = (cat) =>
+  personnelScopeFromEmployment(
+    cat != null && typeof cat === 'object' ? cat : null,
+  );
 
 const suspensionAppliesToScope = (susp, employeeScope) => {
   if (!susp) return false;
@@ -306,6 +306,8 @@ export default function DTRTemplate({
   records = [],
   officialTime = {},
   showOfficialTimeOnDtr = false,
+  /** Which on-form marks to paint. Omit to keep every indicator on. */
+  indicatorVisibility = null,
   startDate = '',
   endDate = '',
   selectedYear,
@@ -434,7 +436,7 @@ export default function DTRTemplate({
     return null;
   };
 
-  const needsWideDayCol = (() => {
+  const needsWideDayCol = isDtrIndicatorEnabled(indicatorVisibility, 'suspension') && (() => {
     for (let i = 0; i < daysInSelectedMonth; i++) {
       const day = String(i + 1).padStart(2, '0');
       const ymd = expectedYmdForDay(
@@ -1119,23 +1121,44 @@ export default function DTRTemplate({
           : null;
       const halfDayIndicator = halfUi ? getDtrHalfDayIndicator(halfUi) : null;
       const absentIndicator = rowIsAbsent ? getDtrAbsentIndicator() : null;
-      const indicator = isPartialSuspensionRow
+      // Display filter only. Punch times and late/undertime still use the
+      // original calendar / absent / half-day facts above.
+      const displayDateIndicator = visibleDtrDateIndicator(
+        dateIndicator,
+        indicatorVisibility,
+      );
+      const displayAbsent = isDtrIndicatorEnabled(indicatorVisibility, 'absent')
+        ? absentIndicator
+        : null;
+      const displayHalf = (() => {
+        if (!halfDayIndicator) return null;
+        const key =
+          halfDayIndicator.type === 'halfDayRejected' ? 'notHalfDay' : 'halfDay';
+        return isDtrIndicatorEnabled(indicatorVisibility, key)
+          ? halfDayIndicator
+          : null;
+      })();
+      const showPartialSuspension =
+        isPartialSuspensionRow &&
+        isDtrIndicatorEnabled(indicatorVisibility, 'suspension');
+      const indicator = showPartialSuspension
         ? null
-        : resolveDtrRowIndicator(dateIndicator, {
-            absentIndicator,
-            halfDayIndicator,
+        : resolveDtrRowIndicator(displayDateIndicator, {
+            absentIndicator: displayAbsent,
+            halfDayIndicator: displayHalf,
           });
-      let rowTint = resolveDtrRowTint(dateIndicator, {
-        absentIndicator,
-        halfDayIndicator,
+      let rowTint = resolveDtrRowTint(displayDateIndicator, {
+        absentIndicator: displayAbsent,
+        halfDayIndicator: displayHalf,
         suggestedHalfDay:
           halfUi === 'suggested' ||
           Boolean(fullDate && suggestedHalfDayDatesSet.has(fullDate)),
       });
-      if (isPartialSuspensionRow) {
+      if (showPartialSuspension) {
         rowTint = 'rgba(211,47,47,0.06)';
       }
       const isNonWorkingDayRow =
+        isDtrIndicatorEnabled(indicatorVisibility, 'nonWorkingDay') &&
         !isPartialSuspensionRow &&
         !suppressScheduleBanners &&
         isDtrNonWorkingDayRow({
@@ -1147,7 +1170,9 @@ export default function DTRTemplate({
           dayName,
         });
       const unscheduledWeekdayLabel =
-        isPartialSuspensionRow || suppressScheduleBanners
+        !isDtrIndicatorEnabled(indicatorVisibility, 'weekdayBanner') ||
+        isPartialSuspensionRow ||
+        suppressScheduleBanners
           ? ''
           : getDtrUnscheduledWeekdayBanner({
               isNotScheduledDay,
@@ -1164,7 +1189,7 @@ export default function DTRTemplate({
 
       // Shared by regular + honorarium / service-credit / overtime:
       // HOLIDAY, ON LEAVE / leave type, SUSPENSION, NON-WORKING DAY, weekday banners.
-      if (isDtrCalendarBannerRow(dateIndicator) && !isPartialSuspensionRow) {
+      if (isDtrCalendarBannerRow(displayDateIndicator) && !isPartialSuspensionRow) {
         return (
           <tr key={`${rowKeyPrefix}-${i}`} className="dtr-day-row">
             <td
@@ -1189,7 +1214,7 @@ export default function DTRTemplate({
                 printColorAdjust: 'exact',
               }}
             >
-              <span style={dtrWmSpanStyle}>{dateIndicator.label}</span>
+              <span style={dtrWmSpanStyle}>{displayDateIndicator.label}</span>
             </td>
           </tr>
         );
@@ -1254,7 +1279,7 @@ export default function DTRTemplate({
           </tr>
         );
       }
-      if (rowIsAbsent) {
+      if (rowIsAbsent && displayAbsent) {
         return (
           <tr key={`${rowKeyPrefix}-${i}`} className="dtr-day-row">
             <td
@@ -1295,8 +1320,8 @@ export default function DTRTemplate({
           record?.minutes != null && record.minutes !== ''
             ? String(record.minutes)
             : '';
-        const cellIndicator = isPartialSuspensionRow ? null : indicator;
-        const partialSuspLabel = isPartialSuspensionRow
+        const cellIndicator = showPartialSuspension ? null : indicator;
+        const partialSuspLabel = showPartialSuspension
           ? dateIndicator.label
           : null;
         return (
@@ -1363,12 +1388,13 @@ export default function DTRTemplate({
         );
       }
 
-      const cellIndicator = isPartialSuspensionRow ? null : indicator;
-      const partialSuspLabel = isPartialSuspensionRow
+      const cellIndicator = showPartialSuspension ? null : indicator;
+      const partialSuspLabel = showPartialSuspension
         ? `SUSP ${formatSuspensionEffectiveTime(dateIndicator.effectiveTime)}`
         : null;
       const computed = outsideRange ? undefined : computedLateByDate[fullDate];
       const isExcludedDay =
+        rowIsAbsent ||
         dateIndicator?.type === 'holiday' ||
         (dateIndicator?.type === 'suspension' && !isPartialSuspensionRow) ||
         dateIndicator?.type === 'leave';

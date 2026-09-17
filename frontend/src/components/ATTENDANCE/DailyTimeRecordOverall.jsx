@@ -14,6 +14,7 @@ import {
   AccessTime,
   CalendarToday,
   SearchOutlined,
+  Tune,
   ArrowBack,
   ArrowForward,
   Close,
@@ -42,6 +43,7 @@ import {
   InputAdornment,
   MenuItem,
   Paper,
+  Popover,
   Select,
   Snackbar,
   styled,
@@ -102,8 +104,7 @@ import DtrSavedSummaryPanel from './DtrSavedSummaryPanel';
 import AttendanceComputationDrawer from './AttendanceComputationDrawer';
 import { readAttendanceWorkflow } from '../../utils/attendanceWorkflow';
 import { sortEmployeesByLastName } from '../../utils/sortEmployeesByLastName';
-import {
-  resolveDrawerFromComputationModule,
+import { resolveDrawerFromComputationModule,
   HUB_COMPUTATION_BUTTONS,
 } from '../../utils/attendanceHubFlow';
 import {
@@ -115,11 +116,18 @@ import {
 } from '../../utils/dtrLateUndertimeFromOverall';
 import { fetchOfficialTimesBatch } from '../../utils/fetchOfficialTimesBatch';
 import {
+  personnelScopeFromEmployment,
+  resolveAttendanceModuleFromEmployment,
+} from '../../utils/earningsEmpCatRules';
+import { computeAndApplyModuleLateUndertime } from '../../utils/computeModuleLateUndertimeForDtr';
+import {
   buildReviewByDate,
   parseHalfDayReviewJson,
   MODULE_TYPES,
 } from '../../utils/halfDayReview';
 import {
+  DTR_INDICATOR_OPTIONS,
+  defaultDtrIndicatorVisibility,
   isDtrCellWatermarkText,
   formatDtrPdfFileName,
   formatDtrBulkPdfFileName,
@@ -188,26 +196,40 @@ const scopeForModuleType = (mod) => {
 };
 
 /**
- * Employment category → personnel_scope when computation_module_type is not
- * yet loaded for this employee/period (common before Save-to-Summary).
- * 3 = Teaching 30hrs, 4 = Designated 40hrs → academic;
- * 0/1 JO + 2 Regular Non-Teaching → non_teaching.
+ * Employment classification → personnel_scope when the saved computation
+ * module is not loaded yet.
+ * Non-Academic → non_teaching. Academic 30/40 Hours → academic.
+ * Numeric 0–4 is legacy only; new type-config ids are not 30hrs/designated.
  */
-const scopeForEmploymentCategory = (cat) => {
-  if (cat == null || cat === '') return null;
-  const n = Number(cat);
-  if (n === 3 || n === 4) return 'academic';
-  if (n === 0 || n === 1 || n === 2) return 'non_teaching';
-  return null;
-};
+const scopeForEmploymentCategory = (cat, meta = null) =>
+  personnelScopeFromEmployment(
+    meta || (cat != null && typeof cat === 'object' ? cat : null),
+  );
 
-const resolveEmployeeSuspensionScope = (moduleType, employmentCategory) => {
-  // Prefer the attendance module actually applied on this DTR (badge:
-  // "Academic | 40 Hours") over employment category — category can be stale
-  // or wrong and was letting Non-Teaching-only suspensions paint on Academic DTRs.
+const resolveEmployeeSuspensionScope = (moduleType, employmentCategory, meta = null) => {
+  // Prefer the attendance module already saved on this DTR over category,
+  // so a stale category cannot paint the wrong suspension scope.
   const fromMod = scopeForModuleType(moduleType);
   if (fromMod) return fromMod;
-  return scopeForEmploymentCategory(employmentCategory);
+  return scopeForEmploymentCategory(employmentCategory, meta);
+};
+
+const DTR_INDICATOR_STORAGE_KEY = 'hris-dtr-indicator-visibility';
+
+const loadDtrIndicatorVisibility = () => {
+  const base = defaultDtrIndicatorVisibility();
+  try {
+    const raw = localStorage.getItem(DTR_INDICATOR_STORAGE_KEY);
+    if (!raw) return base;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return base;
+    DTR_INDICATOR_OPTIONS.forEach(({ key }) => {
+      if (typeof parsed[key] === 'boolean') base[key] = parsed[key];
+    });
+  } catch {
+    /* ignore private mode / bad JSON */
+  }
+  return base;
 };
 
 // ─── Styled components ────────────────────────────────────────────────────
@@ -573,6 +595,10 @@ const DailyTimeRecordFaculty = ({
   const [computationModuleTypeByEmployee, setComputationModuleTypeByEmployee] =
     useState({});
   const [showOfficialTimeOnDtr, setShowOfficialTimeOnDtr] = useState(false);
+  const [indicatorVisibility, setIndicatorVisibility] = useState(
+    loadDtrIndicatorVisibility,
+  );
+  const [indicatorMenuAnchor, setIndicatorMenuAnchor] = useState(null);
   const dtrRef = useRef(null);
 
   const fetchRecordsRef = useRef(null);
@@ -1185,6 +1211,71 @@ const DailyTimeRecordFaculty = ({
     },
     [startDate, endDate],
   );
+
+  const autoLateAttemptedRef = useRef(new Set());
+
+  const applyLateFromEmploymentCategory = useCallback(
+    async (employeeNumber) => {
+      if (!employeeNumber || !startDate || !endDate || dtrType !== 'regular') return;
+      const key = String(employeeNumber);
+      const attemptKey = `${key}|${startDate}|${endDate}`;
+      if (autoLateAttemptedRef.current.has(attemptKey)) return;
+      const meta = empCatMap[key];
+      const moduleType = resolveAttendanceModuleFromEmployment(meta);
+      if (!moduleType) return;
+      autoLateAttemptedRef.current.add(attemptKey);
+      try {
+        const applied = await computeAndApplyModuleLateUndertime({
+          personID: key,
+          startDate,
+          endDate,
+          moduleType,
+        });
+        if (!applied?.byDate) return;
+        setComputedLateByEmployee((prev) => ({ ...prev, [key]: applied.byDate }));
+        setHalfDayDatesByEmployee((prev) => ({
+          ...prev,
+          [key]: parseHalfDayDatesSet(applied.halfDayDates),
+        }));
+        setHalfDayReviewByEmployee((prev) => ({
+          ...prev,
+          [key]: buildReviewByDate(parseHalfDayReviewJson(applied.half_day_review)),
+        }));
+        if (applied.computation_module_type) {
+          setComputationModuleTypeByEmployee((prev) => ({
+            ...prev,
+            [key]: applied.computation_module_type,
+          }));
+        }
+      } catch (err) {
+        console.warn(
+          'Could not fill DTR late/undertime from employment category:',
+          err?.message || err,
+        );
+      }
+    },
+    [startDate, endDate, dtrType, empCatMap],
+  );
+
+  useEffect(() => {
+    if (dtrType !== 'regular' || !hasSearchedSingle || !personID || !startDate || !endDate) {
+      return;
+    }
+    const key = String(personID);
+    const byDate = computedLateByEmployee[key];
+    if (byDate && Object.keys(byDate).length > 0) return;
+    if (!empCatMap[key]) return;
+    applyLateFromEmploymentCategory(personID);
+  }, [
+    dtrType,
+    hasSearchedSingle,
+    personID,
+    startDate,
+    endDate,
+    computedLateByEmployee,
+    empCatMap,
+    applyLateFromEmploymentCategory,
+  ]);
 
   const hasOfficialTimeSchedule = useMemo(() => {
     const ot = officialTimes || {};
@@ -2892,6 +2983,7 @@ const DailyTimeRecordFaculty = ({
       records: rangedRecords,
       officialTime: officialTimesForUser,
       showOfficialTimeOnDtr,
+      indicatorVisibility,
       startDate: displayPeriod.startDate || startDate,
       endDate: displayPeriod.endDate || endDate,
       selectedYear,
@@ -2910,7 +3002,11 @@ const DailyTimeRecordFaculty = ({
       // Do not invent NON_TEACHING — that hid academic-scoped suspensions when
       // the computation module had not been saved yet for this employee.
       computationModuleType: knownModuleType || undefined,
-      employeeScope: resolveEmployeeSuspensionScope(knownModuleType, empCat),
+      employeeScope: resolveEmployeeSuspensionScope(
+        knownModuleType,
+        empCat,
+        empCatMap[empKey],
+      ),
       employmentCategory: empCat,
       ...(resolvedBranch !== undefined ? { employeeBranch: resolvedBranch } : {}),
       ...(displayPeriod.dayFrom != null
@@ -2963,6 +3059,205 @@ const DailyTimeRecordFaculty = ({
         />
       </div>
     </div>
+  );
+
+  const indicatorEnabledCount = DTR_INDICATOR_OPTIONS.filter(
+    (opt) => indicatorVisibility[opt.key] !== false,
+  ).length;
+  const allIndicatorsOn = indicatorEnabledCount === DTR_INDICATOR_OPTIONS.length;
+  const noIndicatorsOn = indicatorEnabledCount === 0;
+  const indicatorButtonLabel = noIndicatorsOn
+    ? 'Indicators off'
+    : allIndicatorsOn
+      ? 'Indicators'
+      : `Indicators (${indicatorEnabledCount})`;
+
+  const persistIndicatorVisibility = (nextOrUpdater) => {
+    setIndicatorVisibility((prev) => {
+      const next =
+        typeof nextOrUpdater === 'function' ? nextOrUpdater(prev) : nextOrUpdater;
+      try {
+        localStorage.setItem(DTR_INDICATOR_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        /* ignore private mode / quota */
+      }
+      return next;
+    });
+  };
+
+  const renderIndicatorsButton = () => (
+    <Tooltip
+      title="Show or hide DTR marks. Punch times stay. Print and PDF use the same choices."
+      placement="top"
+    >
+      <span>
+        <AccentButton
+          variant={allIndicatorsOn ? 'outlined' : 'contained'}
+          size="small"
+          aria-label="DTR indicators"
+          aria-haspopup="true"
+          aria-expanded={Boolean(indicatorMenuAnchor) ? 'true' : 'false'}
+          startIcon={<Tune sx={{ fontSize: '15px !important' }} />}
+          onClick={(e) => setIndicatorMenuAnchor(e.currentTarget)}
+          className="no-print"
+          sx={{
+            height: 32,
+            fontSize: '0.75rem',
+            fontWeight: 700,
+            px: 1.5,
+            color: allIndicatorsOn ? T.accent : '#fff',
+            bgcolor: allIndicatorsOn ? '#fff' : T.accent,
+            borderColor: T.accent,
+            boxShadow: allIndicatorsOn ? 'none' : `0 2px 8px ${alpha(T.accent, 0.3)}`,
+            '&:hover': {
+              bgcolor: allIndicatorsOn ? T.accentFaint : T.accentDark,
+              borderColor: T.accent,
+            },
+          }}
+        >
+          {indicatorButtonLabel}
+        </AccentButton>
+      </span>
+    </Tooltip>
+  );
+
+  const renderIndicatorMenu = () => (
+    <Popover
+      open={Boolean(indicatorMenuAnchor)}
+      anchorEl={indicatorMenuAnchor}
+      onClose={() => setIndicatorMenuAnchor(null)}
+      anchorOrigin={{ vertical: 'top', horizontal: 'left' }}
+      transformOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+      marginThreshold={16}
+      className="no-print"
+      sx={{ zIndex: (theme) => theme.zIndex.modal + 2 }}
+      PaperProps={{
+        sx: {
+          mb: 0.75,
+          borderRadius: 2,
+          width: 280,
+          maxHeight: 'min(420px, calc(100vh - 140px))',
+          overflowX: 'hidden',
+          overflowY: 'auto',
+          boxShadow: '0 8px 28px rgba(0,0,0,0.14)',
+          border: `1px solid ${T.accentBorder}`,
+        },
+      }}
+    >
+      <Box sx={{ px: 1.75, pt: 1.25, pb: 1 }}>
+        <Typography
+          sx={{
+            fontSize: '0.68rem',
+            fontWeight: 800,
+            letterSpacing: '0.08em',
+            textTransform: 'uppercase',
+            color: T.accent,
+          }}
+        >
+          DTR indicators
+        </Typography>
+        <Typography
+          sx={{
+            fontSize: '0.7rem',
+            color: T.muted,
+            mt: 0.4,
+            lineHeight: 1.35,
+          }}
+        >
+          Check the marks to print on the form. Uncheck them for a clean DTR.
+          Punch times are not removed.
+        </Typography>
+        <Box sx={{ display: 'flex', gap: 0.5, mt: 0.75 }}>
+          <Button
+            size="small"
+            onClick={() => persistIndicatorVisibility(defaultDtrIndicatorVisibility())}
+            sx={{
+              textTransform: 'none',
+              fontSize: '0.72rem',
+              fontWeight: 700,
+              color: T.accent,
+              minWidth: 0,
+              px: 1,
+            }}
+          >
+            All on
+          </Button>
+          <Button
+            size="small"
+            onClick={() =>
+              persistIndicatorVisibility(
+                Object.fromEntries(
+                  DTR_INDICATOR_OPTIONS.map((opt) => [opt.key, false]),
+                ),
+              )
+            }
+            sx={{
+              textTransform: 'none',
+              fontSize: '0.72rem',
+              fontWeight: 700,
+              color: T.muted,
+              minWidth: 0,
+              px: 1,
+            }}
+          >
+            All off
+          </Button>
+        </Box>
+      </Box>
+      <Divider />
+      <Box sx={{ py: 0.5, px: 0.5 }}>
+        {DTR_INDICATOR_OPTIONS.map((opt) => (
+          <FormControlLabel
+            key={opt.key}
+            sx={{
+              display: 'flex',
+              mx: 0,
+              px: 0.75,
+              py: 0.15,
+              borderRadius: 1,
+              width: '100%',
+              maxWidth: '100%',
+              boxSizing: 'border-box',
+              '&:hover': { bgcolor: T.accentFaint },
+            }}
+            control={
+              <Checkbox
+                size="small"
+                checked={indicatorVisibility[opt.key] !== false}
+                onChange={(e) =>
+                  persistIndicatorVisibility((prev) => ({
+                    ...prev,
+                    [opt.key]: e.target.checked,
+                  }))
+                }
+                sx={{
+                  p: 0.5,
+                  color: alpha(opt.color, 0.7),
+                  '&.Mui-checked': { color: opt.color },
+                }}
+              />
+            }
+            label={
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Box
+                  sx={{
+                    width: 16,
+                    height: 12,
+                    borderRadius: '2px',
+                    bgcolor: opt.bg,
+                    border: `1.5px solid ${opt.color}`,
+                    flexShrink: 0,
+                  }}
+                />
+                <Typography sx={{ fontSize: '0.8rem', fontWeight: 600, color: T.text }}>
+                  {opt.label}
+                </Typography>
+              </Box>
+            }
+          />
+        ))}
+      </Box>
+    </Popover>
   );
 
   // ─── Left panel ────────────────────────────────────────────────────────
@@ -3298,11 +3593,6 @@ const DailyTimeRecordFaculty = ({
     </Box>
   );
 
-  const unmountedBannerIssues =
-    viewMode === 'single'
-      ? filterUnmountedIssuesByPeriod(railPunchReview.issues, startDate, endDate)
-      : [];
-
   // ─── Render ────────────────────────────────────────────────────────────
   return (
     <>
@@ -3311,6 +3601,7 @@ const DailyTimeRecordFaculty = ({
         message={loadingOverlayMessage}
         showDelayMs={printingAll || singlePrintLoading ? 0 : 150}
       />
+      {renderIndicatorMenu()}
       <Snackbar
         open={snackbar.open}
         autoHideDuration={5000}
@@ -3827,42 +4118,6 @@ const DailyTimeRecordFaculty = ({
                           </Alert>
                         )}
 
-                        {viewMode === 'single' && unmountedBannerIssues.length > 0 && (
-                          <Alert
-                            className="no-print"
-                            severity="warning"
-                            sx={{ mx: 2, mt: 1.5, borderRadius: 2, fontSize: '0.78rem' }}
-                            action={
-                              <Button
-                                color="inherit"
-                                size="small"
-                                onClick={() => setReviewFocusToken((token) => token + 1)}
-                                sx={{ fontWeight: 700, textTransform: 'none', whiteSpace: 'nowrap' }}
-                              >
-                                Review punches
-                              </Button>
-                            }
-                          >
-                            <Typography sx={{ fontSize: '0.78rem', fontWeight: 800, mb: 0.4 }}>
-                              {unmountedBannerIssues.length} punch
-                              {unmountedBannerIssues.length === 1 ? '' : 'es'} will not print on the DTR
-                            </Typography>
-                            {unmountedBannerIssues.slice(0, 4).map((issue) => (
-                              <Typography
-                                key={issue.rowKey}
-                                sx={{ fontSize: '0.72rem', lineHeight: 1.45 }}
-                              >
-                                {issue.dateLabel} {issue.time} — {issue.reason}
-                              </Typography>
-                            ))}
-                            {unmountedBannerIssues.length > 4 && (
-                              <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, mt: 0.3 }}>
-                                and {unmountedBannerIssues.length - 4} more
-                              </Typography>
-                            )}
-                          </Alert>
-                        )}
-
                         <Box
                           sx={{
                             flexGrow: 1,
@@ -4009,6 +4264,7 @@ const DailyTimeRecordFaculty = ({
                                 flex: 1,
                               }}
                             >
+                              {renderIndicatorsButton()}
                               <Tooltip
                                 placement="top"
                                 title={
@@ -5137,6 +5393,7 @@ const DailyTimeRecordFaculty = ({
                                   flexWrap: 'wrap',
                                 }}
                               >
+                                {renderIndicatorsButton()}
                                 <FormControl
                                   size="small"
                                   sx={{ minWidth: 130, bgcolor: '#fff' }}
@@ -5507,7 +5764,8 @@ const DailyTimeRecordFaculty = ({
                   gap: 2,
                 }}
               >
-                <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+                <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
+                  {renderIndicatorsButton()}
                   <AccentButton
                     variant="contained"
                     onClick={handlePrintAllSelected}

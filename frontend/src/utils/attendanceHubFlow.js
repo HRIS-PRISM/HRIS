@@ -48,23 +48,23 @@ export const HUB_COMPUTATION_BUTTONS = [
   {
     drawer: 'nonTeaching',
     moduleType: MODULE_TYPES.NON_TEACHING,
-    label: 'Non-Teaching',
+    label: 'Non-Academic',
     categoryColor: HUB_COMPUTATION_CATEGORY_COLORS.nonTeaching,
-    openTip: 'Open Non-Teaching computation module (sliding panel)',
+    openTip: 'Open Non-Academic computation (sliding panel)',
   },
   {
     drawer: 'faculty30',
     moduleType: MODULE_TYPES.FACULTY_30HRS,
-    label: '30 Hours',
+    label: 'Academic | 30 Hours',
     categoryColor: HUB_COMPUTATION_CATEGORY_COLORS.faculty30,
-    openTip: 'Open Faculty 30hrs computation module (sliding panel)',
+    openTip: 'Open Academic 30 Hours computation (sliding panel)',
   },
   {
     drawer: 'facultyDesignated',
     moduleType: MODULE_TYPES.DESIGNATED_40HRS,
-    label: 'Designated',
+    label: 'Academic | 40 Hours',
     categoryColor: HUB_COMPUTATION_CATEGORY_COLORS.facultyDesignated,
-    openTip: 'Open Designated computation module (sliding panel)',
+    openTip: 'Open Academic 40 Hours computation (sliding panel)',
   },
 ];
 

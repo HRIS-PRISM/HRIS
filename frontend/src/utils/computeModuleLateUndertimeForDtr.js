@@ -26,6 +26,7 @@ import {
   pickApplicableHoliday,
   pickApplicableSuspension,
 } from '../components/ATTENDANCE/attendanceLeaveIntegration';
+import { resolveAttendanceModuleFromEmployment } from './earningsEmpCatRules';
 import {
   computeArrivalLateSec,
   computeEarlyLeaveUndertimeSec,
@@ -399,40 +400,9 @@ export const MODULE_LATE_BUTTONS = [
 
 /** Map employment category → attendance module late/undertime type. */
 export function resolveModuleTypeFromEmploymentCategory(categoryOrMeta) {
-  if (categoryOrMeta == null || categoryOrMeta === '') return null;
-
-  if (typeof categoryOrMeta === 'object') {
-    const id = categoryOrMeta.employmentCategory ?? categoryOrMeta.id;
-    if (id != null && id !== '') {
-      const fromId = resolveModuleTypeFromEmploymentCategory(id);
-      if (fromId) return fromId;
-    }
-    const label = String(
-      categoryOrMeta.label ||
-        categoryOrMeta.typeName ||
-        categoryOrMeta.categoryLabel ||
-        '',
-    ).toLowerCase();
-    if (/\b30\b|30\s*hr|teaching\s*\(30/.test(label)) {
-      return MODULE_TYPES.FACULTY_30HRS;
-    }
-    if (/designated|40\s*hr/.test(label)) return MODULE_TYPES.DESIGNATED_40HRS;
-    if (/non[-\s]?teaching/.test(label)) return MODULE_TYPES.NON_TEACHING;
-    return null;
-  }
-
-  const n = Number(categoryOrMeta);
-  if (!Number.isNaN(n)) {
-    if (n === 2) return MODULE_TYPES.NON_TEACHING;
-    if (n === 3) return MODULE_TYPES.FACULTY_30HRS;
-    if (n === 4) return MODULE_TYPES.DESIGNATED_40HRS;
-  }
-
-  const s = String(categoryOrMeta).toLowerCase();
-  if (/\b30\b|30\s*hr|teaching\s*\(30/.test(s)) return MODULE_TYPES.FACULTY_30HRS;
-  if (/designated|40\s*hr/.test(s)) return MODULE_TYPES.DESIGNATED_40HRS;
-  if (/non[-\s]?teaching/.test(s)) return MODULE_TYPES.NON_TEACHING;
-  return null;
+  const resolved = resolveAttendanceModuleFromEmployment(categoryOrMeta);
+  if (!resolved || !MODULE_PROCESSORS[resolved]) return null;
+  return resolved;
 }
 
 export function getModuleLateButtonMeta(moduleType) {
@@ -457,27 +427,22 @@ export async function computeAndApplyModuleLateUndertime({
       ? moduleType
       : MODULE_TYPES.NON_TEACHING;
 
-  // Non-Teaching is authoritative in its own Attendance Module, which already
-  // computes daily Late/Undertime and auto-persists it to
-  // overall_attendance_record.daily_late_undertime independent of Save to
-  // Summary (PUT /overall_attendance_record/daily-late-undertime upserts a
-  // stub row). This branch must only read and display that stored value —
-  // never recompute or force-overwrite it — so there is a single calculation,
-  // not two competing ones.
+  // Non-Academic / Non-Teaching: use a saved module row when one exists so the
+  // DTR does not overwrite that calculation. If nothing is saved yet, fall
+  // through and compute from punches so Late/Undertime can appear on search.
   if (mod === MODULE_TYPES.NON_TEACHING) {
     const stored = await fetchDailyLateUndertime(personID, startDate, endDate);
-    if (!stored || Object.keys(stored.byDate || {}).length === 0) {
-      throw new Error(
-        'No Non-Teaching daily Late/Undertime found yet. Open the Non-Teaching Attendance Module and search this employee for this period once to compute it.',
-      );
+    if (stored && Object.keys(stored.byDate || {}).length > 0) {
+      return {
+        byDate: stored.byDate || {},
+        halfDayDates: stored.halfDayDates || '',
+        half_day_review: stored.half_day_review ?? null,
+        computation_module_type:
+          stored.computation_module_type || MODULE_TYPES.NON_TEACHING,
+      };
     }
-    return {
-      byDate: stored.byDate || {},
-      halfDayDates: stored.halfDayDates || '',
-      half_day_review: stored.half_day_review ?? null,
-      computation_module_type:
-        stored.computation_module_type || MODULE_TYPES.NON_TEACHING,
-    };
+    // No saved row yet — compute below from punches so the DTR can show
+    // Late/Undertime for Non-Academic without opening the module first.
   }
 
   const processRows = MODULE_PROCESSORS[mod];
