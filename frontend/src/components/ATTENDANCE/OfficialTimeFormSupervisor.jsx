@@ -73,6 +73,7 @@ import {
   Popover,
   List,
   ListItem,
+  LinearProgress,
 } from "@mui/material";
 import { TablePagination } from "@mui/material";
 import { alpha } from "@mui/material/styles";
@@ -85,6 +86,9 @@ import {
   CheckCircle,
   WarningAmber,
   Visibility,
+  PeopleAlt,
+  EventAvailable,
+  EventBusy,
   Add,
   Delete,
   ClearAll,
@@ -1070,6 +1074,22 @@ const formatDateLong = (val) => {
   return `${months[d.getMonth()]} ${String(d.getDate()).padStart(2, "0")}, ${d.getFullYear()}`;
 };
 
+const formatWriteAccessCountdown = (endAt, nowMs = Date.now()) => {
+  if (!endAt) return null;
+  const end = new Date(endAt);
+  if (Number.isNaN(end.getTime())) return null;
+  const remaining = end.getTime() - nowMs;
+  const dayMs = 24 * 60 * 60 * 1000;
+  if (remaining <= 0) {
+    return { expired: true, urgent: true, label: "Write access ended", remainingMs: remaining, days: 0, hours: 0, minutes: 0 };
+  }
+  const d = Math.floor(remaining / dayMs);
+  const h = Math.floor((remaining % dayMs) / (60 * 60 * 1000));
+  const m = Math.floor((remaining % (60 * 60 * 1000)) / 60000);
+  const label = d > 0 ? `${d}d ${h}h remaining` : h > 0 ? `${h}h ${m}m remaining` : `${m}m remaining`;
+  return { expired: false, urgent: remaining <= 7 * dayMs, label, remainingMs: remaining, days: d, hours: h, minutes: m };
+};
+
 const formatPeriodBoundary = (val) => {
   if (!val) return "";
   const raw = String(val);
@@ -1090,6 +1110,246 @@ const formatDateTimeLong = (val) => {
   const ampm = hours >= 12 ? "PM" : "AM";
   hours = hours % 12 || 12;
   return `${months[d.getMonth()]} ${String(d.getDate()).padStart(2, "0")}, ${d.getFullYear()} ${String(hours).padStart(2, "0")}:${minutes} ${ampm}`;
+};
+
+const CoverageRing = ({ value, size = 86, stroke = 8 }) => {
+  const pct = Math.max(0, Math.min(100, Number.isFinite(value) ? value : 0));
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const offset = c - (pct / 100) * c;
+  const tone = pct >= 90 ? "#2e7d32" : pct >= 50 ? T.accent : "#c17f24";
+  return (
+    <Box sx={{ position: "relative", width: size, height: size, flexShrink: 0 }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(109,35,35,0.10)" strokeWidth={stroke} />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          fill="none"
+          stroke={tone}
+          strokeWidth={stroke}
+          strokeDasharray={c}
+          strokeDashoffset={offset}
+          strokeLinecap="round"
+          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+          style={{ transition: "stroke-dashoffset 0.6s ease" }}
+        />
+      </svg>
+      <Box sx={{ position: "absolute", inset: 0, display: "grid", placeItems: "center" }}>
+        <Box sx={{ textAlign: "center" }}>
+          <Typography sx={{ fontWeight: 900, fontSize: "1.12rem", color: T.accent, lineHeight: 1, letterSpacing: "-0.03em" }}>
+            {pct}%
+          </Typography>
+          <Typography sx={{ fontSize: "0.56rem", fontWeight: 800, color: T.muted, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+            set
+          </Typography>
+        </Box>
+      </Box>
+    </Box>
+  );
+};
+
+const StatTile = ({ label, value, hint, icon: Icon, tone }) => (
+  <Box
+    sx={{
+      flex: 1,
+      minWidth: 0,
+      px: 1.6,
+      py: 1.35,
+      borderRadius: 2.5,
+      bgcolor: tone.bg,
+      border: `1px solid ${tone.border}`,
+    }}
+  >
+    <Box sx={{ display: "flex", alignItems: "center", gap: 0.7, mb: 0.55 }}>
+      <Icon sx={{ fontSize: 15, color: tone.fg }} />
+      <Typography sx={{ fontSize: "0.6rem", fontWeight: 800, color: tone.fg, letterSpacing: "0.07em", textTransform: "uppercase" }}>
+        {label}
+      </Typography>
+    </Box>
+    <Typography sx={{ fontSize: "1.5rem", fontWeight: 900, color: T.text, lineHeight: 1, letterSpacing: "-0.04em", fontVariantNumeric: "tabular-nums" }}>
+      {value}
+    </Typography>
+    {hint && (
+      <Typography sx={{ mt: 0.4, fontSize: "0.66rem", fontWeight: 600, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+        {hint}
+      </Typography>
+    )}
+  </Box>
+);
+
+const TimeUnit = ({ value, unit, alert }) => (
+  <Box sx={{ textAlign: "center" }}>
+    <Box
+      sx={{
+        minWidth: 46,
+        px: 0.75,
+        py: 0.65,
+        borderRadius: 1.5,
+        bgcolor: alert ? "rgba(180,83,9,0.10)" : "rgba(255,255,255,0.72)",
+        border: `1px solid ${alert ? "rgba(180,83,9,0.22)" : "rgba(255,255,255,0.55)"}`,
+      }}
+    >
+      <Typography sx={{ fontSize: "1.1rem", fontWeight: 900, color: alert ? "#b45309" : T.accent, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
+        {String(value ?? 0).padStart(2, "0")}
+      </Typography>
+    </Box>
+    <Typography sx={{ mt: 0.35, fontSize: "0.56rem", fontWeight: 800, color: T.muted, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+      {unit}
+    </Typography>
+  </Box>
+);
+
+const SupervisorAssignmentStats = ({
+  coverage,
+  writeAccess,
+  supervisorStatus,
+  nowTick,
+}) => {
+  const pct = coverage.total > 0 ? Math.round((coverage.withSchedule / coverage.total) * 100) : 0;
+  const startAt = supervisorStatus?.startAt || supervisorStatus?.start;
+  const endAt = supervisorStatus?.endAt || supervisorStatus?.end;
+  const windowPct = (() => {
+    const start = new Date(startAt).getTime();
+    const end = new Date(endAt).getTime();
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
+    return Math.min(100, Math.max(0, ((nowTick - start) / (end - start)) * 100));
+  })();
+  const expired = Boolean(writeAccess?.expired);
+  const urgent = Boolean(writeAccess?.urgent && !expired);
+  const accessTone = expired
+    ? { fg: T.accent, bg: "linear-gradient(180deg, #fdf5f5 0%, #f8ecec 100%)", border: T.accentBorder, label: "View only" }
+    : urgent
+      ? { fg: "#b45309", bg: "linear-gradient(180deg, #fffaf0 0%, #fff4e0 100%)", border: "rgba(180,83,9,0.22)", label: "Write access ending" }
+      : { fg: "#1b5e20", bg: "linear-gradient(180deg, #f4faf4 0%, #e8f5e9 100%)", border: "rgba(46,125,50,0.18)", label: "Write access active" };
+
+  return (
+    <Box
+      sx={{
+        px: { xs: 2, md: 3.5 },
+        py: { xs: 1.75, md: 2 },
+        bgcolor: "#fff",
+        borderTop: `1px solid ${T.divider}`,
+        display: "grid",
+        gridTemplateColumns: { xs: "1fr", md: "1fr 1fr", xl: "minmax(220px, 260px) minmax(0, 1fr) minmax(260px, 320px)" },
+        gridTemplateAreas: {
+          xs: `"cover" "stats" "access"`,
+          md: `"cover access" "stats stats"`,
+          xl: `"cover stats access"`,
+        },
+        gap: { xs: 1.5, md: 2 },
+        alignItems: "stretch",
+      }}
+    >
+      <Box sx={{ gridArea: "cover", display: "flex", alignItems: "center", gap: 1.6, minWidth: 0 }}>
+        <CoverageRing value={pct} />
+        <Box sx={{ minWidth: 0 }}>
+          <Typography sx={{ fontSize: "0.78rem", fontWeight: 900, color: T.accent, lineHeight: 1.2 }}>
+            Official Time coverage
+          </Typography>
+          <Typography sx={{ fontSize: "0.7rem", fontWeight: 600, color: T.muted, mt: 0.4, lineHeight: 1.35 }}>
+            {coverage.total > 0
+              ? `${coverage.withSchedule} of ${coverage.total} employees have a default schedule`
+              : "Coverage will appear once department staff load"}
+          </Typography>
+        </Box>
+      </Box>
+
+      <Box sx={{ gridArea: "stats", display: "flex", gap: 1, minWidth: 0 }}>
+        <StatTile
+          label="Staff"
+          value={coverage.total}
+          hint="In your departments"
+          icon={PeopleAlt}
+          tone={{ fg: T.accent, bg: T.accentFaint, border: T.accentBorder }}
+        />
+        <StatTile
+          label="Scheduled"
+          value={coverage.withSchedule}
+          hint="Has Official Time"
+          icon={EventAvailable}
+          tone={{ fg: "#1b5e20", bg: "rgba(46,125,50,0.06)", border: "rgba(46,125,50,0.18)" }}
+        />
+        <StatTile
+          label="Missing"
+          value={coverage.missing}
+          hint={coverage.missing ? "Need a schedule" : "All set"}
+          icon={EventBusy}
+          tone={
+            coverage.missing
+              ? { fg: "#b45309", bg: "#fff8ed", border: "rgba(180,83,9,0.22)" }
+              : { fg: "#1b5e20", bg: "rgba(46,125,50,0.06)", border: "rgba(46,125,50,0.18)" }
+          }
+        />
+      </Box>
+
+      <Box
+        sx={{
+          gridArea: "access",
+          px: 1.7,
+          py: 1.4,
+          borderRadius: 2.5,
+          background: accessTone.bg,
+          border: `1px solid ${accessTone.border}`,
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "space-between",
+          gap: 1,
+          minWidth: 0,
+        }}
+      >
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.6, minWidth: 0 }}>
+          {expired
+            ? <Visibility sx={{ fontSize: 16, color: accessTone.fg }} />
+            : <AccessTime sx={{ fontSize: 16, color: accessTone.fg }} />}
+          <Typography sx={{ fontSize: "0.6rem", fontWeight: 800, color: accessTone.fg, letterSpacing: "0.06em", textTransform: "uppercase", whiteSpace: "nowrap" }}>
+            {accessTone.label}
+          </Typography>
+        </Box>
+
+        {expired ? (
+          <Typography sx={{ fontSize: "0.82rem", fontWeight: 800, color: T.accent, lineHeight: 1.3 }}>
+            Ended {formatPeriodBoundary(endAt) || "—"}
+          </Typography>
+        ) : writeAccess ? (
+          <Box sx={{ display: "flex", alignItems: "flex-start", gap: 0.8 }}>
+            <TimeUnit value={writeAccess.days} unit="days" alert={urgent} />
+            <TimeUnit value={writeAccess.hours} unit="hrs" alert={urgent} />
+            <TimeUnit value={writeAccess.minutes} unit="min" alert={urgent} />
+          </Box>
+        ) : (
+          <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: T.muted }}>No assignment window</Typography>
+        )}
+
+        {windowPct != null && (
+          <Box>
+            <Box sx={{ display: "flex", justifyContent: "space-between", gap: 1, mb: 0.4 }}>
+              <Typography sx={{ fontSize: "0.56rem", fontWeight: 700, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {formatPeriodBoundary(startAt) || "Start"}
+              </Typography>
+              <Typography sx={{ fontSize: "0.56rem", fontWeight: 700, color: T.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {formatPeriodBoundary(endAt) || "End"}
+              </Typography>
+            </Box>
+            <LinearProgress
+              variant="determinate"
+              value={expired ? 100 : windowPct}
+              sx={{
+                height: 7,
+                borderRadius: 99,
+                bgcolor: "rgba(0,0,0,0.08)",
+                "& .MuiLinearProgress-bar": {
+                  borderRadius: 99,
+                  bgcolor: expired ? T.accent : urgent ? "#d97706" : "#2e7d32",
+                },
+              }}
+            />
+          </Box>
+        )}
+      </Box>
+    </Box>
+  );
 };
 
 const formatScheduleDisplayText = (academicYear) => {
@@ -1455,39 +1715,6 @@ const ScheduleTimeRows = ({ records, onChangeRecord, scheduleView, readOnly = fa
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// VIEW TOGGLE (Single / All Users)
-// ─────────────────────────────────────────────────────────────────────────────
-const ViewToggle = ({ value, onChange }) => (
-  <Box sx={{ display: "flex", border: `1.5px solid ${alpha(T.accent, 0.35)}`, borderRadius: 2, overflow: "hidden", bgcolor: alpha(T.accent, 0.04) }}>
-    {[
-      { key: "single", label: "Single Employee", icon: <Person sx={{ fontSize: 16 }} /> },
-      { key: "allUsers", label: "All Users", icon: <PeopleIcon sx={{ fontSize: 16 }} /> },
-    ].map(({ key, label, icon }, i) => {
-      const active = value === key;
-      return (
-        <Button
-          key={key}
-          onClick={() => onChange(key)}
-          startIcon={icon}
-          disableElevation
-          sx={{
-            borderRadius: 0, textTransform: "none",
-            fontWeight: active ? 700 : 500, fontSize: "0.85rem", px: 2.5, py: 1,
-            bgcolor: active ? T.accent : "transparent",
-            color: active ? "#fff" : T.accent,
-            borderRight: i === 0 ? `1px solid ${alpha(T.accent, 0.25)}` : "none",
-            transition: "all 0.18s ease",
-            "&:hover": { bgcolor: active ? T.accentDark : alpha(T.accent, 0.1) },
-          }}
-        >
-          {label}
-        </Button>
-      );
-    })}
-  </Box>
-);
-
-// ─────────────────────────────────────────────────────────────────────────────
 // TAMPER WARNING BANNER
 // ─────────────────────────────────────────────────────────────────────────────
 const TamperWarningBanner = ({ onRestore }) => (
@@ -1536,9 +1763,8 @@ const OfficialTimeFormSupervisor = ({
   // so the tech-admin bypass doesn't depend on any async call.
   const userRole = getUserRole();
 
-  const [viewMode, setViewMode] = useState("single");
-  const showSingleView = embedded || viewMode === "single";
-  const showAllUsers = !embedded && viewMode === "allUsers";
+  const showSingleView = true;
+  const showAllUsers = false;
 
   const seedEmp = initialContext?.employee || null;
   const seedEmpNum = String(initialContext?.employeeNumber || seedEmp?.employeeNumber || "").trim();
@@ -1810,6 +2036,7 @@ const OfficialTimeFormSupervisor = ({
   // gated together with accessLoading before rendering the page at all —
   // mirrors DTR's `ctxLoading`.
   const [supervisorStatusLoading, setSupervisorStatusLoading] = useState(true);
+  const [nowTick, setNowTick] = useState(() => Date.now());
 
   const serverRecordsRef = useRef([]);
   const checksumRef = useRef(null);
@@ -1973,6 +2200,14 @@ const handleSelectChangedEmployee = useCallback((emp) => {
 
   useEffect(() => { fetchSupervisorStatus(); }, [fetchSupervisorStatus]);
   useEffect(() => () => { if (tamperCheckIntervalRef.current) clearInterval(tamperCheckIntervalRef.current); }, []);
+  useEffect(() => {
+    const timer = setInterval(() => setNowTick(Date.now()), 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!embedded) fetchAllUsers();
+  }, [embedded, fetchAllUsers]);
 
   // ── Employee select ──
   const handleEmployeeSelect = useCallback(async (emp) => {
@@ -2040,9 +2275,12 @@ const handleSelectChangedEmployee = useCallback((emp) => {
     handleEmployeeSelect(emp);
   }, [embedded, initialContext, accessLoading, hasAccess, handleEmployeeSelect]);
 
-  const canUploadExcel = supervisorStatus?.active === true;
+  const canUploadExcel =
+    ["superadmin", "technical", "administrator"].includes(normalizeRole(userRole)) ||
+    supervisorStatus?.active === true;
 
   const uploadRestrictionMessage = useMemo(() => {
+    if (["superadmin", "technical", "administrator"].includes(normalizeRole(userRole))) return null;
     if (!supervisorStatus || supervisorStatus.active) return null;
     if (!supervisorStatus.hasAssignment)
       return "You don't have a supervisor assignment on record, so Excel uploads are disabled.";
@@ -2051,7 +2289,7 @@ const handleSelectChangedEmployee = useCallback((emp) => {
     if (supervisorStatus.notStarted)
       return `Your supervisor assignment for department "${supervisorStatus.departmentCode}" hasn't started yet (starts ${formatDateLong(supervisorStatus.start) || supervisorStatus.start}). Uploads are disabled until then.`;
     return "You are not currently authorized to upload Excel schedules.";
-  }, [supervisorStatus]);
+  }, [supervisorStatus, userRole]);
 
   const handleEmployeeClear = useCallback(() => {
     setSelectedEmployee(null);
@@ -2685,7 +2923,31 @@ const handleSelectChangedEmployee = useCallback((emp) => {
     hasAccess === true;
 
   // New: single source of truth for whether write actions are allowed
-  const canEdit = supervisorStatus?.active === true;
+  const canEdit = isTechAdmin || supervisorStatus?.active === true;
+  const writeAccess = formatWriteAccessCountdown(
+    supervisorStatus?.endAt || supervisorStatus?.end,
+    nowTick,
+  );
+  const coverage = {
+    total: allUsers.length,
+    withSchedule: allUsers.filter((u) => u.hasDefaultOfficialTime).length,
+  };
+  coverage.missing = Math.max(0, coverage.total - coverage.withSchedule);
+
+  const assignedDepartmentOptions = [
+    ...new Set(
+      (supervisorDeptCtx?.departments || [])
+        .filter((d) => d.active !== false)
+        .map((d) => d.description || d.code)
+        .filter((v) => String(v || "").trim()),
+    ),
+  ];
+  const departmentOptions =
+    assignedDepartmentOptions.length > 0
+      ? assignedDepartmentOptions
+      : isTechAdmin
+        ? departmentTableList
+        : [];
 
   if (accessLoading || supervisorStatusLoading) return <OfficialTimeWireframe />;
   if (!hasPermission)
@@ -2746,7 +3008,7 @@ const handleSelectChangedEmployee = useCallback((emp) => {
             <Box
               sx={{
                 px: embedded ? 2.5 : 4,
-                py: embedded ? 2 : 3,
+                py: embedded ? 2 : 2.25,
                 background: "linear-gradient(135deg, #fdf5f5 0%, #f0dede 100%)",
                 display: "flex", alignItems: "center", justifyContent: "space-between",
                 position: "relative", overflow: "hidden", gap: 1.5,
@@ -2777,7 +3039,6 @@ const handleSelectChangedEmployee = useCallback((emp) => {
                     </Typography>
                   </Box>
                 )}
-                {!embedded && <ViewToggle value={viewMode} onChange={setViewMode} />}
                 {embedded && typeof onClose === "function" && (
                   <Tooltip title="Close panel">
                     <IconButton
@@ -2799,6 +3060,14 @@ const handleSelectChangedEmployee = useCallback((emp) => {
                 )}
               </Box>
             </Box>
+            {!embedded && !isTechAdmin && supervisorStatus?.hasAssignment && (
+              <SupervisorAssignmentStats
+                coverage={coverage}
+                writeAccess={writeAccess}
+                supervisorStatus={supervisorStatus}
+                nowTick={nowTick}
+              />
+            )}
           </SectionCard>
 
           {/* ══ SINGLE EMPLOYEE VIEW ══ */}
@@ -3219,7 +3488,7 @@ const handleSelectChangedEmployee = useCallback((emp) => {
                       sx={{ mb: 1.5 }}
                     >
                       <MenuItem value="">Select department…</MenuItem>
-                      {departmentTableList.map((d) => <MenuItem key={d} value={d}>{d}</MenuItem>)}
+                      {departmentOptions.map((d) => <MenuItem key={d} value={d}>{d}</MenuItem>)}
                     </ModernTextField>
 
                     <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
@@ -3403,7 +3672,7 @@ const handleSelectChangedEmployee = useCallback((emp) => {
                         sx={{ flex: "1 1 170px", minWidth: 160 }}
                       >
                         <MenuItem value="">All Departments</MenuItem>
-                        {departmentTableList.map((d) => <MenuItem key={d} value={d}>{d}</MenuItem>)}
+                        {departmentOptions.map((d) => <MenuItem key={d} value={d}>{d}</MenuItem>)}
                       </ModernTextField>
 
                       {/* Employment Category filter — independent axis from Department above.

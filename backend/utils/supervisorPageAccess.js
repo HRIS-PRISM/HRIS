@@ -8,10 +8,9 @@
 
 const db = require("../db");
 
-const socketService = require("../socket/socketService");
-
 const {
   notifySupervisorAssignmentChanged,
+  notifyMultipleUsers,
 } = require("../socket/socketService");
 
 const LEAVE_SUPERVISOR_IDENTIFIER = "leave-request-supervisor";
@@ -447,8 +446,100 @@ async function assertNotAssignmentManagedPage(pageId) {
   return { ok: true };
 }
 
+async function sendSupervisorAssignmentNotice({
+  employeeNumber,
+  description,
+  actionLink,
+}) {
+  const emp = String(employeeNumber || "").trim();
+  if (!emp || !description) return false;
+
+  try {
+    const existing = await queryAsync(
+      `SELECT id FROM notifications
+       WHERE CAST(employeeNumber AS CHAR) = CAST(? AS CHAR)
+         AND notification_type = 'supervisor_assignment'
+         AND action_link = ?
+       LIMIT 1`,
+      [emp, actionLink],
+    );
+    if (existing.length) return false;
+
+    await queryAsync(
+      `INSERT INTO notifications
+         (employeeNumber, description, read_status, notification_type, action_link)
+       VALUES (?, ?, 0, 'supervisor_assignment', ?)`,
+      [emp, description, actionLink || null],
+    );
+  } catch (err) {
+    try {
+      await queryAsync(
+        `INSERT INTO notifications (employeeNumber, description, read_status)
+         VALUES (?, ?, 0)`,
+        [emp, description],
+      );
+    } catch (fallbackErr) {
+      console.error(
+        "[supervisor-notice] insert error:",
+        fallbackErr.message || err.message,
+      );
+      return false;
+    }
+  }
+
+  try {
+    notifyMultipleUsers([emp], "notificationCreated", {
+      notification_type: "supervisor_assignment",
+      action_link: actionLink || null,
+      description,
+    });
+  } catch (e) {
+    console.error("[supervisor-notice] socket error:", e.message);
+  }
+  return true;
+}
+
+async function sendApproachingSupervisorNotices() {
+  const rows = await queryAsync(
+    `SELECT id, supervisorEmployeeNumber, departmentCode, end
+     FROM supervisor_assignment
+     WHERE status = 0 AND end IS NOT NULL`,
+  );
+  const now = Date.now();
+  const dayMs = 24 * 60 * 60 * 1000;
+
+  for (const row of rows || []) {
+    const end = new Date(row.end);
+    if (Number.isNaN(end.getTime())) continue;
+    const remaining = end.getTime() - now;
+    if (remaining <= 0) continue;
+
+    const dept = row.departmentCode || "your department";
+    const endIso = end.toISOString();
+    if (remaining <= dayMs) {
+      await sendSupervisorAssignmentNotice({
+        employeeNumber: row.supervisorEmployeeNumber,
+        description: `Your supervisor assignment for department "${dept}" ends in less than 24 hours. After it expires you can still view Official Time records, but you will no longer be able to create or edit schedules.`,
+        actionLink: `/official_time_supervisor?notice=1d&assignment=${row.id}&end=${encodeURIComponent(endIso)}`,
+      });
+    } else if (remaining <= 7 * dayMs) {
+      await sendSupervisorAssignmentNotice({
+        employeeNumber: row.supervisorEmployeeNumber,
+        description: `Your supervisor assignment for department "${dept}" ends in ${Math.ceil(remaining / dayMs)} days. Finish remaining Official Time schedules before write access closes.`,
+        actionLink: `/official_time_supervisor?notice=7d&assignment=${row.id}&end=${encodeURIComponent(endIso)}`,
+      });
+    }
+  }
+}
+
 async function expireSupervisorAssignments() {
   try {
+    try {
+      await sendApproachingSupervisorNotices();
+    } catch (noticeErr) {
+      console.error("[expire-supervisor] approaching notice error:", noticeErr.message);
+    }
+
     // Compare both values as Manila wall-clock datetimes. This avoids using
     // MySQL NOW(), whose configured timezone may differ from the UI timezone.
     const rows = await queryAsync(
@@ -483,7 +574,7 @@ async function expireSupervisorAssignments() {
     );
 
     // Notify the UI for every expired row.
-    dueRows.forEach((r) => {
+    for (const r of dueRows) {
       try {
         notifySupervisorAssignmentChanged("expired", {
           id: r.id,
@@ -494,7 +585,17 @@ async function expireSupervisorAssignments() {
       } catch (e) {
         console.error("[expire-supervisor] socket notify error:", e.message);
       }
-    });
+      try {
+        const dept = r.departmentCode || "your department";
+        await sendSupervisorAssignmentNotice({
+          employeeNumber: r.supervisorEmployeeNumber,
+          description: `Your supervisor assignment for department "${dept}" has ended. You can still view Official Time records for staff in that department, but you can no longer create or edit schedules until it is renewed.`,
+          actionLink: `/official_time_supervisor?notice=expired&assignment=${r.id}`,
+        });
+      } catch (e) {
+        console.error("[expire-supervisor] expired notice error:", e.message);
+      }
+    }
   } catch (err) {
     console.error("[expire-supervisor] error:", err.message);
   }
@@ -548,4 +649,5 @@ module.exports = {
   assertNotAssignmentManagedPage,
   expireSupervisorAssignments,
   hasSupervisorAssignment,
+  sendSupervisorAssignmentNotice,
 };

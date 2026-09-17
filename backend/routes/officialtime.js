@@ -29,6 +29,7 @@ let express,
   db,
   authenticateToken,
   logAudit,
+  ADMIN_ROLES,
   upload,
   xlsx,
   fs,
@@ -38,7 +39,7 @@ try {
   express = require("express");
   router = express.Router();
   db = require("../db");
-  ({ authenticateToken, logAudit } = require("../middleware/auth"));
+  ({ authenticateToken, logAudit, ADMIN_ROLES } = require("../middleware/auth"));
   ({ upload } = require("../middleware/upload"));
   ({ fillExemptAttendance } = require("../services/autoAttendanceService"));
   ({ notifyAttendanceChanged } = require("../socket/socketService"));
@@ -72,6 +73,9 @@ const DAYS_ORDER = [
   "Sunday",
 ];
 const VALID_TIME_RE = /^\d{1,2}:\d{2}:\d{2}\s*(AM|PM)$/i; // #10: strict time format
+const OFFICIAL_TIME_ADMIN_ROLES = Array.isArray(ADMIN_ROLES)
+  ? ADMIN_ROLES
+  : ["admin", "administrator", "superadmin", "technical"];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PURE UTILITIES
@@ -194,7 +198,7 @@ function getSupervisorAssignmentStatus(supervisorEmployeeNumber) {
       return resolve({ hasAssignment: false, active: false, reason: 'no_employee' });
 
     db.query(
-      `SELECT departmentCode, role, start, end
+      `SELECT id, departmentCode, role, start, end
        FROM supervisor_assignment
        WHERE supervisorEmployeeNumber = ?
        ORDER BY end DESC`,
@@ -216,10 +220,13 @@ function getSupervisorAssignmentStatus(supervisorEmployeeNumber) {
           return resolve({
             hasAssignment: true,
             active: true,
+            assignmentId: current.id,
             departmentCode: current.departmentCode,
             role: current.role,
             start: formatDateTime12h(current.start),
             end: formatDateTime12h(current.end),
+            startAt: current.start ? new Date(current.start).toISOString() : null,
+            endAt: current.end ? new Date(current.end).toISOString() : null,
           });
         }
 
@@ -231,20 +238,123 @@ function getSupervisorAssignmentStatus(supervisorEmployeeNumber) {
           active: false,
           expired: !!mostRecentEnd && mostRecentEnd < now,
           notStarted: !!mostRecentStart && mostRecentStart > now,
+          assignmentId: mostRecent.id,
           departmentCode: mostRecent.departmentCode,
           role: mostRecent.role,
           start: formatDateTime12h(mostRecent.start),
           end: formatDateTime12h(mostRecent.end),
+          startAt: mostRecent.start ? new Date(mostRecent.start).toISOString() : null,
+          endAt: mostRecent.end ? new Date(mostRecent.end).toISOString() : null,
         });
       },
     );
   });
 }
 
+function isOfficialTimeAdminRole(user) {
+  const role = String(user?.role || "").toLowerCase();
+  return OFFICIAL_TIME_ADMIN_ROLES.includes(role);
+}
+
+function adminOfficialTimeBypassStatus(user) {
+  return {
+    hasAssignment: true,
+    active: true,
+    bypassed: true,
+    role: user?.role || null,
+    departmentCodes: [],
+    departments: [],
+  };
+}
+
+// Currently covering supervisor_assignment rows (start/end window includes now).
+// Title/role on the assignment is display-only and is not used as a filter.
+function getCoveringSupervisorDepartments(supervisorEmployeeNumber) {
+  return new Promise((resolve, reject) => {
+    if (!supervisorEmployeeNumber) return resolve([]);
+    db.query(
+      `SELECT sa.departmentCode, sa.role, sa.start, sa.end,
+              dt.description AS departmentDescription
+       FROM supervisor_assignment sa
+       LEFT JOIN department_table dt ON dt.code = sa.departmentCode
+       WHERE TRIM(CAST(sa.supervisorEmployeeNumber AS CHAR)) = TRIM(CAST(? AS CHAR))`,
+      [supervisorEmployeeNumber],
+      (err, rows) => {
+        if (err) return reject(err);
+        const now = new Date();
+        resolve(
+          (rows || [])
+            .filter((r) => {
+              const s = toDateTime(r.start);
+              const e = toDateTime(r.end);
+              return (!s || s <= now) && (!e || e >= now);
+            })
+            .map((r) => ({
+              code: r.departmentCode,
+              description: r.departmentDescription || r.departmentCode,
+              role: r.role,
+            }))
+            .filter((r) => r.code),
+        );
+      },
+    );
+  });
+}
+
+function getUnauthorizedEmployeeIDs(employeeIDs, departmentCodes) {
+  return new Promise((resolve, reject) => {
+    const ids = [
+      ...new Set(
+        (employeeIDs || []).map((v) => String(v).trim()).filter(Boolean),
+      ),
+    ];
+    const codes = [
+      ...new Set(
+        (departmentCodes || []).map((v) => String(v).trim()).filter(Boolean),
+      ),
+    ];
+    if (!ids.length) return resolve([]);
+    if (!codes.length) return resolve(ids);
+    db.query(
+      `SELECT DISTINCT da.employeeNumber AS employeeID
+       FROM department_assignment da
+       WHERE da.employeeNumber IN (${ids.map(() => "?").join(",")})
+         AND da.code IN (${codes.map(() => "?").join(",")})`,
+      [...ids, ...codes],
+      (err, rows) => {
+        if (err) return reject(err);
+        const allowed = new Set((rows || []).map((r) => String(r.employeeID)));
+        resolve(ids.filter((id) => !allowed.has(id)));
+      },
+    );
+  });
+}
+
+async function attachSupervisorDepartments(status, supervisorEmployeeNumber) {
+  if (!status?.active || status.bypassed) return status;
+  const departments = await getCoveringSupervisorDepartments(
+    supervisorEmployeeNumber,
+  );
+  return {
+    ...status,
+    departments,
+    departmentCodes: departments.map((d) => d.code),
+  };
+}
+
 // #28: Shared guard for every Excel-upload route AND (now) the manual
 // create/edit routes. Sends the 403 itself when blocked, so a route handler
 // just does: `if (!status) return;`
+//
+// Admin roles (technical / superadmin / administrator) bypass
+// supervisor_assignment entirely — that table is only for Staff tagged in
+// Supervisor Assignment. Staff still need a window that covers now, and
+// later helpers also restrict writes to those department(s).
 async function ensureActiveSupervisorAssignment(req, res) {
+  if (isOfficialTimeAdminRole(req.user)) {
+    return adminOfficialTimeBypassStatus(req.user);
+  }
+
   const supervisorEmployeeNumber =
     req.user?.employeeNumber || req.user?.employeeID || req.user?.id;
   try {
@@ -260,11 +370,61 @@ async function ensureActiveSupervisorAssignment(req, res) {
       res.status(403).json({ message, supervisorAssignment: status });
       return null;
     }
-    return status;
+    return attachSupervisorDepartments(status, supervisorEmployeeNumber);
   } catch (err) {
     res.status(500).json({ message: 'Error checking supervisor assignment.', detail: err.message });
     return null;
   }
+}
+
+async function assertEmployeesInSupervisorScope(res, supervisorStatus, employeeIDs) {
+  if (!supervisorStatus || supervisorStatus.bypassed) return true;
+  const unauthorized = await getUnauthorizedEmployeeIDs(
+    employeeIDs,
+    supervisorStatus.departmentCodes,
+  );
+  if (!unauthorized.length) return true;
+  res.status(403).json({
+    message:
+      unauthorized.length === 1
+        ? `You do not have supervisor authority over employee ${unauthorized[0]}.`
+        : `You do not have supervisor authority over employee(s): ${unauthorized.join(", ")}.`,
+    unauthorizedEmployeeIDs: unauthorized,
+  });
+  return false;
+}
+
+function assertSupervisorOwnsDepartment(res, supervisorStatus, department) {
+  if (!supervisorStatus || supervisorStatus.bypassed) return true;
+  const target = String(department || "").trim().toLowerCase();
+  const owned = (supervisorStatus.departments || []).some((d) => {
+    return (
+      String(d.code || "").trim().toLowerCase() === target ||
+      String(d.description || "").trim().toLowerCase() === target
+    );
+  });
+  if (owned) return true;
+  res.status(403).json({
+    message: `You are not assigned as supervisor for department "${department}".`,
+  });
+  return false;
+}
+
+async function filterScheduleListToSupervisorScope(supervisorStatus, scheduleList) {
+  if (!supervisorStatus || supervisorStatus.bypassed) {
+    return { scheduleList, skipped: [] };
+  }
+  const ids = (scheduleList || []).map((s) => String(s.employeeID));
+  const unauthorized = await getUnauthorizedEmployeeIDs(
+    ids,
+    supervisorStatus.departmentCodes,
+  );
+  if (!unauthorized.length) return { scheduleList, skipped: [] };
+  const blocked = new Set(unauthorized);
+  return {
+    scheduleList: scheduleList.filter((s) => !blocked.has(String(s.employeeID))),
+    skipped: unauthorized,
+  };
 }
 
 // #14: Auto-format academic year server-side.
@@ -1341,6 +1501,12 @@ router.post("/officialtimetable", authenticateToken, async (req, res) => {
 
   if (!employeeID)
     return res.status(400).json({ message: "employeeID is required." });
+  if (
+    !(await assertEmployeesInSupervisorScope(res, supervisorStatus, [
+      employeeID,
+    ]))
+  )
+    return;
   if (!startDate || !endDate)
     return res
       .status(400)
@@ -1526,6 +1692,15 @@ if (!supervisorStatus) { safeUnlink(filePath); return; }
           skippedRows,
         });
 
+      if (
+        !(await assertEmployeesInSupervisorScope(
+          res,
+          supervisorStatus,
+          scheduleList.map((s) => s.employeeID),
+        ))
+      )
+        return;
+
       const validationErrors = await validateScheduleList(scheduleList);
       if (validationErrors.length > 0) {
         const first = validationErrors[0];
@@ -1633,6 +1808,15 @@ if (!supervisorStatus) { safeUnlink(filePath); return; }
         return res
           .status(400)
           .json({ message: "No valid schedule blocks found.", skippedRows });
+
+      if (
+        !(await assertEmployeesInSupervisorScope(
+          res,
+          supervisorStatus,
+          scheduleList.map((s) => s.employeeID),
+        ))
+      )
+        return;
 
       const validationErrors = await validateScheduleList(scheduleList);
       if (validationErrors.length > 0) {
@@ -1891,18 +2075,38 @@ function getDepartmentEmployeeIDs(department) {
   });
 }
 
-router.get("/officialtime/departments", authenticateToken, (req, res) => {
-  db.query(
-    `SELECT DISTINCT dt.description AS department
-     FROM department_table dt
-     INNER JOIN department_assignment da ON da.code = dt.code
-     WHERE dt.description IS NOT NULL AND dt.description <> ''
-     ORDER BY dt.description`,
-    (err, rows) => {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json((rows || []).map((r) => r.department));
-    },
-  );
+router.get("/officialtime/departments", authenticateToken, async (req, res) => {
+  try {
+    if (!isOfficialTimeAdminRole(req.user)) {
+      const supervisorEmployeeNumber =
+        req.user?.employeeNumber || req.user?.employeeID || req.user?.id;
+      const departments = await getCoveringSupervisorDepartments(
+        supervisorEmployeeNumber,
+      );
+      const labels = [
+        ...new Set(
+          departments
+            .map((d) => d.description || d.code)
+            .filter((v) => v != null && String(v).trim() !== ""),
+        ),
+      ];
+      return res.json(labels);
+    }
+
+    db.query(
+      `SELECT DISTINCT dt.description AS department
+       FROM department_table dt
+       INNER JOIN department_assignment da ON da.code = dt.code
+       WHERE dt.description IS NOT NULL AND dt.description <> ''
+       ORDER BY dt.description`,
+      (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json((rows || []).map((r) => r.department));
+      },
+    );
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 router.get(
@@ -1910,12 +2114,15 @@ router.get(
   authenticateToken,
   async (req, res) => {
     try {
+      if (isOfficialTimeAdminRole(req.user)) {
+        return res.json(adminOfficialTimeBypassStatus(req.user));
+      }
       const supervisorEmployeeNumber =
         req.user?.employeeNumber || req.user?.employeeID || req.user?.id;
       const status = await getSupervisorAssignmentStatus(
         supervisorEmployeeNumber,
       );
-      res.json(status);
+      res.json(await attachSupervisorDepartments(status, supervisorEmployeeNumber));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -1983,6 +2190,9 @@ router.post(
       return res
         .status(400)
         .json({ message: "department is required for this upload route." });
+
+    if (!assertSupervisorOwnsDepartment(res, supervisorStatus, department))
+      return;
 
     try {
       if (req.file.size > MAX_UPLOAD_BYTES)
@@ -2057,6 +2267,15 @@ router.post(
           message: "No valid schedule blocks found for this department.",
           skippedRows,
         });
+
+      if (
+        !(await assertEmployeesInSupervisorScope(
+          res,
+          supervisorStatus,
+          scheduleList.map((s) => s.employeeID),
+        ))
+      )
+        return;
 
       const validationErrors = await validateScheduleList(scheduleList);
       if (validationErrors.length > 0) {
@@ -2145,6 +2364,9 @@ if (!supervisorStatus) { safeUnlink(filePath); return; }
         .status(400)
         .json({ message: "department is required for this upload route." });
 
+    if (!assertSupervisorOwnsDepartment(res, supervisorStatus, department))
+      return;
+
     try {
       if (req.file.size > MAX_UPLOAD_BYTES)
         return res.status(400).json({
@@ -2212,6 +2434,15 @@ if (!supervisorStatus) { safeUnlink(filePath); return; }
           message: `No valid schedule blocks found for department "${department}".`,
           skippedRows,
         });
+
+      if (
+        !(await assertEmployeesInSupervisorScope(
+          res,
+          supervisorStatus,
+          scheduleList.map((s) => s.employeeID),
+        ))
+      )
+        return;
 
       const validationErrors = await validateScheduleList(scheduleList);
       if (validationErrors.length > 0) {
@@ -2553,6 +2784,25 @@ if (!supervisorStatus) { safeUnlink(filePath); return; }
           });
       }
 
+      {
+        const scoped = await filterScheduleListToSupervisorScope(
+          supervisorStatus,
+          scheduleList,
+        );
+        const outOfScopeWarnings = scoped.skipped.map(
+          (id) =>
+            `Employee ${id} is outside your assigned department(s) — skipped.`,
+        );
+        scheduleList = scoped.scheduleList;
+        outOfCategoryWarnings.push(...outOfScopeWarnings);
+        if (scheduleList.length === 0 && scoped.skipped.length)
+          return res.status(400).json({
+            message:
+              "None of the employees in this file belong to your assigned department(s).",
+            warnings: [...multiCategoryWarnings, ...outOfCategoryWarnings],
+          });
+      }
+
       if (scheduleList.length === 0)
         return res.status(400).json({
           message:
@@ -2722,6 +2972,19 @@ if (!supervisorStatus) { safeUnlink(filePath); return; }
           }
           return inCategory;
         });
+      }
+
+      {
+        const scoped = await filterScheduleListToSupervisorScope(
+          supervisorStatus,
+          scheduleList,
+        );
+        const outOfScopeWarnings = scoped.skipped.map(
+          (id) =>
+            `Employee ${id} is outside your assigned department(s) — skipped.`,
+        );
+        scheduleList = scoped.scheduleList;
+        outOfCategoryWarnings.push(...outOfScopeWarnings);
       }
 
       if (scheduleList.length === 0)
@@ -3051,7 +3314,7 @@ router.get("/officialtime/users-status", authenticateToken, (req, res) => {
     WHERE
       (
         /* ==========================================
-           SUPERADMIN / TECHNICAL
+           SUPERADMIN / TECHNICAL / ADMINISTRATOR
            Can see ALL employees
            ========================================== */
         EXISTS (
@@ -3060,7 +3323,9 @@ router.get("/officialtime/users-status", authenticateToken, (req, res) => {
           WHERE currentUser.employeeNumber = ?
             AND LOWER(currentUser.role) IN (
               'superadmin',
-              'technical'
+              'technical',
+              'administrator',
+              'admin'
             )
         )
 
@@ -3068,13 +3333,16 @@ router.get("/officialtime/users-status", authenticateToken, (req, res) => {
 
         /* ==========================================
            SUPERVISOR
-           Can only see employees in assigned department
+           Can VIEW employees in assigned department(s),
+           including after the assignment window expired.
+           Writes are still blocked separately by
+           ensureActiveSupervisorAssignment().
+           Assignment title is display-only.
            ========================================== */
         EXISTS (
           SELECT 1
           FROM supervisor_assignment sa
           WHERE sa.supervisorEmployeeNumber = ?
-            AND LOWER(sa.role) = 'supervisor'
             AND sa.departmentCode = da.code
         )
       )
@@ -3189,8 +3457,31 @@ router.get("/officialtime/users-status", authenticateToken, (req, res) => {
 router.post(
   "/officialtime/set-default-for-users",
   authenticateToken,
-  (req, res) => {
+  async (req, res) => {
+    const supervisorStatus = await ensureActiveSupervisorAssignment(req, res);
+    if (!supervisorStatus) return;
+
     const { employeeNumbers } = req.body;
+    if (!supervisorStatus.bypassed) {
+      if (
+        !employeeNumbers ||
+        !Array.isArray(employeeNumbers) ||
+        employeeNumbers.length === 0
+      ) {
+        return res.status(403).json({
+          message:
+            "You can only set default official time for employees in your assigned department(s).",
+        });
+      }
+      if (
+        !(await assertEmployeesInSupervisorScope(
+          res,
+          supervisorStatus,
+          employeeNumbers,
+        ))
+      )
+        return;
+    }
     const defaultTimes = {
       officialTimeIN: "08:00:00 AM",
       officialBreaktimeIN: "00:00:00 AM",
@@ -3347,12 +3638,23 @@ router.post(
   "/officialtime/bulk-schedules",
   authenticateToken,
   async (req, res) => {
+    const supervisorStatus = await ensureActiveSupervisorAssignment(req, res);
+    if (!supervisorStatus) return;
+
     const { employeeIDs, blocks, records } = req.body || {};
 
     if (!employeeIDs || !Array.isArray(employeeIDs) || !employeeIDs.length)
       return res.status(400).json({
         message: "employeeIDs is required and must be a non-empty array.",
       });
+    if (
+      !(await assertEmployeesInSupervisorScope(
+        res,
+        supervisorStatus,
+        employeeIDs,
+      ))
+    )
+      return;
     if (!blocks || !Array.isArray(blocks) || !blocks.length)
       return res.status(400).json({
         message:
@@ -3587,6 +3889,12 @@ router.put(
     if (!supervisorStatus) return;
 
     const { employeeID } = req.params;
+    if (
+      !(await assertEmployeesInSupervisorScope(res, supervisorStatus, [
+        employeeID,
+      ]))
+    )
+      return;
     const { startDate, endDate, origEndDate, records, saveSupervisorHistory } = req.body || {};
 
     if (!startDate)
