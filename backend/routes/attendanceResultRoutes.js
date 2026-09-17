@@ -28,7 +28,9 @@ router.get("/", authenticateToken, (req, res) => {
         WHEN etc.id IS NOT NULL THEN CONCAT(etc.parentGroup, ' | ', etc.typeName)
         WHEN ec.customCategory IS NOT NULL AND TRIM(ec.customCategory) != '' THEN CONCAT('Other (', ec.customCategory, ')')
         ELSE 'Unassigned'
-      END AS employment_category_label
+      END AS employment_category_label,
+      da.code AS department_code,
+      da.name AS department_name
     FROM attendance_result ar
     LEFT JOIN person_table pt
       ON TRIM(CAST(pt.agencyEmployeeNum AS CHAR)) = TRIM(CAST(ar.employee_number AS CHAR))
@@ -36,6 +38,8 @@ router.get("/", authenticateToken, (req, res) => {
       ON TRIM(CAST(ec.employeeNumber AS CHAR)) = TRIM(CAST(ar.employee_number AS CHAR))
     LEFT JOIN employment_type_config etc
       ON etc.id = ec.employmentCategory
+    LEFT JOIN department_assignment da
+      ON TRIM(CAST(da.employeeNumber AS CHAR)) = TRIM(CAST(ar.employee_number AS CHAR))
     WHERE ar.result_date >= ? AND ar.result_date <= ?
   `;
   const params = [start, end];

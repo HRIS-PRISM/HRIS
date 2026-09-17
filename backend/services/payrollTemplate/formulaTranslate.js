@@ -142,4 +142,85 @@ function translateFormula(formula, dRow, dCol) {
   return out;
 }
 
-module.exports = { colToIndex, indexToCol, parseRef, makeRef, translateFormula };
+/**
+ * Shift row numbers that are at or below `fromRow` (Excel insert-rows semantics).
+ * Absolute ($) rows still move — they sit on the sheet, not in a copied formula.
+ */
+function shiftFormulaRowsFrom(formula, fromRow, dRow) {
+  if (!formula || dRow === 0) return formula;
+
+  let out = '';
+  let i = 0;
+  const n = formula.length;
+
+  while (i < n) {
+    const ch = formula[i];
+
+    if (ch === '"') {
+      let j = i + 1;
+      while (j < n) {
+        if (formula[j] === '"') {
+          if (formula[j + 1] === '"') { j += 2; continue; }
+          break;
+        }
+        j++;
+      }
+      out += formula.slice(i, Math.min(j + 1, n));
+      i = j + 1;
+      continue;
+    }
+
+    if (ch === "'") {
+      let j = i + 1;
+      while (j < n) {
+        if (formula[j] === "'") {
+          if (formula[j + 1] === "'") { j += 2; continue; }
+          break;
+        }
+        j++;
+      }
+      out += formula.slice(i, Math.min(j + 1, n));
+      i = j + 1;
+      continue;
+    }
+
+    if (ch >= '0' && ch <= '9') {
+      const m = NUMBER_AT.exec(formula.slice(i));
+      out += m[0];
+      i += m[0].length;
+      continue;
+    }
+
+    if (/[A-Za-z_$]/.test(ch)) {
+      const rest = formula.slice(i);
+      const range = COL_RANGE_AT.exec(rest);
+      if (range) {
+        out += range[0];
+        i += range[0].length;
+        continue;
+      }
+      const cell = CELL_AT.exec(rest);
+      if (cell) {
+        const [full, colAbs, colLetters, rowAbs, rowDigits] = cell;
+        const rowNum = Number(rowDigits);
+        const row = rowNum >= fromRow ? String(rowNum + dRow) : rowDigits;
+        out += `${colAbs}${colLetters}${rowAbs}${row}`;
+        i += full.length;
+        continue;
+      }
+      const ident = IDENT_AT.exec(rest);
+      if (ident) {
+        out += ident[0];
+        i += ident[0].length;
+        continue;
+      }
+    }
+
+    out += ch;
+    i++;
+  }
+
+  return out;
+}
+
+module.exports = { colToIndex, indexToCol, parseRef, makeRef, translateFormula, shiftFormulaRowsFrom };

@@ -327,6 +327,9 @@ export default function DTRTemplate({
   className = 'table-side-by-side',
   /** 'regular' | 'honorarium' | 'service-credit' | 'overtime' */
   dtrType = 'regular',
+  /** Inclusive day-of-month bounds. Rows stay 1–31; cell data outside is blank. */
+  dataDayFrom,
+  dataDayTo,
 }) {
   const isSpecialDtr = dtrType !== 'regular';
 
@@ -1020,27 +1023,36 @@ export default function DTRTemplate({
       !emptyOfficialTime(sched?.officialTimeOUT),
   );
   const moduleType = computationModuleType || MODULE_TYPES.NON_TEACHING;
+  const rangeFrom = Number(dataDayFrom);
+  const rangeTo = Number(dataDayTo);
+  const hasDataRange = Number.isFinite(rangeFrom) || Number.isFinite(rangeTo);
 
   const renderTableRows = (styleObj, rowKeyPrefix) =>
     Array.from({ length: daysInSelectedMonth }, (_, i) => {
       const dayNum = i + 1;
       const day = dayNum.toString().padStart(2, '0');
       const dayLabel = String(dayNum);
+      const outsideRange =
+        hasDataRange &&
+        ((Number.isFinite(rangeFrom) && dayNum < rangeFrom) ||
+          (Number.isFinite(rangeTo) && dayNum > rangeTo));
       const expectedYmd = expectedYmdForDay(
         day,
         startDate,
         selectedYear,
         selectedMonth,
       );
-      const record = records.find((r) =>
-        expectedYmd
-          ? toPhCalendarYmd(r?.date) === expectedYmd
-          : r?.date && recordMatchesDay(r, day),
-      );
+      const record = outsideRange
+        ? undefined
+        : records.find((r) =>
+            expectedYmd
+              ? toPhCalendarYmd(r?.date) === expectedYmd
+              : r?.date && recordMatchesDay(r, day),
+          );
       const fullDate = record?.date
         ? toPhCalendarYmd(record.date) || expectedYmd
         : expectedYmd;
-      const dateIndicator = getDateIndicator(fullDate);
+      const dateIndicator = outsideRange ? null : getDateIndicator(fullDate);
 
       const isPartialSuspensionRow =
         dateIndicator?.type === 'suspension' &&
@@ -1063,8 +1075,9 @@ export default function DTRTemplate({
         });
       })();
       const hasPeriodRecords =
-        (Array.isArray(records) && records.length > 0) ||
-        Boolean(startDate && endDate);
+        !outsideRange &&
+        ((Array.isArray(records) && records.length > 0) ||
+          Boolean(startDate && endDate));
       // Special DTRs only punch IN/OUT — map into the shared empty-punch helpers.
       const timeFields = isSpecialDtr
         ? {
@@ -1354,7 +1367,7 @@ export default function DTRTemplate({
       const partialSuspLabel = isPartialSuspensionRow
         ? `SUSP ${formatSuspensionEffectiveTime(dateIndicator.effectiveTime)}`
         : null;
-      const computed = computedLateByDate[fullDate];
+      const computed = outsideRange ? undefined : computedLateByDate[fullDate];
       const isExcludedDay =
         dateIndicator?.type === 'holiday' ||
         (dateIndicator?.type === 'suspension' && !isPartialSuspensionRow) ||

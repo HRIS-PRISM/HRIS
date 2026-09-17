@@ -1,11 +1,8 @@
 import React, { useState, useRef } from "react";
-import Button from "@mui/material/Button";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import PrintIcon from '@mui/icons-material/Print';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import { useNavigate } from "react-router-dom";
-import { jsPDF } from 'jspdf';
-import html2canvas from 'html2canvas';
 import { 
   Box, 
   Fab, 
@@ -14,12 +11,17 @@ import {
   Snackbar, 
   Alert 
 } from "@mui/material";
-// Adjust this path to where you saved your LoadingOverlay component
 import LoadingOverlay from '../LoadingOverlay';
+import {
+  FormPrintStyles,
+  printFormHtml,
+  downloadFormHtml,
+  FORM_PRINTABLE_WIDTH_MM,
+} from './FormPrintable';
 
 const ClearanceBack = () => {
     const navigate = useNavigate();
-    const printRef = useRef(null);
+    const formRef = useRef(null);
 
     // State for Loading Overlay and Notifications
     const [isGenerating, setIsGenerating] = useState(false);
@@ -41,105 +43,26 @@ const ClearanceBack = () => {
         setSnackbar({ ...snackbar, open: false });
     };
 
-    // Capture helpers
-    const ensureCaptureStyles = (el) => {
-        if (!el) return {};
-        const orig = {
-            backgroundColor: el.style.backgroundColor,
-            width: el.style.width,
-            visibility: el.style.visibility,
-            display: el.style.display,
-            position: el.style.position,
-            left: el.style.left,
-            zIndex: el.style.zIndex,
-            opacity: el.style.opacity,
-        };
-        el.style.backgroundColor = '#ffffff';
-        el.style.width = '8.5in';
-        el.style.visibility = 'visible';
-        el.style.display = 'block';
-        el.style.position = 'fixed';
-        el.style.left = '-9999px';
-        el.style.zIndex = '10000';
-        el.style.opacity = '1';
-        return orig;
-    };
-
-    const restoreCaptureStyles = (el, orig) => {
-        if (!el || !orig) return;
-        try {
-            el.style.backgroundColor = orig.backgroundColor || '';
-            el.style.width = orig.width || '';
-            el.style.visibility = orig.visibility || '';
-            el.style.display = orig.display || '';
-            el.style.position = orig.position || '';
-            el.style.left = orig.left || '';
-            el.style.zIndex = orig.zIndex || '';
-            el.style.opacity = orig.opacity || '';
-        } catch (e) {
-            /* noop */
-        }
-    };
-
     const printPage = async () => {
-        if (!printRef.current) return;
         try {
             setIsGenerating(true);
-
-            const pdf = new jsPDF({ orientation: 'portrait', unit: 'in', format: [8.5, 13] });
-            const orig = ensureCaptureStyles(printRef.current);
-            await new Promise((resolve) => setTimeout(resolve, 100));
-
-            const canvas = await html2canvas(printRef.current, {
-                scale: 2,
-                useCORS: true,
-                backgroundColor: '#ffffff',
-                logging: false,
-            });
-
-            restoreCaptureStyles(printRef.current, orig);
-            const imgData = canvas.toDataURL('image/png');
-            const pageWidth = pdf.internal.pageSize.getWidth();
-            const pageHeight = pdf.internal.pageSize.getHeight();
-            
-            pdf.addImage(imgData, 'PNG', 0, 0, pageWidth, pageHeight);
-            pdf.autoPrint();
-            window.open(pdf.output('bloburl'), '_blank');
-            
-            showSnackbar('Print view generated', 'success');
+            await printFormHtml(formRef.current, { title: 'Clearance Back' });
         } catch (error) {
-            console.error('Error generating print view:', error);
-            showSnackbar('Error generating print view', 'error');
+            console.error('Error printing form:', error);
+            showSnackbar('Error printing form', 'error');
         } finally {
             setIsGenerating(false);
         }
     };
 
     const downloadPDF = async () => {
-        if (!printRef.current) return;
         try {
             setIsGenerating(true);
-
-            const pdf = new jsPDF({ orientation: 'portrait', unit: 'in', format: [8.5, 13] });
-            const orig = ensureCaptureStyles(printRef.current);
-            await new Promise((resolve) => setTimeout(resolve, 100));
-
-            const canvas = await html2canvas(printRef.current, {
-                scale: 2,
-                useCORS: true,
-                backgroundColor: '#ffffff',
-                logging: false,
-            });
-
-            restoreCaptureStyles(printRef.current, orig);
-            const imgData = canvas.toDataURL('image/png');
-            const pageWidth = pdf.internal.pageSize.getWidth();
-            const pageHeight = pdf.internal.pageSize.getHeight();
-
-            pdf.addImage(imgData, 'PNG', 0, 0, pageWidth, pageHeight);
-            
-            const fileName = `Clearance-Back-${new Date().toISOString().split('T')[0]}.pdf`;
-            pdf.save(fileName);
+            await downloadFormHtml(
+                formRef.current,
+                `Clearance-Back-${new Date().toISOString().split('T')[0]}.pdf`,
+                { title: 'Clearance Back' },
+            );
             showSnackbar('PDF downloaded successfully', 'success');
         } catch (error) {
             console.error('Error generating PDF:', error);
@@ -150,6 +73,8 @@ const ClearanceBack = () => {
     };
 
     return (
+        <>
+        <FormPrintStyles />
         <Box sx={{ 
             display: 'flex', 
             flexDirection: 'column', 
@@ -163,19 +88,20 @@ const ClearanceBack = () => {
                 {/* ══════════════════════════════════════════
                     PRINTABLE AREA
                 ══════════════════════════════════════════ */}
-                <div
-                    ref={printRef}
-                    style={{
+                <main className="form-print-area" ref={formRef}>
+                  <div className="form-print-scale">
+                    <div
+                      className="form-page"
+                      style={{
                         padding: '0.35in 0.4in',
-                        width: '8.5in',
-                        minHeight: '13in',
+                        width: `${FORM_PRINTABLE_WIDTH_MM}mm`,
+                        margin: '0 auto',
                         fontFamily: 'Arial, Helvetica, sans-serif',
-                        margin: 'auto',
                         marginTop: '30px',
                         backgroundColor: '#ffffff',
                         boxSizing: 'border-box',
-                    }}
-                >
+                      }}
+                    >
                     {/* Instructions heading */}
                     <p style={{ fontSize: '14px', fontStyle: 'italic', fontWeight: 'bold', marginBottom: '12px' }}>
                         INSTRUCTIONS:
@@ -239,7 +165,9 @@ const ClearanceBack = () => {
                     <div style={{ fontSize: '11px', fontStyle: 'italic', textAlign: 'right', marginTop: '20px' }}>
                         Page 2 of 2
                     </div>
-                </div>
+                    </div>
+                  </div>
+                </main>
                 {/* ══ END of printable area ══ */}
             </Box>
 
@@ -330,6 +258,7 @@ const ClearanceBack = () => {
                 </Alert>
             </Snackbar>
         </Box>
+        </>
     );
 };
 

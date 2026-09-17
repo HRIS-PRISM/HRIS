@@ -1,7 +1,5 @@
 import React, { useState, useRef } from 'react';
 import logo from './logo.png';
-import { jsPDF } from 'jspdf';
-import html2canvas from 'html2canvas';
 import {
   Box,
   Fab,
@@ -13,9 +11,15 @@ import {
 import PrintIcon from '@mui/icons-material/Print';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import LoadingOverlay from '../LoadingOverlay';
+import {
+  FormPrintStyles,
+  printFormHtml,
+  downloadFormHtml,
+  FORM_PRINTABLE_WIDTH_MM,
+} from './FormPrintable';
 
 const RequestForID = () => {
-  const printRef = useRef(null);
+  const formRef = useRef(null);
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [snackbar, setSnackbar] = useState({
@@ -33,80 +37,25 @@ const RequestForID = () => {
   };
 
   const printPage = async () => {
-    if (!printRef.current) return;
     try {
       setIsGenerating(true);
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'in', format: [8.5, 11] });
-      const el = printRef.current;
-      const orig = {
-        position: el.style.position,
-        left: el.style.left,
-        width: el.style.width,
-        backgroundColor: el.style.backgroundColor,
-      };
-      el.style.position = 'fixed';
-      el.style.left = '-9999px';
-      el.style.width = '8.5in';
-      el.style.backgroundColor = '#ffffff';
-
-      await new Promise((r) => setTimeout(r, 150));
-      const canvas = await html2canvas(el, {
-        scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false,
-      });
-
-      el.style.position = orig.position || '';
-      el.style.left = orig.left || '';
-      el.style.width = orig.width || '';
-      el.style.backgroundColor = orig.backgroundColor || '';
-
-      const imgData = canvas.toDataURL('image/png');
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      pdf.addImage(imgData, 'PNG', 0, 0, pageWidth, pageHeight);
-      pdf.autoPrint();
-      window.open(pdf.output('bloburl'), '_blank');
-      showSnackbar('Print view generated', 'success');
+      await printFormHtml(formRef.current, { title: 'Request For ID' });
     } catch (error) {
-      console.error('Error generating print view:', error);
-      showSnackbar('Error generating print view', 'error');
+      console.error('Error printing form:', error);
+      showSnackbar('Error printing form', 'error');
     } finally {
       setIsGenerating(false);
     }
   };
 
   const downloadPDF = async () => {
-    if (!printRef.current) return;
     try {
       setIsGenerating(true);
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'in', format: [8.5, 11] });
-      const el = printRef.current;
-      const orig = {
-        position: el.style.position,
-        left: el.style.left,
-        width: el.style.width,
-        backgroundColor: el.style.backgroundColor,
-      };
-      el.style.position = 'fixed';
-      el.style.left = '-9999px';
-      el.style.width = '8.5in';
-      el.style.backgroundColor = '#ffffff';
-
-      await new Promise((r) => setTimeout(r, 150));
-      const canvas = await html2canvas(el, {
-        scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false,
-      });
-
-      el.style.position = orig.position || '';
-      el.style.left = orig.left || '';
-      el.style.width = orig.width || '';
-      el.style.backgroundColor = orig.backgroundColor || '';
-
-      const imgData = canvas.toDataURL('image/png');
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      pdf.addImage(imgData, 'PNG', 0, 0, pageWidth, pageHeight);
-      const fileName = `Request-For-ID-${new Date().toISOString().split('T')[0]}.pdf`;
-      pdf.save(fileName);
+      await downloadFormHtml(
+        formRef.current,
+        `Request-For-ID-${new Date().toISOString().split('T')[0]}.pdf`,
+        { title: 'Request For ID' },
+      );
       showSnackbar('PDF downloaded successfully', 'success');
     } catch (error) {
       console.error('Error generating PDF:', error);
@@ -118,7 +67,8 @@ const RequestForID = () => {
 
   const slip = () => (
     <div style={{
-      width: '6.5in',
+      width: '100%',
+      maxWidth: `${FORM_PRINTABLE_WIDTH_MM - 20}mm`,
       fontFamily: 'Arial, Helvetica, sans-serif',
       margin: 'auto',
       backgroundColor: '#ffffff',
@@ -216,6 +166,8 @@ const RequestForID = () => {
   );
 
   return (
+    <>
+    <FormPrintStyles />
     <Box sx={{
       width: '100%',
       minHeight: '100vh',
@@ -224,11 +176,25 @@ const RequestForID = () => {
       paddingBottom: '120px',
       position: 'relative',
     }}>
-      <div ref={printRef} style={{ backgroundColor: '#ffffff', paddingTop: '30px', paddingBottom: '30px' }}>
-        {slip()}
-        <div style={{ borderTop: '1px dashed #aaa', margin: '10px auto', width: '6.5in' }} />
-        {slip()}
-      </div>
+      <main className="form-print-area" ref={formRef}>
+        <div className="form-print-scale">
+          <div
+            className="form-page"
+            style={{
+              width: `${FORM_PRINTABLE_WIDTH_MM}mm`,
+              margin: '0 auto',
+              backgroundColor: '#ffffff',
+              paddingTop: '30px',
+              paddingBottom: '30px',
+              boxSizing: 'border-box',
+            }}
+          >
+            {slip()}
+            <div style={{ borderTop: '1px dashed #aaa', margin: '10px auto', width: '100%', maxWidth: `${FORM_PRINTABLE_WIDTH_MM - 20}mm` }} />
+            {slip()}
+          </div>
+        </div>
+      </main>
 
       {/* Floating Action Buttons */}
       <Box className="no-print forms-floating-actions" sx={{position: 'fixed', bottom: 30, right: 30,
@@ -259,6 +225,7 @@ const RequestForID = () => {
         </Alert>
       </Snackbar>
     </Box>
+    </>
   );
 };
 

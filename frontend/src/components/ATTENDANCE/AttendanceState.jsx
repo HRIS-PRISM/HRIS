@@ -42,6 +42,7 @@ import {
   Edit,
   Male as MaleIcon,
   Female as FemaleIcon,
+  Download as DownloadIcon,
 } from "@mui/icons-material";
 import { DeptBadge, EmpCatBadge } from "../LEAVE/EARNINGS/RecordsList";
 import {
@@ -68,6 +69,12 @@ import {
   logAttendanceStateView,
   logAttendanceStateChange,
 } from "../../utils/moduleEmployeeSearchAudit";
+import { getUserInfo } from "../../utils/auth";
+import {
+  downloadStyledExcel,
+  excelTimestamp,
+  excelExporterName,
+} from "../../utils/styledExcelExport";
 import {
   Paper,
   List,
@@ -1337,6 +1344,53 @@ const AllAttendanceRecord = () => {
     });
   }, [records, sortOrder, recordDateFilter]);
 
+  const handleExportExcel = useCallback(() => {
+    try {
+      const employeeName = selectedEmployee ? buildDisplayName(selectedEmployee) : "";
+      const filterParts = [];
+      if (personID) filterParts.push(`Employee: ${personID}`);
+      if (startDate && endDate) filterParts.push(`${startDate} to ${endDate}`);
+      if (recordDateFilter) filterParts.push(`Date: ${recordDateFilter}`);
+      filterParts.push(`Sort: ${sortOrder === "asc" ? "oldest first" : "newest first"}`);
+
+      const rows = filteredRecords.map((record) => ({
+        employeeNumber: record.PersonID || personID || "—",
+        name: employeeName || "—",
+        date: record._dateLabel || record.Date || "—",
+        time: record.Time || "—",
+        status: getAttendanceLabel(Number(record.AttendanceState) || 0),
+        punch: record.AttendanceDateTime || "—",
+      }));
+
+      const stamp = new Date().toISOString().slice(0, 10);
+      const safeId = String(personID || "employee").replace(/[^\w.-]+/g, "_");
+      downloadStyledExcel({
+        filename: `Attendance-Record-State_${safeId}_${stamp}.xlsx`,
+        sheetName: "Attendance States",
+        title: "Attendance Record State",
+        subtitle: [employeeName, personID ? `#${personID}` : ""]
+          .filter(Boolean)
+          .join(" · ") || "Individual attendance punches",
+        generatedAt: excelTimestamp(),
+        exportedBy: excelExporterName(getUserInfo()),
+        recordCount: rows.length,
+        filtersLabel: filterParts.join(" | ") || "None",
+        columns: [
+          { key: "employeeNumber", header: "Employee No.", width: 110, kind: "mono" },
+          { key: "name", header: "Name", width: 200 },
+          { key: "date", header: "Date", width: 160 },
+          { key: "time", header: "Time", width: 90, kind: "mono" },
+          { key: "status", header: "Status", width: 150, kind: "status" },
+          { key: "punch", header: "Punch timestamp", width: 180, kind: "mono" },
+        ],
+        rows,
+      });
+    } catch (err) {
+      console.error("Attendance state Excel export failed:", err);
+      setError("Failed to generate Excel export.");
+    }
+  }, [filteredRecords, personID, recordDateFilter, selectedEmployee, sortOrder, startDate, endDate]);
+
   const virtualListRowProps = useMemo(
     () => ({
       records: filteredRecords,
@@ -1640,6 +1694,26 @@ const AllAttendanceRecord = () => {
                         <Typography sx={{ fontSize: "0.72rem", color: T.muted, fontWeight: 600 }}>
                           {filteredRecords.length.toLocaleString()} punch{filteredRecords.length === 1 ? "" : "es"}
                         </Typography>
+                        <AccentButton
+                          variant="outlined"
+                          size="small"
+                          startIcon={<DownloadIcon sx={{ fontSize: "13px !important" }} />}
+                          onClick={handleExportExcel}
+                          disabled={filteredRecords.length === 0}
+                          sx={{
+                            fontSize: "0.78rem",
+                            color: T.accent,
+                            borderColor: alpha(T.accent, 0.35),
+                            bgcolor: "#fff",
+                            boxShadow: "none",
+                            "&:hover": {
+                              bgcolor: T.accentFaint,
+                              borderColor: T.accent,
+                            },
+                          }}
+                        >
+                          Excel
+                        </AccentButton>
                         <AccentButton
                           variant="contained"
                           size="small"

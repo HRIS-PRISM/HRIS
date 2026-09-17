@@ -4,8 +4,12 @@ import LoadingOverlay from '../LoadingOverlay';
 import { Box, Fab, Tooltip, Zoom, Snackbar, Alert } from '@mui/material';
 import PrintIcon from '@mui/icons-material/Print';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
-import { jsPDF } from 'jspdf';
-import html2canvas from 'html2canvas';
+import {
+  FormPrintStyles,
+  printFormHtml,
+  downloadFormHtml,
+  FORM_PRINTABLE_WIDTH_MM,
+} from './FormPrintable';
 
 /* ─────────────────────────────────────────────────────────────
    Column proportions (%) derived directly from xlsx col widths
@@ -252,90 +256,8 @@ const LeaveRows = () => (
    Main Leave component
 ════════════════════════════════════════════════════════════ */
 
-/*
-  PRINT STRATEGY — why window.print() instead of html2canvas:
-  ─────────────────────────────────────────────────────────────
-  html2canvas takes a pixel snapshot at a fixed viewport size
-  and scales it to fit the PDF page — so the content shrinks or
-  grows depending on your monitor resolution and browser zoom,
-  causing the "size changes on print" bug you saw.
-
-  window.print() hands the DOM directly to the browser's print
-  engine, which re-lays it out at the exact paper size you pick
-  (A4, Legal, Letter, etc.). No pixels, no scaling, no surprises.
-
-  For PDF download we still use html2canvas + jsPDF, but we
-  temporarily set the form to a known pixel width (794px = A4
-  at 96 dpi) before capturing so it is always consistent.
-*/
-
-/* ── Inject @media print styles once ── */
-const PRINT_STYLE_ID = 'leave-form-print-style';
-const injectPrintStyles = () => {
-  if (document.getElementById(PRINT_STYLE_ID)) return;
-
-  const style = document.createElement('style');
-  style.id = PRINT_STYLE_ID;
-
-  style.textContent = `
-@media print {
-
-  @page {
-    size: A4 portrait;
-    margin: 10mm;
-  }
-
-  html,
-  body {
-    width: 210mm;
-    height: 297mm;
-    margin: 0;
-    padding: 0;
-    background: white;
-  }
-
-  .forms-floating-actions,
-  .MuiSnackbar-root,
-  .MuiBackdrop-root,
-  .no-print {
-    display: none !important;
-  }
-
-  #leave-form-content {
-    width: 190mm !important;
-    min-height: 277mm !important;
-
-    margin: 0 auto !important;
-
-    padding: 5mm !important;
-
-    background: white !important;
-
-    border: 1px solid #000 !important;
-
-    box-sizing: border-box !important;
-
-    zoom: 1 !important;
-    transform: scale(1) !important;
-  }
-
-  table {
-    width: 100% !important;
-    border-collapse: collapse !important;
-  }
-
-  tr {
-    page-break-inside: avoid !important;
-  }
-}
-`;
-
-  document.head.appendChild(style);
-};
-
 const Leave = () => {
-  const printRef = useRef(null);
-  const captureRef = useRef(null);
+  const formRef = useRef(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [snackbar, setSnackbar] = useState({
     open: false,
@@ -347,117 +269,27 @@ const Leave = () => {
     setSnackbar({ open: true, message, severity });
   const handleCloseSnackbar = () => setSnackbar((s) => ({ ...s, open: false }));
 
-  /* ── Native print — browser handles all scaling ── */
-  const printPage = () => {
-    const content = document.getElementById('leave-form-content').innerHTML;
-
-    const printWindow = window.open('', '', 'width=900,height=650');
-
-    printWindow.document.write(`
-    <html>
-      <head>
-        <title>Print Leave Form</title>
-
-        <style>
-          body {
-            font-family: Arial;
-            padding: 20px;
-          }
-
-          table {
-            width: 100%;
-            border-collapse: collapse;
-          }
-
-          @page {
-            size: A4;
-            margin: 0.4in;
-          }
-        </style>
-      </head>
-
-      <body>
-        ${content}
-      </body>
-    </html>
-  `);
-
-    printWindow.document.close();
-
-    printWindow.focus();
-
-    setTimeout(() => {
-      printWindow.print();
-      printWindow.close();
-    }, 500);
-  };
-
-  /* ── PDF download — capture from dedicated container ── */
-  const downloadPDF = async () => {
-    if (!captureRef.current) return;
+  const printPage = async () => {
+    if (!formRef.current) return;
     try {
       setIsGenerating(true);
+      await printFormHtml(formRef.current, { title: 'Application for Leave' });
+    } catch (err) {
+      console.error('Error printing form:', err);
+      showSnackbar('Error printing form: ' + err.message, 'error');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
-      const el = captureRef.current;
-
-      // Temporarily make visible for capture
-      el.style.position = 'relative';
-      el.style.top = '0';
-      el.style.left = '0';
-      el.style.visibility = 'visible';
-
-      // Wait for layout to settle
-      await new Promise((r) => setTimeout(r, 300));
-
-      const canvas = await html2canvas(el, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: '#ffffff',
-        logging: false,
-        width: 794,
-        allowTaint: true,
-      });
-
-      // Hide it again
-      el.style.position = 'absolute';
-      el.style.top = '-10000px';
-      el.style.left = '-10000px';
-      el.style.visibility = 'hidden';
-
-      if (!canvas) {
-        throw new Error('Canvas generation failed');
-      }
-
-      // Build A4 PDF
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: 'a4',
-      });
-      const pageW = pdf.internal.pageSize.getWidth(); // 210 mm
-      const pageH = pdf.internal.pageSize.getHeight(); // 297 mm
-      const margin = 8; // mm
-      const imgW = pageW - margin * 2;
-      const imgH = (canvas.height / canvas.width) * imgW;
-      const imgData = canvas.toDataURL('image/png');
-
-      let yPos = margin;
-      let remainingH = imgH;
-
-      // Handle multi-page if content is taller than one page
-      const usableH = pageH - margin * 2;
-      while (remainingH > 0) {
-        const sliceH = Math.min(remainingH, usableH);
-        pdf.addImage(imgData, 'PNG', margin, yPos, imgW, imgH);
-        remainingH -= usableH;
-        if (remainingH > 0) {
-          pdf.addPage();
-          yPos = margin - (imgH - sliceH);
-        }
-      }
-
-      pdf.save(
+  const downloadPDF = async () => {
+    if (!formRef.current) return;
+    try {
+      setIsGenerating(true);
+      await downloadFormHtml(
+        formRef.current,
         `Application-for-Leave-${new Date().toISOString().split('T')[0]}.pdf`,
+        { title: 'Application for Leave' },
       );
       showSnackbar('PDF downloaded successfully', 'success');
     } catch (err) {
@@ -468,21 +300,14 @@ const Leave = () => {
     }
   };
 
-  /* ── Form style — no fixed pixel width, uses % so it adapts ── */
   const formStyle = {
     fontFamily: 'Arial, Helvetica, sans-serif',
     fontSize: '10px',
-
-    width: '190mm', // FIXED PRINTABLE WIDTH
-    minHeight: '277mm',
-
+    width: `${FORM_PRINTABLE_WIDTH_MM}mm`,
     margin: '0 auto',
-
     border: '1px solid #000',
     padding: '5mm',
-
     backgroundColor: '#fff',
-
     boxSizing: 'border-box',
     overflow: 'hidden',
   };
@@ -1022,46 +847,25 @@ const Leave = () => {
   );
 
   return (
-    /* ── Outer wrapper: white, no gray ── */
     <Box
       id="leave-print-root"
       sx={{
         display: 'flex',
         justifyContent: 'center',
         minHeight: '100vh',
-        bgcolor: '#ffffff', // ← was #f0f0f0, now white
+        bgcolor: '#ffffff',
         position: 'relative',
       }}
     >
+      <FormPrintStyles />
       <Box sx={{ width: '100%', overflowX: 'auto', paddingBottom: '100px' }}>
-        {/* ══ VISIBLE FORM FOR SCREEN ══ */}
-        <div
-          ref={printRef}
-          id="leave-form-content"
-          className="print-content"
-          style={formStyle}
-        >
-          {renderFormContent()}
-        </div>
-
-        {/* ══ HIDDEN CAPTURE CONTAINER (A4-optimized) ══ */}
-        <div
-          ref={captureRef}
-          id="leave-form-content-capture"
-          style={{
-            ...formStyle,
-            width: '794px', // Lock to A4 width @ 96 dpi
-            position: 'absolute',
-            top: '-10000px',
-            left: '-10000px',
-            border: '1px solid #000',
-            padding: '8px',
-            backgroundColor: '#ffffff',
-            margin: '0',
-          }}
-        >
-          {renderFormContent()}
-        </div>
+        <main className="form-print-area" ref={formRef}>
+          <div className="form-print-scale">
+            <div className="form-page" id="leave-form-content" style={formStyle}>
+              {renderFormContent()}
+            </div>
+          </div>
+        </main>
       </Box>
 
       {/* ══ Floating Action Buttons ══ */}

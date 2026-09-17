@@ -2,8 +2,6 @@ import React, { useState, useRef } from 'react';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import { useNavigate } from 'react-router-dom';
 import Button from '@mui/material/Button';
-import { jsPDF } from 'jspdf';
-import html2canvas from 'html2canvas';
 import {
   Box,
   Fab,
@@ -15,10 +13,16 @@ import {
 import PrintIcon from '@mui/icons-material/Print';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import LoadingOverlay from '../LoadingOverlay';
+import {
+  FormPrintStyles,
+  printFormHtml,
+  downloadFormHtml,
+  FORM_PRINTABLE_WIDTH_MM,
+} from './FormPrintable';
 
 const SalnFront = () => {
   const navigate = useNavigate();
-  const printRef = useRef(null);
+  const formRef = useRef(null);
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [snackbar, setSnackbar] = useState({
@@ -40,96 +44,25 @@ const SalnFront = () => {
   };
 
   const printPage = async () => {
-    if (!printRef.current) return;
     try {
       setIsGenerating(true);
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'in', format: [8.5, 13] });
-      const el = printRef.current;
-      const orig = {
-        position: el.style.position,
-        left: el.style.left,
-        width: el.style.width,
-        backgroundColor: el.style.backgroundColor,
-      };
-      el.style.position = 'fixed';
-      el.style.left = '-9999px';
-      el.style.width = '8.5in';
-      el.style.backgroundColor = '#ffffff';
-
-      await new Promise((r) => setTimeout(r, 150));
-      const canvas = await html2canvas(el, {
-        scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false,
-      });
-
-      el.style.position = orig.position || '';
-      el.style.left = orig.left || '';
-      el.style.width = orig.width || '';
-      el.style.backgroundColor = orig.backgroundColor || '';
-
-      const imgData = canvas.toDataURL('image/png');
-      const formWidth = 8.5;
-      const formHeight = 13;
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const ratio = Math.min(pageWidth / formWidth, pageHeight / formHeight);
-      const renderWidth = formWidth * ratio;
-      const renderHeight = formHeight * ratio;
-      const xOffset = (pageWidth - renderWidth) / 2;
-      const yOffset = (pageHeight - renderHeight) / 2;
-
-      pdf.addImage(imgData, 'PNG', xOffset, yOffset, renderWidth, renderHeight);
-      pdf.autoPrint();
-      window.open(pdf.output('bloburl'), '_blank');
-      showSnackbar('Print view generated', 'success');
+      await printFormHtml(formRef.current, { title: 'SALN Front' });
     } catch (error) {
-      console.error('Error generating print view:', error);
-      showSnackbar('Error generating print view', 'error');
+      console.error('Error printing form:', error);
+      showSnackbar('Error printing form', 'error');
     } finally {
       setIsGenerating(false);
     }
   };
 
   const downloadPDF = async () => {
-    if (!printRef.current) return;
     try {
       setIsGenerating(true);
-      const pdf = new jsPDF({ orientation: 'portrait', unit: 'in', format: [8.5, 13] });
-      const el = printRef.current;
-      const orig = {
-        position: el.style.position,
-        left: el.style.left,
-        width: el.style.width,
-        backgroundColor: el.style.backgroundColor,
-      };
-      el.style.position = 'fixed';
-      el.style.left = '-9999px';
-      el.style.width = '8.5in';
-      el.style.backgroundColor = '#ffffff';
-
-      await new Promise((r) => setTimeout(r, 150));
-      const canvas = await html2canvas(el, {
-        scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false,
-      });
-
-      el.style.position = orig.position || '';
-      el.style.left = orig.left || '';
-      el.style.width = orig.width || '';
-      el.style.backgroundColor = orig.backgroundColor || '';
-
-      const imgData = canvas.toDataURL('image/png');
-      const formWidth = 8.5;
-      const formHeight = 13;
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const ratio = Math.min(pageWidth / formWidth, pageHeight / formHeight);
-      const renderWidth = formWidth * ratio;
-      const renderHeight = formHeight * ratio;
-      const xOffset = (pageWidth - renderWidth) / 2;
-      const yOffset = (pageHeight - renderHeight) / 2;
-
-      pdf.addImage(imgData, 'PNG', xOffset, yOffset, renderWidth, renderHeight);
-      const fileName = `SALN-Front-${new Date().toISOString().split('T')[0]}.pdf`;
-      pdf.save(fileName);
+      await downloadFormHtml(
+        formRef.current,
+        `SALN-Front-${new Date().toISOString().split('T')[0]}.pdf`,
+        { title: 'SALN Front' },
+      );
       showSnackbar('PDF downloaded successfully', 'success');
     } catch (error) {
       console.error('Error generating PDF:', error);
@@ -140,24 +73,29 @@ const SalnFront = () => {
   };
 
   return (
+    <>
+    <FormPrintStyles />
     <Box sx={{ position: 'relative' }}>
-      <div
-        style={{
-          padding: '0.25in',
-          width: '8in',
-          height: '13in',
-          margin: 'auto',
-          marginTop: '50px',
-          marginBottom: '15%',
-        }}
-      >
+      <main className="form-print-area" ref={formRef}>
+        <div className="form-print-scale">
+          <div
+            className="form-page"
+            style={{
+              padding: '0.25in',
+              width: `${FORM_PRINTABLE_WIDTH_MM}mm`,
+              margin: '0 auto',
+              marginTop: '50px',
+              marginBottom: '15%',
+              backgroundColor: '#ffffff',
+              boxSizing: 'border-box',
+            }}
+          >
         <table
-          ref={printRef}
           style={{
             border: '1px solid white',
             borderCollapse: 'collapse',
             fontFamily: 'Arial, Helvetica, sans-serif',
-            width: '7.5in',
+            width: '100%',
             tableLayout: 'fixed',
             backgroundColor: '#ffffff',
           }}
@@ -302,7 +240,7 @@ const SalnFront = () => {
             </td>
           </tr>
 
-          <table style={{ borderCollapse: 'collapse', fontFamily: 'Arial, Helvetica, sans-serif', width: '7.5in', tableLayout: 'fixed' }}>
+          <table style={{ borderCollapse: 'collapse', fontFamily: 'Arial, Helvetica, sans-serif', width: '100%', tableLayout: 'fixed' }}>
             <tr style={{ backgroundColor: 'lightgray' }}>
               <td colSpan="5" rowSpan="2" style={{ border: '1px solid black', fontSize: '72.5%', textAlign: 'center', verticalAlign: 'top' }}>
                 <br /><b>DESCRIPTION</b><br /><br />(e.g. lot, house and<br />lot, condominium<br />and improvements)
@@ -404,7 +342,9 @@ const SalnFront = () => {
             </td>
           </tr>
         </table>
-      </div>
+          </div>
+        </div>
+      </main>
 
       {/* Floating Action Buttons */}
       <Box className="no-print forms-floating-actions" sx={{position: 'fixed', bottom: 30, right: 30,
@@ -435,6 +375,7 @@ const SalnFront = () => {
         </Alert>
       </Snackbar>
     </Box>
+    </>
   );
 };
 

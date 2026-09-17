@@ -4,11 +4,15 @@ import LoadingOverlay from '../LoadingOverlay';
 import { Box, Fab, Tooltip, Zoom, Snackbar, Alert } from '@mui/material';
 import PrintIcon from '@mui/icons-material/Print';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
-import { jsPDF } from 'jspdf';
-import html2canvas from 'html2canvas';
+import {
+  FormPrintStyles,
+  printFormHtml,
+  downloadFormHtml,
+  FORM_PRINTABLE_WIDTH_MM,
+} from './FormPrintable';
 
 const AssessmentClearance = () => {
-  const captureRef = useRef(null);
+  const formRef = useRef(null);
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [snackbar, setSnackbar] = useState({
@@ -46,19 +50,6 @@ const AssessmentClearance = () => {
     marginBottom: '20px',
   };
 
-  const captureFormStyle = {
-    ...baseFormStyle,
-    width: '794px',
-    border: 'none',
-    boxShadow: 'none',
-    margin: 0,
-    padding: '8px',
-    position: 'absolute',
-    top: '-10000px',
-    left: '-10000px',
-    visibility: 'hidden',
-  };
-
   const tableStyle = {
     borderCollapse: 'collapse',
     width: '100%',
@@ -75,130 +66,30 @@ const AssessmentClearance = () => {
     ...extra,
   });
 
-  const printPage = () => {
-    const content = document.getElementById('assessment-clearance-content')?.innerHTML;
-    if (!content) return;
-
-    const printWindow = window.open('', '', 'width=900,height=650');
-
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>Print Assessment Clearance</title>
-          <style>
-            @page {
-              size: A4 portrait;
-              margin: 10mm;
-            }
-
-            html,
-            body {
-              margin: 0;
-              padding: 0;
-              background: white;
-              font-family: Arial, Helvetica, sans-serif;
-            }
-
-            .assessment-print-wrapper {
-              width: 190mm;
-              min-height: 277mm;
-              margin: 0 auto;
-              padding: 5mm;
-              box-sizing: border-box;
-              font-family: Arial, Helvetica, sans-serif;
-              font-size: 9px;
-              color: #000;
-              overflow: hidden;
-              border: none !important;
-              box-shadow: none !important;
-            }
-
-            table {
-              width: 100%;
-              border-collapse: collapse;
-              table-layout: fixed;
-            }
-
-            tr {
-              page-break-inside: avoid;
-            }
-
-            * {
-              font-family: Arial, Helvetica, sans-serif !important;
-              -webkit-print-color-adjust: exact;
-              print-color-adjust: exact;
-            }
-          </style>
-        </head>
-
-        <body>
-          <div class="assessment-print-wrapper">
-            ${content}
-          </div>
-        </body>
-      </html>
-    `);
-
-    printWindow.document.close();
-    printWindow.focus();
-
-    setTimeout(() => {
-      printWindow.print();
-      printWindow.close();
-    }, 500);
+  const printPage = async () => {
+    try {
+      setIsGenerating(true);
+      await printFormHtml(formRef.current, { title: 'Print Assessment Clearance' });
+    } catch (err) {
+      console.error('Error printing form:', err);
+      showSnackbar('Error printing form: ' + err.message, 'error');
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const downloadPDF = async () => {
-    if (!captureRef.current) return;
-
     try {
       setIsGenerating(true);
-
-      const el = captureRef.current;
-
-      el.style.position = 'relative';
-      el.style.top = '0';
-      el.style.left = '0';
-      el.style.visibility = 'visible';
-
-      await new Promise((resolve) => setTimeout(resolve, 300));
-
-      const canvas = await html2canvas(el, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: '#ffffff',
-        logging: false,
-        width: 794,
-        allowTaint: true,
-      });
-
-      el.style.position = 'absolute';
-      el.style.top = '-10000px';
-      el.style.left = '-10000px';
-      el.style.visibility = 'hidden';
-
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: 'a4',
-      });
-
-      const pageW = pdf.internal.pageSize.getWidth();
-      const margin = 8;
-      const imgW = pageW - margin * 2;
-      const imgH = (canvas.height / canvas.width) * imgW;
-      const imgData = canvas.toDataURL('image/png');
-
-      pdf.addImage(imgData, 'PNG', margin, margin, imgW, imgH);
-
-      pdf.save(
+      await downloadFormHtml(
+        formRef.current,
         `Assessment-Clearance-${new Date().toISOString().split('T')[0]}.pdf`,
+        { title: 'Assessment Clearance' },
       );
-
       showSnackbar('PDF downloaded successfully', 'success');
-    } catch (error) {
-      console.error('Error generating PDF:', error);
-      showSnackbar('Error generating PDF', 'error');
+    } catch (err) {
+      console.error('Error generating PDF:', err);
+      showSnackbar('Error generating PDF: ' + err.message, 'error');
     } finally {
       setIsGenerating(false);
     }
@@ -521,6 +412,8 @@ const AssessmentClearance = () => {
   );
 
   return (
+    <>
+    <FormPrintStyles />
     <Box
       sx={{
         display: 'flex',
@@ -531,13 +424,19 @@ const AssessmentClearance = () => {
       }}
     >
       <Box sx={{ width: '100%', overflowX: 'auto', paddingBottom: '100px' }}>
-        <div id="assessment-clearance-content" style={screenFormStyle}>
-          {renderFormContent()}
-        </div>
-
-        <div ref={captureRef} style={captureFormStyle}>
-          {renderFormContent()}
-        </div>
+        <main className="form-print-area" ref={formRef}>
+          <div className="form-print-scale">
+            <div
+              className="form-page"
+              style={{
+                ...screenFormStyle,
+                width: `${FORM_PRINTABLE_WIDTH_MM}mm`,
+              }}
+            >
+              {renderFormContent()}
+            </div>
+          </div>
+        </main>
       </Box>
 
       <Box
@@ -597,6 +496,7 @@ const AssessmentClearance = () => {
         </Alert>
       </Snackbar>
     </Box>
+    </>
   );
 };
 

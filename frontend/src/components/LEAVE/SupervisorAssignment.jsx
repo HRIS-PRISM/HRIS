@@ -1146,7 +1146,10 @@ const SupervisorAssignment = () => {
 
   useEffect(() => {
     const init = async () => {
-      await Promise.all([fetchAssignments(), fetchDepartmentList()]);
+      await Promise.all([
+        fetchAssignments(),
+        fetchDepartmentList(),
+      ]);
       setPageLoading(false);
     };
     init();

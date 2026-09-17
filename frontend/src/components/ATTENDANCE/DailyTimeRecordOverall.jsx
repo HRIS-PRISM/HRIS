@@ -2755,8 +2755,8 @@ const DailyTimeRecordFaculty = ({
       records: rangedRecords,
       officialTime: officialTimesForUser,
       showOfficialTimeOnDtr,
-      startDate,
-      endDate,
+      startDate: displayPeriod.startDate || startDate,
+      endDate: displayPeriod.endDate || endDate,
       selectedYear,
       selectedMonth,
       holidays: sourceHolidays.filter(calendarOverlapsRange),
@@ -2776,6 +2776,12 @@ const DailyTimeRecordFaculty = ({
       employeeScope: resolveEmployeeSuspensionScope(knownModuleType, empCat),
       employmentCategory: empCat,
       ...(resolvedBranch !== undefined ? { employeeBranch: resolvedBranch } : {}),
+      ...(displayPeriod.dayFrom != null
+        ? {
+            dataDayFrom: displayPeriod.dayFrom,
+            dataDayTo: displayPeriod.dayTo,
+          }
+        : {}),
       formatTime,
       dtrType,
     };

@@ -1,9 +1,13 @@
 import React, { useEffect, useRef } from "react";
 import { Box, Fab, Tooltip, Zoom } from "@mui/material";
 import PrintIcon from "@mui/icons-material/Print";
+import {
+  FormPrintStyles,
+  printFormHtml,
+  FORM_PRINTABLE_WIDTH_MM,
+} from "./FormPrintable";
 
 const CHROME_STYLE_ID = "leave-back-chrome-hide";
-const PRINT_STYLE_ID = "leave-back-print-style";
 
 /** Hide app header/sidebar/footer while this form page is open. */
 const injectChromeHide = () => {
@@ -29,66 +33,6 @@ const injectChromeHide = () => {
 
 const removeChromeHide = () => {
   document.getElementById(CHROME_STYLE_ID)?.remove();
-};
-
-/** Same print strategy as Leave.jsx — A4 with even margins. */
-const injectPrintStyles = () => {
-  let style = document.getElementById(PRINT_STYLE_ID);
-  if (!style) {
-    style = document.createElement("style");
-    style.id = PRINT_STYLE_ID;
-    document.head.appendChild(style);
-  }
-  style.textContent = `
-@media print {
-  @page {
-    size: A4 portrait;
-    margin: 10mm;
-  }
-
-  html,
-  body {
-    width: 210mm;
-    height: 297mm;
-    margin: 0;
-    padding: 0;
-    background: white;
-  }
-
-  .forms-floating-actions,
-  .MuiSnackbar-root,
-  .MuiBackdrop-root,
-  .no-print,
-  .MuiAppBar-root,
-  .MuiDrawer-root,
-  footer,
-  main > .MuiToolbar-root {
-    display: none !important;
-  }
-
-  main {
-    margin: 0 !important;
-    margin-left: 0 !important;
-    padding: 0 !important;
-  }
-
-  #leave-back-content {
-    width: 190mm !important;
-    min-height: 277mm !important;
-    margin: 0 auto !important;
-    padding: 5mm !important;
-    background: white !important;
-    border: none !important;
-    box-sizing: border-box !important;
-    zoom: 1 !important;
-    transform: scale(1) !important;
-  }
-}
-`;
-};
-
-const removePrintStyles = () => {
-  document.getElementById(PRINT_STYLE_ID)?.remove();
 };
 
 /* Same printable frame as Leave.jsx */
@@ -139,69 +83,17 @@ const footerStyle = {
 };
 
 const LeaveBack = () => {
-  const printRef = useRef(null);
+  const formRef = useRef(null);
 
   useEffect(() => {
     injectChromeHide();
-    injectPrintStyles();
     return () => {
       removeChromeHide();
-      removePrintStyles();
     };
   }, []);
 
-  /** Native print via clean window — same approach as Leave.jsx */
-  const printPage = () => {
-    const el = document.getElementById("leave-back-content");
-    if (!el) return;
-    const content = el.innerHTML;
-
-    const printWindow = window.open("", "", "width=900,height=650");
-    if (!printWindow) return;
-
-    printWindow.document.write(`
-    <html>
-      <head>
-        <title>Print Leave Form (Back)</title>
-        <style>
-          body {
-            font-family: Arial, Helvetica, sans-serif;
-            margin: 0;
-            padding: 0;
-            background: #fff;
-          }
-          .page {
-            font-family: Arial, Helvetica, sans-serif;
-            font-size: 7.2pt;
-            line-height: 1.25;
-            width: 190mm;
-            min-height: 277mm;
-            margin: 0 auto;
-            border: none;
-            padding: 5mm;
-            background: #fff;
-            box-sizing: border-box;
-            display: flex;
-            flex-direction: column;
-          }
-          @page {
-            size: A4 portrait;
-            margin: 0.4in;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="page">${content}</div>
-      </body>
-    </html>
-  `);
-
-    printWindow.document.close();
-    printWindow.focus();
-    setTimeout(() => {
-      printWindow.print();
-      printWindow.close();
-    }, 500);
+  const printPage = async () => {
+    await printFormHtml(formRef.current, { title: "Print Leave Form (Back)" });
   };
 
   const renderFormContent = () => (
@@ -421,6 +313,8 @@ const LeaveBack = () => {
   );
 
   return (
+    <>
+    <FormPrintStyles />
     <Box
       sx={{
         display: "flex",
@@ -431,14 +325,19 @@ const LeaveBack = () => {
       }}
     >
       <Box sx={{ width: "100%", overflowX: "auto", paddingBottom: "100px" }}>
-        <div
-          ref={printRef}
-          id="leave-back-content"
-          className="print-content"
-          style={formStyle}
-        >
-          {renderFormContent()}
-        </div>
+        <main className="form-print-area" ref={formRef}>
+          <div className="form-print-scale">
+            <div
+              className="form-page"
+              style={{
+                ...formStyle,
+                width: `${FORM_PRINTABLE_WIDTH_MM}mm`,
+              }}
+            >
+              {renderFormContent()}
+            </div>
+          </div>
+        </main>
       </Box>
 
       <Box
@@ -471,6 +370,7 @@ const LeaveBack = () => {
         </Zoom>
       </Box>
     </Box>
+    </>
   );
 };
 
