@@ -122,11 +122,13 @@ import {
   WarningAmberRounded,
   LockReset as LockResetIcon,
   KeyboardArrowUp,
+  CompareArrows,
 } from "@mui/icons-material";
 import SearchIcon from "@mui/icons-material/Search";
 import WifiOffIcon from "@mui/icons-material/WifiOff";
 import axios from "axios";
 import SuccessfulOverlay from "./SuccessfulOverlay";
+import FacialUserComparePanel from "./FacialUserCompareDialog";
 
 // ─── Unified Theme Tokens ──────────────────────────────────────────────────────
 const T = {
@@ -664,6 +666,7 @@ const UsersList = () => {
   const [userRole, setUserRole] = useState(detectedRole);
   const [roleChecked, setRoleChecked] = useState(true);
   const [users, setUsers] = useState([]);
+  const [facialCompareStats, setFacialCompareStats] = useState(null);
   const [filteredUsers, setFilteredUsers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -1348,7 +1351,7 @@ const UsersList = () => {
   }, [categoryFilter, typeConfigs]);
 
   useEffect(() => {
-    const sourceUsers = tableTab === 0 ? properUsers : incompleteUsers;
+    const sourceUsers = tableTab === 1 ? incompleteUsers : properUsers;
     const searchLower = debouncedSearchTerm.toLowerCase();
     const filtered = sourceUsers.filter((user) => {
       const matchesSearch =
@@ -2677,6 +2680,7 @@ const UsersList = () => {
             sx={{
               display: "flex",
               alignItems: "center",
+              flexWrap: "wrap",
               gap: 1.5,
               position: "relative",
               zIndex: 1,
@@ -2717,6 +2721,7 @@ const UsersList = () => {
       </SectionCard>
 
       {/* ── Stats Strip ── */}
+      {tableTab !== 2 && <>
       <Box
         sx={{
           mb: 1.25,
@@ -2861,9 +2866,12 @@ const UsersList = () => {
         </Box>
         Retired {fmtCount(userStats.Retired)}
       </Typography>
+      </>}
 
       {/* ── Registered Users — filters + table share one card ── */}
       <SectionCard sx={{ overflow: "hidden", width: "100%" }}>
+  {tableTab !== 2 && (
+  <>
   <Box
     sx={{
       px: 2.5,
@@ -3389,6 +3397,8 @@ const UsersList = () => {
             )}
           </Box>
         </Box>
+  </>
+  )}
 
         <Box
           sx={{
@@ -3409,6 +3419,12 @@ const UsersList = () => {
               count: incompleteUsers.length,
               color: "#F57C00",
               icon: <WarningAmberRounded sx={{ fontSize: 13 }} />,
+            },
+            {
+              label: "Facial Compare",
+              count: facialCompareStats?.noRecordsCount ?? "—",
+              color: "#C62828",
+              icon: <CompareArrows sx={{ fontSize: 13 }} />,
             },
           ].map((tab, idx) => (
             <Box
@@ -3461,6 +3477,13 @@ const UsersList = () => {
           ))}
         </Box>
 
+        <FacialUserComparePanel
+          active={tableTab === 2}
+          users={users}
+          onStats={setFacialCompareStats}
+        />
+        {tableTab !== 2 && (
+          <>
         {tableTab === 1 && incompleteUsers.length > 0 && (
           <Box
             sx={{
@@ -4066,6 +4089,8 @@ const UsersList = () => {
               }}
             />
           </Box>
+        )}
+          </>
         )}
       </SectionCard>
 
