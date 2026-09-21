@@ -27,9 +27,7 @@ export const DTR_ABSENT_LABEL = 'ABSENT';
 export const DTR_INDICATOR_OPTIONS = [
   { key: 'absent', label: 'Absent', color: '#b71c1c', bg: 'rgba(183, 28, 28, 0.2)' },
   { key: 'nonWorkingDay', label: 'Non-working day', color: '#757575', bg: 'rgba(128, 128, 128, 0.18)' },
-  { key: 'weekdayBanner', label: 'Unscheduled weekday', color: '#9e9e9e', bg: 'rgba(128, 128, 128, 0.12)' },
   { key: 'halfDay', label: 'Half day', color: '#6a1b9a', bg: 'rgba(106, 27, 154, 0.2)' },
-  { key: 'notHalfDay', label: 'Not half day', color: '#6d2323', bg: 'rgba(109, 35, 35, 0.15)' },
   { key: 'holiday', label: 'Holiday', color: '#ed6c02', bg: 'rgba(237,108,2,0.25)' },
   { key: 'leave', label: 'On leave', color: '#2e7d32', bg: 'rgba(46,125,50,0.2)' },
   { key: 'suspension', label: 'Suspension', color: '#d32f2f', bg: 'rgba(211,47,47,0.2)' },
@@ -123,7 +121,8 @@ export const isDtrWeekdayName = (fullDate, dayName) => {
   );
 };
 
-const hasNoDtrPunches = (timeFields) => {
+/** True when the day has no AM/PM punch values. */
+export const hasNoDtrPunches = (timeFields) => {
   const { timeIN, breaktimeIN, breaktimeOUT, timeOUT } = timeFields || {};
   return (
     dtrTimeValueEmpty(timeIN) &&
@@ -132,6 +131,9 @@ const hasNoDtrPunches = (timeFields) => {
     dtrTimeValueEmpty(timeOUT)
   );
 };
+
+/** True when the employee has at least one punch on that day. */
+export const hasDtrPunches = (timeFields) => !hasNoDtrPunches(timeFields);
 
 /**
  * Saturday/Sunday with no official schedule and no punches → NON-WORKING DAY.
@@ -174,15 +176,7 @@ export const getDtrUnscheduledWeekdayBanner = ({
 };
 
 export const resolveDtrAmPmCellText = (rawVal, displayText, indicator) => {
-  // Leave / holiday / suspension always win — do not show official-time autofill punches
-  if (
-    indicator?.label &&
-    (indicator.type === 'leave' ||
-      indicator.type === 'holiday' ||
-      indicator.type === 'suspension')
-  ) {
-    return { text: indicator.label, isWatermark: true };
-  }
+  // Real punches always stay visible; calendar labels are notes/watermarks only.
   if (!dtrTimeValueEmpty(rawVal)) {
     return { text: displayText, isWatermark: false };
   }

@@ -21,7 +21,8 @@ import {
   Refresh,
   Edit,
   Schedule,
-  Assignment,
+  ExpandMore,
+  CheckCircle,
 } from '@mui/icons-material';
 import PrintIcon from '@mui/icons-material/Print';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
@@ -33,6 +34,7 @@ import {
   Card,
   Checkbox,
   Chip,
+  Collapse,
   Dialog,
   DialogContent,
   Drawer,
@@ -46,6 +48,7 @@ import {
   Popover,
   Select,
   Snackbar,
+  Switch,
   styled,
   Table,
   TableBody,
@@ -133,6 +136,7 @@ import {
   formatDtrBulkPdfFileName,
 } from '../../utils/dtrFormatHelpers';
 import DTRTemplate from './DTRTemplate';
+import DtrFitPreview from './DtrFitPreview';
 import {
   DTRPrintStyles,
   printDtrPdfPages,
@@ -487,10 +491,16 @@ const getAuthHeaders = () => {
   };
 };
 
+/** Bulk print / PDF download — raised with faster chunked capture. */
+const BULK_DTR_LIMIT = 100;
 /** Employees per attendance API request (by employeeNumbers — no SQL re-rank). */
-const ATTENDANCE_CHUNK = 80;
+const ATTENDANCE_CHUNK = 25;
 /** Parallel attendance chunk requests while hydrating the table. */
-const ATTENDANCE_CONCURRENCY = 8;
+const ATTENDANCE_CONCURRENCY = 3;
+/** Background rounds between React flushes — fewer full-list re-renders. */
+const BACKGROUND_FLUSH_EVERY = 3;
+/** Yield to the browser between background rounds so the table stays clickable. */
+const BACKGROUND_YIELD_MS = 16;
 /** Quincena / custom range. Filters cell data only; day rows stay 1–31. */
 const pad2 = (n) => String(n).padStart(2, '0');
 const toYmd = (year, monthIndex, day) =>
@@ -500,6 +510,19 @@ const parseYmd = (value) => {
   if (!m) return null;
   return { y: Number(m[1]), mo: Number(m[2]), d: Number(m[3]) };
 };
+
+/** Calendar year/month from YYYY-MM-DD — avoids UTC skew from `new Date('YYYY-MM-DD')`. */
+const yearMonthFromYmd = (value) => {
+  const p = parseYmd(value);
+  if (p) return { year: p.y, month: p.mo };
+  const m = String(value || '').match(/^(\d{4})-(\d{2})/);
+  if (m) return { year: Number(m[1]), month: Number(m[2]) };
+  const now = new Date();
+  return { year: now.getFullYear(), month: now.getMonth() + 1 };
+};
+
+/** Always string keys so print status survives reload / DB round-trips. */
+const printStatusKey = (empNum) => String(empNum ?? '').trim();
 
 const inferPrintPeriodPreset = (start, end, year, monthIndex) => {
   const last = new Date(year, monthIndex + 1, 0).getDate();
@@ -626,6 +649,10 @@ const DailyTimeRecordFaculty = ({
   const isRestoringRef = useRef(false);
   const formatTimeRef = useRef(null);
   const abortControllerRef = useRef(null);
+  /** Monotonic id so aborted batch fetches do not leave loading flags stuck. */
+  const batchFetchGenRef = useRef(0);
+  /** Last time batch/single data was fully loaded — used to skip tab-focus spam. */
+  const lastDataFreshAtRef = useRef(0);
 
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(null);
@@ -658,16 +685,35 @@ const DailyTimeRecordFaculty = ({
     title: '',
     message: '',
   });
-  const [confirmModal, setConfirmModal] = useState({ open: false, user: null });
+  const [confirmModal, setConfirmModal] = useState({
+    open: false,
+    user: null,
+    bulkUsers: null,
+    alreadyPrintedCount: 0,
+    alreadyPrintedUsers: [],
+  });
   const [railPunchReview, setRailPunchReview] = useState({ issues: [], ready: false });
   const railPunchReviewRef = useRef({ issues: [], ready: false });
   railPunchReviewRef.current = railPunchReview;
   const [reviewFocusToken, setReviewFocusToken] = useState(0);
+  const [reviewFocusDate, setReviewFocusDate] = useState('');
+  const [reviewFocusRowKey, setReviewFocusRowKey] = useState('');
   const [unmountedPrintDialog, setUnmountedPrintDialog] = useState({
     open: false,
     issues: [],
     pending: null,
   });
+  /** Expanded keys: employee `id` or day `id::date`. */
+  const [unmountedExpandedIds, setUnmountedExpandedIds] = useState(() => new Set());
+
+  const toggleUnmountedExpand = useCallback((key) => {
+    setUnmountedExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
   const handlePunchIssuesChange = useCallback((payload) => {
     setRailPunchReview(payload || { issues: [], ready: false });
   }, []);
@@ -675,8 +721,32 @@ const DailyTimeRecordFaculty = ({
     setAlertModal({ open: true, title, message });
   const closeAlert = () =>
     setAlertModal({ open: false, title: '', message: '' });
-  const showReprintConfirm = (user) => setConfirmModal({ open: true, user });
-  const closeConfirm = () => setConfirmModal({ open: false, user: null });
+  const showReprintConfirm = (user) =>
+    setConfirmModal({
+      open: true,
+      user,
+      bulkUsers: null,
+      alreadyPrintedCount: printStatusMap.has(printStatusKey(user?.employeeNumber))
+        ? 1
+        : 0,
+      alreadyPrintedUsers: printStatusMap.has(printStatusKey(user?.employeeNumber))
+        ? [user]
+        : [],
+    });
+  const closeConfirm = () =>
+    setConfirmModal({
+      open: false,
+      user: null,
+      bulkUsers: null,
+      alreadyPrintedCount: 0,
+      alreadyPrintedUsers: [],
+    });
+
+  const openBulkPreview = (users) => {
+    setPreviewUsers(users);
+    setCurrentPreviewIndex(0);
+    setPreviewModalOpen(true);
+  };
 
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [employmentCategoryFilter, setEmploymentCategoryFilter] = useState('');
@@ -691,7 +761,7 @@ const DailyTimeRecordFaculty = ({
   const [empCatMap, setEmpCatMap] = useState({});
   const [sexMap, setSexMap] = useState({});
 
-  const [rowsPerPage, setRowsPerPage] = useState(20);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
   const [currentPage, setCurrentPage] = useState(1);
   const [hasSearchedSingle, setHasSearchedSingle] = useState(false);
   /** Sliding hub drawer: officialTime | modification | computation modules */
@@ -998,8 +1068,12 @@ const DailyTimeRecordFaculty = ({
       tbody.querySelectorAll('tr').forEach((row) => {
         const dayCell = row.querySelector('td:first-child');
         if (!dayCell) return;
-        const dayText = dayCell.textContent.trim();
-        if (!/^\d{1,2}$/.test(dayText)) return;
+        // Prefer the day-number label node so partial-suspension captions do not break matching.
+        const dayLabelNode = dayCell.querySelector('div');
+        const dayText = (dayLabelNode?.textContent || dayCell.textContent || '')
+          .trim()
+          .match(/^\d{1,2}/)?.[0];
+        if (!dayText) return;
         const dayPadded = dayText.padStart(2, '0');
         const record = original.find((r) =>
           String(r?.date || '').includes(`-${dayPadded}`),
@@ -1088,6 +1162,21 @@ const DailyTimeRecordFaculty = ({
     } else stopObserver();
   }, [originalRecords, startObserver, stopObserver]);
 
+  // Pause anti-tamper restore while React intentionally re-renders the DTR
+  // (official-time / indicator toggles). Otherwise MutationObserver fights
+  // React and punch times flicker on holiday/leave/suspension rows.
+  useEffect(() => {
+    isRestoringRef.current = true;
+    if (restoreTimerRef.current) {
+      clearTimeout(restoreTimerRef.current);
+      restoreTimerRef.current = null;
+    }
+    const t = setTimeout(() => {
+      isRestoringRef.current = false;
+    }, 350);
+    return () => clearTimeout(t);
+  }, [showOfficialTimeOnDtr, dtrType, printQuincena, printRangeStart, printRangeEnd, indicatorVisibility]);
+
   useEffect(() => () => stopObserver(), [stopObserver]);
 
   // ─── Integrity verification ────────────────────────────────────────────
@@ -1171,10 +1260,10 @@ const DailyTimeRecordFaculty = ({
           periodEnd,
           getAuthHeaders,
         );
-        setBatchOfficialTimesMap(timesMap);
+        // Merge — page-first OT loads must not wipe later employees.
+        setBatchOfficialTimesMap((prev) => ({ ...prev, ...timesMap }));
       } catch (error) {
         console.error('Error in fetchBatchOfficialTimes:', error);
-        setBatchOfficialTimesMap({});
       }
     },
     [],
@@ -1315,22 +1404,6 @@ const DailyTimeRecordFaculty = ({
     if (!byDate || Object.keys(byDate).length === 0) return null;
     return computationModuleTypeByEmployee[key] || null;
   }, [personID, computedLateByEmployee, computationModuleTypeByEmployee]);
-
-  const appliedLateUtLabel = useMemo(() => {
-    if (!appliedLateUtModuleType) return null;
-    return (
-      HUB_COMPUTATION_BUTTONS.find((b) => b.moduleType === appliedLateUtModuleType)
-        ?.label || null
-    );
-  }, [appliedLateUtModuleType]);
-
-  const appliedLateUtColor = useMemo(() => {
-    if (!appliedLateUtModuleType) return T.accent;
-    return (
-      HUB_COMPUTATION_BUTTONS.find((b) => b.moduleType === appliedLateUtModuleType)
-        ?.categoryColor || T.accent
-    );
-  }, [appliedLateUtModuleType]);
 
   const hubDrawerInitialContext = useMemo(
     () => ({
@@ -1547,10 +1620,14 @@ const DailyTimeRecordFaculty = ({
   };
 
   // ─── Single user fetch ─────────────────────────────────────────────────
-  const fetchRecords = useCallback(async () => {
-    setMonthLoading(true);
-    // Avoid showing the previous employee's schedule while this fetch is in flight.
-    setOfficialTimes({});
+  /** @param {{ quiet?: boolean }} [opts] quiet = no overlay / keep current schedule while refreshing */
+  const fetchRecords = useCallback(async (opts = {}) => {
+    const quiet = opts?.quiet === true;
+    if (!quiet) {
+      setMonthLoading(true);
+      // Avoid showing the previous employee's schedule while this fetch is in flight.
+      setOfficialTimes({});
+    }
     try {
       // Always re-pull calendar overlays — suspensions added in Announcements
       // while this page stayed mounted would otherwise stay missing.
@@ -1584,19 +1661,20 @@ const DailyTimeRecordFaculty = ({
         setEmployeeName(formatFullName({ firstName, lastName, middleName }));
         fetchOfficialTimes(personID, startDate, endDate);
         fetchApprovedLeaves(personID).catch(() => {});
-      } else {
+      } else if (!quiet) {
         setEmployeeName('No records found');
         setOfficialTimes({});
       }
       if (dtrType === 'regular' && personID && startDate && endDate) {
         loadComputedLateForEmployee(personID);
       }
+      lastDataFreshAtRef.current = Date.now();
       return filtered.length;
     } catch (err) {
       console.error('Error fetching records:', err);
       return null;
     } finally {
-      setMonthLoading(false);
+      if (!quiet) setMonthLoading(false);
     }
   }, [
     personID,
@@ -1757,7 +1835,7 @@ const DailyTimeRecordFaculty = ({
                 : new Date().toISOString();
             const by = payload?.printedBy || payload?.printed_by || 'system';
             printed.forEach((emp) =>
-              next.set(emp, { printed_at: at, printed_by: by }),
+              next.set(printStatusKey(emp), { printed_at: at, printed_by: by }),
             );
             return next;
           });
@@ -1777,7 +1855,7 @@ const DailyTimeRecordFaculty = ({
         )
           return;
         if (hasSearchedSingle && personID && startDate && endDate)
-          fetchRecordsRef.current?.();
+          fetchRecordsRef.current?.({ quiet: true });
         return;
       }
       if (!startDate || !endDate || allUsersDTR.length === 0) return;
@@ -1815,27 +1893,31 @@ const DailyTimeRecordFaculty = ({
     refreshHolidaysAndSuspensions,
   ]);
 
-  // Refetch when user returns to this tab (missed socket while elsewhere)
+  // Soft refresh when returning to this tab — never block UI with Processing overlay.
+  // Full reloads on every focus were the "always loading" bug (esp. after abort left flags stuck).
   useEffect(() => {
     let hiddenAt = 0;
+    const TAB_AWAY_MS = 8000;
+    const DATA_FRESH_MS = 60 * 1000;
     const onVisibility = () => {
       if (document.visibilityState === 'hidden') {
         hiddenAt = Date.now();
         return;
       }
-      // Ignore quick alt-tab flicker; only refresh after being away briefly
-      if (!hiddenAt || Date.now() - hiddenAt < 2000) return;
+      if (!hiddenAt || Date.now() - hiddenAt < TAB_AWAY_MS) return;
+      const dataIsFresh =
+        lastDataFreshAtRef.current > 0 &&
+        Date.now() - lastDataFreshAtRef.current < DATA_FRESH_MS;
+      // Calendar overlays only on tab return — full quiet rehydrate was the
+      // bulk lag/glitch (re-fetched every employee and re-rendered the table).
       refreshHolidaysAndSuspensions();
+      if (dataIsFresh) return;
       if (viewMode === 'single') {
         if (hasSearchedSingle && personID && startDate && endDate) {
-          fetchRecordsRef.current?.();
+          fetchRecordsRef.current?.({ quiet: true });
         }
-        return;
       }
-      if (startDate && endDate && allUsersDTR.length > 0) {
-        // Keep the table visible — background refresh only
-        fetchAllUsersDTRRef.current?.({ quiet: true });
-      }
+      // Batch mode: keep the loaded table; socket + manual reload handle updates.
     };
     document.addEventListener('visibilitychange', onVisibility);
     return () => document.removeEventListener('visibilitychange', onVisibility);
@@ -1850,7 +1932,7 @@ const DailyTimeRecordFaculty = ({
   ]);
 
   // ─── Batch fetch ───────────────────────────────────────────────────────
-  /** @param {{ quiet?: boolean }} [opts] quiet = refresh without clearing the table / selection */
+  /** @param {{ quiet?: boolean }} [opts] quiet = refresh without clearing the table / selection / overlay */
   const fetchAllUsersDTR = useCallback(async (opts = {}) => {
     const quiet = opts?.quiet === true;
     if (!startDate || !endDate) {
@@ -1862,6 +1944,9 @@ const DailyTimeRecordFaculty = ({
     if (abortControllerRef.current) abortControllerRef.current.abort();
     abortControllerRef.current = new AbortController();
     const { signal } = abortControllerRef.current;
+    const fetchGen = ++batchFetchGenRef.current;
+    const isLatest = () => fetchGen === batchFetchGenRef.current;
+
     if (!quiet) {
       setLoadingAllUsers(true);
       setLoadPhase('Loading employee list…');
@@ -1872,7 +1957,8 @@ const DailyTimeRecordFaculty = ({
       setSelectedUsers(new Set());
       setCurrentPage(1);
     } else {
-      setLoadPhase('Refreshing…');
+      // Background refresh must never raise the full-screen Processing overlay.
+      setLoadingAllUsers(false);
     }
     const cfg = () => ({ ...getAuthHeaders(), signal });
     try {
@@ -1889,21 +1975,17 @@ const DailyTimeRecordFaculty = ({
             return { data: [] };
           }),
       ]);
-      if (signal.aborted) return;
+      if (signal.aborted || !isLatest()) return;
 
       const empList = empRes.data || [];
       if (empList.length === 0) {
         if (!quiet) {
           setAllUsersDTR([]);
           setBatchOfficialTimesMap({});
-          setLoadingAllUsers(false);
-          setLoadPhase('');
           showAlert(
             'No Records Found',
             'No attendance records found for the selected date range.',
           );
-        } else {
-          setLoadPhase('');
         }
         return;
       }
@@ -1970,61 +2052,61 @@ const DailyTimeRecordFaculty = ({
         });
       } else {
         setAllUsersDTR(skeletonUsers);
+        // Drop the full-screen overlay once the list is on screen; row-level
+        // `_loading` covers per-employee hydration.
         setLoadingAllUsers(false);
+        setLoadPhase(`Loading attendance (0 / ${empList.length})…`);
       }
-      setLoadPhase(
-        quiet
-          ? `Refreshing attendance (0 / ${empList.length})…`
-          : `Loading attendance (0 / ${empList.length})…`,
-      );
 
       const empNums = skeletonUsers.map((u) => u.employeeNumber);
       const empListIds = empList.map((e) => e.personID);
 
-      // Kick off OT / late / print-status while attendance chunks load.
+      // Visible page first (same sort as the table) so bulk feels instant.
+      const pageSize = Math.max(5, Number(rowsPerPage) || 10);
+      const sortedForPage = sortEmployeesByLastName(
+        skeletonUsers,
+        (u) => u.fullName || u.lastName || u,
+      );
+      const priorityIds = sortedForPage
+        .slice(0, pageSize)
+        .map((u) => u.employeeNumber);
+      const prioritySet = new Set(priorityIds.map(String));
+      const restIds = empNums.filter((id) => !prioritySet.has(String(id)));
+
+      // Print status for everyone (cheap). OT/late for the visible page first.
       const secondaryPromise = Promise.all([
-        fetchBatchOfficialTimes(empNums, startDate, endDate),
+        fetchBatchOfficialTimes(priorityIds, startDate, endDate),
         axios
           .post(
             `${API_BASE_URL}/attendance/api/dtr-print-status`,
             {
-              employeeNumbers: empListIds,
-              year: new Date(startDate).getFullYear(),
-              month: new Date(startDate).getMonth() + 1,
+              employeeNumbers: empListIds.map((id) => printStatusKey(id)),
+              ...yearMonthFromYmd(startDate),
             },
             cfg(),
           )
           .then((psRes) => {
-            if (signal.aborted) return;
+            if (signal.aborted || !isLatest()) return;
             const newMap = new Map();
-            (psRes.data || []).forEach((s) =>
-              newMap.set(s.employee_number, {
+            (psRes.data || []).forEach((s) => {
+              const key = printStatusKey(s.employee_number);
+              if (!key) return;
+              newMap.set(key, {
                 printed_at: s.printed_at,
                 printed_by: s.printed_by,
-              }),
-            );
+              });
+            });
             setPrintStatusMap(newMap);
           }),
         dtrType === 'regular'
-          ? loadComputedLateBatch(empNums)
+          ? loadComputedLateBatch(priorityIds)
           : Promise.resolve(),
       ]).catch((e) => {
         if (!signal.aborted) console.warn('DTR batch secondary load:', e);
       });
 
-      const chunks = [];
-      for (let i = 0; i < empNums.length; i += ATTENDANCE_CHUNK) {
-        chunks.push(empNums.slice(i, i + ATTENDANCE_CHUNK));
-      }
-
-      // Accumulate chunk maps; flush to React every other concurrency round.
-      let pendingPageMap = new Map();
-      let hydrated = 0;
-      let flushRound = 0;
-      const flushPending = () => {
-        if (!pendingPageMap.size) return;
-        const pageMap = pendingPageMap;
-        pendingPageMap = new Map();
+      const applyChunkRows = (pageMap) => {
+        if (!pageMap.size || !isLatest()) return;
         setAllUsersDTR((prev) =>
           prev.map((user) => {
             const key = String(user.employeeNumber);
@@ -2042,84 +2124,142 @@ const DailyTimeRecordFaculty = ({
         );
       };
 
-      for (let i = 0; i < chunks.length; i += ATTENDANCE_CONCURRENCY) {
-        if (signal.aborted) break;
-        const batch = chunks.slice(i, i + ATTENDANCE_CONCURRENCY);
-        const batchRows = await Promise.all(
-          batch.map(async (chunk) => {
-            if (signal.aborted) return [];
-            try {
-              const pageRes = await axios.post(
-                `${API_BASE_URL}/attendance/api/view-attendance-all-users-paged`,
-                {
-                  startDate,
-                  endDate,
-                  employeeNumbers: chunk,
-                  skipCount: true,
-                  skipAudit: true,
-                },
-                cfg(),
-              );
-              return pageRes.data?.data || [];
-            } catch (e) {
-              if (!signal.aborted)
-                console.error('Attendance chunk fetch failed:', e.message);
-              return [];
-            }
-          }),
-        );
-        if (signal.aborted) return;
+      const hydrateEmployeeIds = async (ids, { urgent = false } = {}) => {
+        if (!ids.length) return 0;
+        const chunks = [];
+        for (let i = 0; i < ids.length; i += ATTENDANCE_CHUNK) {
+          chunks.push(ids.slice(i, i + ATTENDANCE_CHUNK));
+        }
+        let pendingPageMap = new Map();
+        let hydrated = 0;
+        let flushRound = 0;
 
-        batchRows.flat().forEach((record) => {
-          const id = String(record.personID || record.agencyEmployeeNum || '').trim();
-          if (!id) return;
-          if (!pendingPageMap.has(id)) pendingPageMap.set(id, []);
-          pendingPageMap.get(id).push(record);
-        });
+        const flushPending = () => {
+          if (!pendingPageMap.size) return;
+          const pageMap = pendingPageMap;
+          pendingPageMap = new Map();
+          applyChunkRows(pageMap);
+        };
 
-        hydrated += batch.reduce((n, c) => n + c.length, 0);
+        for (let i = 0; i < chunks.length; i += ATTENDANCE_CONCURRENCY) {
+          if (signal.aborted || !isLatest()) break;
+          const batch = chunks.slice(i, i + ATTENDANCE_CONCURRENCY);
+          const batchRows = await Promise.all(
+            batch.map(async (chunk) => {
+              if (signal.aborted) return [];
+              try {
+                const pageRes = await axios.post(
+                  `${API_BASE_URL}/attendance/api/view-attendance-all-users-paged`,
+                  {
+                    startDate,
+                    endDate,
+                    employeeNumbers: chunk,
+                    skipCount: true,
+                    skipAudit: true,
+                  },
+                  cfg(),
+                );
+                return pageRes.data?.data || [];
+              } catch (e) {
+                if (!signal.aborted)
+                  console.error('Attendance chunk fetch failed:', e.message);
+                return [];
+              }
+            }),
+          );
+          if (signal.aborted || !isLatest()) return hydrated;
+
+          batchRows.flat().forEach((record) => {
+            const id = String(
+              record.personID || record.agencyEmployeeNum || '',
+            ).trim();
+            if (!id) return;
+            if (!pendingPageMap.has(id)) pendingPageMap.set(id, []);
+            pendingPageMap.get(id).push(record);
+          });
+
+          hydrated += batch.reduce((n, c) => n + c.length, 0);
+          flushRound += 1;
+
+          const shouldFlush =
+            urgent ||
+            flushRound === 1 ||
+            flushRound % BACKGROUND_FLUSH_EVERY === 0 ||
+            i + ATTENDANCE_CONCURRENCY >= chunks.length;
+          if (shouldFlush) flushPending();
+
+          if (!quiet && isLatest()) {
+            const shown = Math.min(
+              priorityIds.length + (urgent ? 0 : hydrated),
+              empList.length,
+            );
+            // hydrated is row count; clamp to employee list size for the label.
+            setLoadPhase(
+              `Loading attendance (${Math.min(shown || hydrated, empList.length)} / ${empList.length})…`,
+            );
+          }
+
+          // Let the browser paint between background rounds.
+          if (!urgent && i + ATTENDANCE_CONCURRENCY < chunks.length) {
+            await new Promise((r) => setTimeout(r, BACKGROUND_YIELD_MS));
+          }
+        }
+        flushPending();
+        return hydrated;
+      };
+
+      // Phase 1 — visible page only (fast first paint).
+      await hydrateEmployeeIds(priorityIds, { urgent: true });
+      if (signal.aborted || !isLatest()) return;
+
+      // Quiet / socket refresh: only refresh the visible page so the table
+      // does not stutter while hundreds of employees re-hydrate.
+      if (!quiet && restIds.length) {
         setLoadPhase(
-          `${quiet ? 'Refreshing' : 'Loading'} attendance (${Math.min(hydrated, empList.length)} / ${empList.length})…`,
+          `Loading attendance (${priorityIds.length} / ${empList.length})…`,
         );
-
-        flushRound += 1;
-        // Flush every round for small lists; every 2nd for large ones.
-        if (chunks.length <= 2 || flushRound % 2 === 0 || i + ATTENDANCE_CONCURRENCY >= chunks.length) {
-          flushPending();
+        // Phase 2 — remaining employees in the background (throttled flushes).
+        await hydrateEmployeeIds(restIds, { urgent: false });
+        if (!signal.aborted && isLatest()) {
+          fetchBatchOfficialTimes(restIds, startDate, endDate).catch(() => {});
+          if (dtrType === 'regular') {
+            loadComputedLateBatch(restIds).catch(() => {});
+          }
         }
       }
 
-      if (signal.aborted) return;
-      flushPending();
+      if (signal.aborted || !isLatest()) return;
 
       setAllUsersDTR((prev) =>
         prev.map((u) => (u._loading ? { ...u, _loading: false } : u)),
       );
-      setLoadPhase('');
+      lastDataFreshAtRef.current = Date.now();
 
       await secondaryPromise;
     } catch (error) {
       if (error?.code === 'ERR_CANCELED' || signal?.aborted) return;
       console.error('fetchAllUsersDTR error:', error);
-      if (!quiet) {
+      if (!quiet && isLatest()) {
         showAlert(
           'Fetch Error',
           error.response?.data?.error || 'Error fetching attendance records.',
         );
         setAllUsersDTR([]);
         setBatchOfficialTimesMap({});
-      } else {
-        setLoadPhase('');
       }
     } finally {
-      if (!signal?.aborted) {
+      // Only the latest in-flight request may clear loading — prevents abort
+      // races from leaving "Processing…" stuck on tab focus.
+      if (isLatest()) {
         setLoadingAllUsers(false);
+        setLoadPhase('');
       }
     }
   }, [
     startDate,
     endDate,
     dtrType,
+    rowsPerPage,
     fetchBatchOfficialTimes,
     loadComputedLateBatch,
     departmentAssignmentsMap,
@@ -2321,7 +2461,6 @@ const DailyTimeRecordFaculty = ({
 
   // ─── Selection helpers ─────────────────────────────────────────────────
   const handleUserSelect = (empNum) => {
-    if (printStatusMap.has(empNum)) return;
     setSelectedUsers((prev) => {
       const next = new Set(prev);
       next.has(empNum) ? next.delete(empNum) : next.add(empNum);
@@ -2331,15 +2470,13 @@ const DailyTimeRecordFaculty = ({
 
   const handleSelectAll = (checked) => {
     if (checked) {
-      const selectable = getFilteredUsers().filter(
-        (u) => !printStatusMap.has(u.employeeNumber),
-      );
-      const limited = selectable.slice(0, 50);
+      const selectable = getFilteredUsers();
+      const limited = selectable.slice(0, BULK_DTR_LIMIT);
       setSelectedUsers(new Set(limited.map((u) => u.employeeNumber)));
-      if (selectable.length > 50)
+      if (selectable.length > BULK_DTR_LIMIT)
         showAlert(
           'Selection Limited',
-          `Only first 50 selected. Bulk print limit is 50 per batch.`,
+          `Only first ${BULK_DTR_LIMIT} selected. Bulk print limit is ${BULK_DTR_LIMIT} per batch.`,
         );
     } else {
       setSelectedUsers(new Set());
@@ -2353,9 +2490,13 @@ const DailyTimeRecordFaculty = ({
     else if (recordFilter === 'no')
       filtered = filtered.filter((u) => !u.records?.length && !u._loading);
     if (printStatusFilter === 'printed')
-      filtered = filtered.filter((u) => printStatusMap.has(u.employeeNumber));
+      filtered = filtered.filter((u) =>
+        printStatusMap.has(printStatusKey(u.employeeNumber)),
+      );
     else if (printStatusFilter === 'unprinted')
-      filtered = filtered.filter((u) => !printStatusMap.has(u.employeeNumber));
+      filtered = filtered.filter(
+        (u) => !printStatusMap.has(printStatusKey(u.employeeNumber)),
+      );
     if (departmentFilter)
       filtered = filtered.filter(
         (u) =>
@@ -2442,6 +2583,86 @@ const DailyTimeRecordFaculty = ({
   const goToPage = (p) =>
     setCurrentPage(Math.min(Math.max(1, p), totalPageCount));
 
+  // If the user pages ahead of the background hydrate, pull that page now
+  // so bulk never looks stuck/glitchy on empty loading rows.
+  const pageNeedsHydrateKey = paginatedUsers
+    .filter((u) => u._loading)
+    .map((u) => String(u.employeeNumber))
+    .join(',');
+  useEffect(() => {
+    if (viewMode !== 'multiple' || !startDate || !endDate || !pageNeedsHydrateKey) {
+      return undefined;
+    }
+    const needIds = pageNeedsHydrateKey.split(',').filter(Boolean);
+    if (!needIds.length) return undefined;
+    let cancelled = false;
+    const ctrl = new AbortController();
+    (async () => {
+      try {
+        const pageRes = await axios.post(
+          `${API_BASE_URL}/attendance/api/view-attendance-all-users-paged`,
+          {
+            startDate,
+            endDate,
+            employeeNumbers: needIds,
+            skipCount: true,
+            skipAudit: true,
+          },
+          { ...getAuthHeaders(), signal: ctrl.signal },
+        );
+        if (cancelled) return;
+        const byEmp = new Map();
+        (pageRes.data?.data || []).forEach((record) => {
+          const id = String(
+            record.personID || record.agencyEmployeeNum || '',
+          ).trim();
+          if (!id) return;
+          if (!byEmp.has(id)) byEmp.set(id, []);
+          byEmp.get(id).push(record);
+        });
+        if (!byEmp.size) {
+          setAllUsersDTR((prev) =>
+            prev.map((u) =>
+              needIds.includes(String(u.employeeNumber))
+                ? { ...u, _loading: false, rawRecords: u.rawRecords || [], records: u.records || [], hasRecords: !!u.records?.length }
+                : u,
+            ),
+          );
+          return;
+        }
+        setAllUsersDTR((prev) =>
+          prev.map((user) => {
+            const key = String(user.employeeNumber);
+            if (!byEmp.has(key)) {
+              return needIds.includes(key) ? { ...user, _loading: false } : user;
+            }
+            const rows = byEmp.get(key);
+            const filtered = filterByDtrType(rows, dtrType);
+            return {
+              ...user,
+              rawRecords: rows,
+              records: filtered,
+              hasRecords: filtered.length > 0,
+              _loading: false,
+            };
+          }),
+        );
+        fetchBatchOfficialTimes(needIds, startDate, endDate).catch(() => {});
+        if (dtrType === 'regular') {
+          loadComputedLateBatch(needIds).catch(() => {});
+        }
+      } catch (e) {
+        if (e?.code === 'ERR_CANCELED' || cancelled) return;
+        console.warn('Priority page hydrate failed:', e?.message || e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      ctrl.abort();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, startDate, endDate, pageNeedsHydrateKey, dtrType]);
+
   const getCategoryLabel = (id) =>
     EMPLOYMENT_CATEGORY_OPTIONS.find(
       (option) => String(option.value) === String(id),
@@ -2501,7 +2722,7 @@ const DailyTimeRecordFaculty = ({
       setSelectedUsers(new Set());
       return;
     }
-    const count = n === 'all' ? Math.min(50, f.length) : Number(n) || 0;
+    const count = n === 'all' ? Math.min(BULK_DTR_LIMIT, f.length) : Number(n) || 0;
     setSelectedUsers(new Set(f.slice(0, count).map((u) => u.employeeNumber)));
     setPreviewUsers(f.slice(0, count));
     setCurrentPreviewIndex(0);
@@ -2517,16 +2738,28 @@ const DailyTimeRecordFaculty = ({
       showAlert('No Selection', 'Please select at least one user to print');
       return;
     }
-    if (toPrint.length > 50) {
+    if (toPrint.length > BULK_DTR_LIMIT) {
       showAlert(
         'Too Many Selected',
-        `You selected ${toPrint.length} users. Limit is 50 per batch.`,
+        `You selected ${toPrint.length} users. Limit is ${BULK_DTR_LIMIT} per batch.`,
       );
       return;
     }
-    setPreviewUsers(toPrint);
-    setCurrentPreviewIndex(0);
-    setPreviewModalOpen(true);
+    const alreadyPrintedUsers = toPrint.filter((u) =>
+      printStatusMap.has(printStatusKey(u.employeeNumber)),
+    );
+    const alreadyPrintedCount = alreadyPrintedUsers.length;
+    if (alreadyPrintedCount > 0) {
+      setConfirmModal({
+        open: true,
+        user: null,
+        bulkUsers: toPrint,
+        alreadyPrintedCount,
+        alreadyPrintedUsers,
+      });
+      return;
+    }
+    openBulkPreview(toPrint);
   };
 
   const handlePrevious = () =>
@@ -2539,8 +2772,8 @@ const DailyTimeRecordFaculty = ({
    * Render every selected employee's DTR straight to HTML.
    *
    * Rendering into a detached React root skips layout, rasterising and the
-   * mount-one-DTR-at-a-time cycle that html2canvas needed, so a 50-employee
-   * batch costs about as much as a single DTR.
+   * mount-one-DTR-at-a-time cycle that html2canvas needed, so a bulk
+   * batch costs about as much as a single DTR for the HTML step.
    */
   const buildDtrPrintPages = (users, calendarOverrides = null) => {
     const container = document.createElement('div');
@@ -2586,14 +2819,15 @@ const DailyTimeRecordFaculty = ({
     resolvePdfFileName(users).replace(/\.pdf$/i, '');
 
   const markDtrsPrinted = async (users) => {
-    const employeeNumbers = users.map((u) => u.employeeNumber);
+    const employeeNumbers = users.map((u) => printStatusKey(u.employeeNumber));
     const { startDate: printStart, endDate: printEnd } = getPrintPeriodDates();
+    const ym = yearMonthFromYmd(printStart || startDate);
     await axios.post(
       `${API_BASE_URL}/attendance/api/mark-dtr-printed`,
       {
         employeeNumbers,
-        year: new Date(printStart || startDate).getFullYear(),
-        month: new Date(printStart || startDate).getMonth() + 1,
+        year: ym.year,
+        month: ym.month,
         startDate: printStart || startDate,
         endDate: printEnd || endDate,
       },
@@ -2603,7 +2837,10 @@ const DailyTimeRecordFaculty = ({
     setPrintStatusMap((prev) => {
       const next = new Map(prev);
       employeeNumbers.forEach((n) =>
-        next.set(n, { printed_at: printedAt, printed_by: 'current_user' }),
+        next.set(printStatusKey(n), {
+          printed_at: printedAt,
+          printed_by: 'current_user',
+        }),
       );
       return next;
     });
@@ -2633,8 +2870,13 @@ const DailyTimeRecordFaculty = ({
     setPreviewModalOpen(false);
 
     try {
-      // Ensure calendar overlays match Individual DTR (fresh suspensions/holidays).
-      const calendar = await refreshHolidaysAndSuspensions({ force: true });
+      // Skip forced calendar pull when data is still fresh (bulk PDF speed).
+      const calendarFresh =
+        lastDataFreshAtRef.current > 0 &&
+        Date.now() - lastDataFreshAtRef.current < 60_000;
+      const calendar = calendarFresh
+        ? null
+        : await refreshHolidaysAndSuspensions({ force: true });
       await new Promise((r) => requestAnimationFrame(r));
       const pages = buildDtrPrintPages(users, calendar);
       if (!pages.length) throw new Error('No DTRs could be prepared.');
@@ -2677,7 +2919,12 @@ const DailyTimeRecordFaculty = ({
     setPreviewModalOpen(false);
 
     try {
-      const calendar = await refreshHolidaysAndSuspensions({ force: true });
+      const calendarFresh =
+        lastDataFreshAtRef.current > 0 &&
+        Date.now() - lastDataFreshAtRef.current < 60_000;
+      const calendar = calendarFresh
+        ? null
+        : await refreshHolidaysAndSuspensions({ force: true });
       await new Promise((r) => requestAnimationFrame(r));
       const pages = buildDtrPrintPages(users, calendar);
       if (!pages.length) throw new Error('No DTRs could be prepared.');
@@ -2768,6 +3015,7 @@ const DailyTimeRecordFaculty = ({
         issues,
         pending: { users, kind, markPrinted },
       });
+      setUnmountedExpandedIds(new Set());
     } catch (error) {
       console.error('Unmounted punch check failed:', error);
       showAlert(
@@ -2777,24 +3025,67 @@ const DailyTimeRecordFaculty = ({
     }
   };
 
+  const openPunchStatusForReview = useCallback(
+    (issue = null, { focusDay = Boolean(issue) } = {}) => {
+      const issues = issue
+        ? [issue]
+        : unmountedPrintDialog.issues || [];
+      const target = issue || issues[0] || null;
+      const id = String(
+        target?.personID || issues[0]?.personID || personID || '',
+      ).trim();
+      const name =
+        target?.employeeName ||
+        issues.find((i) => String(i.personID) === id)?.employeeName ||
+        employeeName ||
+        '';
+
+      setPreviewModalOpen(false);
+      setUnmountedPrintDialog({ open: false, issues: [], pending: null });
+      setUnmountedExpandedIds(new Set());
+
+      if (id) {
+        if (id !== String(personID || '').trim()) {
+          setPersonID(id);
+          setEmployeeName(name);
+          setSelectedEmployee(null);
+          setHasSearchedSingle(true);
+          setViewMode('single');
+          setTimeout(() => {
+            fetchRecordsRef.current?.();
+          }, 250);
+        } else {
+          setViewMode('single');
+          setHasSearchedSingle(true);
+        }
+      }
+
+      setReviewFocusDate(
+        focusDay ? String(target?.date || '').trim() : '',
+      );
+      setReviewFocusRowKey(
+        focusDay ? String(target?.rowKey || '').trim() : '',
+      );
+      setReviewFocusToken((token) => token + 1);
+    },
+    [unmountedPrintDialog.issues, personID, employeeName],
+  );
+
   const handleReviewUnmountedPunches = () => {
     const issues = unmountedPrintDialog.issues || [];
-    setUnmountedPrintDialog({ open: false, issues: [], pending: null });
-    const ids = [...new Set(issues.map((issue) => String(issue.personID || '').trim()).filter(Boolean))];
+    const ids = [
+      ...new Set(
+        issues
+          .map((issue) => String(issue.personID || '').trim())
+          .filter(Boolean),
+      ),
+    ];
     if (ids.length === 1) {
-      if (ids[0] !== String(personID || '').trim()) {
-        setPersonID(ids[0]);
-        setEmployeeName(issues.find((issue) => String(issue.personID) === ids[0])?.employeeName || '');
-        setSelectedEmployee(null);
-        setHasSearchedSingle(true);
-        setViewMode('single');
-        setTimeout(() => {
-          fetchRecordsRef.current?.();
-        }, 250);
-      }
-      setReviewFocusToken((token) => token + 1);
+      openPunchStatusForReview(null, { focusDay: false });
       return;
     }
+    setUnmountedPrintDialog({ open: false, issues: [], pending: null });
+    setUnmountedExpandedIds(new Set());
     setSnackbar({
       open: true,
       severity: 'warning',
@@ -2805,6 +3096,7 @@ const DailyTimeRecordFaculty = ({
   const handlePrintDespiteUnmounted = async () => {
     const pending = unmountedPrintDialog.pending;
     setUnmountedPrintDialog({ open: false, issues: [], pending: null });
+    setUnmountedExpandedIds(new Set());
     try {
       await runPendingDtrOutput(pending);
     } catch (error) {
@@ -2817,15 +3109,49 @@ const DailyTimeRecordFaculty = ({
   };
 
   const handleIndividualPrintConfirmed = async (user) => {
+    const wasPrinted = printStatusMap.has(printStatusKey(user?.employeeNumber));
     closeConfirm();
     setPreviewUsers([user]);
     setCurrentPreviewIndex(0);
+    if (wasPrinted) {
+      setSnackbar({
+        open: true,
+        message: 'Printing another copy of an already printed DTR.',
+        severity: 'info',
+      });
+    }
 
     try {
       await guardUnmountedPrint([user], 'print');
     } catch (error) {
       console.error('Error printing individual DTR:', error);
       showAlert('Print Error', `Error printing DTR: ${error.message}`);
+    }
+  };
+
+  const handleBulkReprintConfirmed = () => {
+    const users = confirmModal.bulkUsers || [];
+    const count = confirmModal.alreadyPrintedCount || 0;
+    closeConfirm();
+    if (!users.length) return;
+    setSnackbar({
+      open: true,
+      message:
+        count === 1
+          ? 'Printing another copy of an already printed DTR.'
+          : `Printing another copy — ${count} of ${users.length} DTRs were already printed.`,
+      severity: 'info',
+    });
+    openBulkPreview(users);
+  };
+
+  const handlePrintConfirmAction = () => {
+    if (confirmModal.bulkUsers?.length) {
+      handleBulkReprintConfirmed();
+      return;
+    }
+    if (confirmModal.user) {
+      handleIndividualPrintConfirmed(confirmModal.user);
     }
   };
 
@@ -3062,22 +3388,27 @@ const DailyTimeRecordFaculty = ({
   );
 
   const renderDTRForModal = (user) => (
-    <div className="table-container">
-      <div className="table-wrapper" style={{ position: 'relative' }}>
-        <DTRTemplate
-          {...buildDtrTemplateProps(
-            user.records,
-            user.fullName,
-            String(user.employeeNumber) === String(personID)
-              ? officialTimes
-              : batchOfficialTimesMap[user.employeeNumber] || {},
-            user.employeeNumber,
-            user.rawUser?.employmentCategory ?? user.employmentCategory ?? null,
-            user.rawUser?.branch ?? user.branch,
-            approvedLeaves,
-            null,
-          )}
-        />
+    <div className="table-container" style={{ width: '100%', maxWidth: '100%', minWidth: 0 }}>
+      <div
+        className="table-wrapper"
+        style={{ position: 'relative', width: '100%', maxWidth: '100%', minWidth: 0 }}
+      >
+        <DtrFitPreview>
+          <DTRTemplate
+            {...buildDtrTemplateProps(
+              user.records,
+              user.fullName,
+              String(user.employeeNumber) === String(personID)
+                ? officialTimes
+                : batchOfficialTimesMap[user.employeeNumber] || {},
+              user.employeeNumber,
+              user.rawUser?.employmentCategory ?? user.employmentCategory ?? null,
+              user.rawUser?.branch ?? user.branch,
+              approvedLeaves,
+              null,
+            )}
+          />
+        </DtrFitPreview>
       </div>
     </div>
   );
@@ -3156,16 +3487,17 @@ const DailyTimeRecordFaculty = ({
         sx: {
           mb: 0.75,
           borderRadius: 2,
-          width: 280,
-          maxHeight: 'min(420px, calc(100vh - 140px))',
-          overflowX: 'hidden',
-          overflowY: 'auto',
+          width: 300,
+          maxHeight: 'min(480px, calc(100vh - 120px))',
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
           boxShadow: '0 8px 28px rgba(0,0,0,0.14)',
           border: `1px solid ${T.accentBorder}`,
         },
       }}
     >
-      <Box sx={{ px: 1.75, pt: 1.25, pb: 1 }}>
+      <Box sx={{ px: 1.75, pt: 1.35, pb: 1.1, flexShrink: 0 }}>
         <Typography
           sx={{
             fontSize: '0.68rem',
@@ -3181,102 +3513,154 @@ const DailyTimeRecordFaculty = ({
           sx={{
             fontSize: '0.7rem',
             color: T.muted,
-            mt: 0.4,
-            lineHeight: 1.35,
+            mt: 0.45,
+            lineHeight: 1.4,
           }}
         >
-          Check the marks to print on the form. Uncheck them for a clean DTR.
-          Punch times are not removed.
+          Toggle marks on the form. Punch times always stay visible — indicators
+          are notes only.
         </Typography>
-        <Box sx={{ display: 'flex', gap: 0.5, mt: 0.75 }}>
-          <Button
+        <Box
+          sx={{
+            mt: 1.1,
+            px: 1.1,
+            py: 0.65,
+            borderRadius: 1.5,
+            border: `1px solid ${allIndicatorsOn ? T.accent : T.accentBorder}`,
+            bgcolor: allIndicatorsOn ? alpha(T.accent, 0.06) : T.accentFaint,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 1,
+          }}
+        >
+          <Box sx={{ minWidth: 0 }}>
+            <Typography
+              sx={{
+                fontSize: '0.78rem',
+                fontWeight: 700,
+                color: allIndicatorsOn ? T.accent : T.text,
+                lineHeight: 1.2,
+              }}
+            >
+              All indicators
+            </Typography>
+            <Typography
+              sx={{
+                fontSize: '0.65rem',
+                color: T.muted,
+                lineHeight: 1.2,
+                mt: 0.15,
+              }}
+            >
+              {allIndicatorsOn
+                ? 'All marks shown'
+                : noIndicatorsOn
+                  ? 'All marks hidden'
+                  : `${indicatorEnabledCount} of ${DTR_INDICATOR_OPTIONS.length} on`}
+            </Typography>
+          </Box>
+          <Switch
             size="small"
-            onClick={() => persistIndicatorVisibility(defaultDtrIndicatorVisibility())}
-            sx={{
-              textTransform: 'none',
-              fontSize: '0.72rem',
-              fontWeight: 700,
-              color: T.accent,
-              minWidth: 0,
-              px: 1,
+            checked={allIndicatorsOn}
+            onChange={(e) => {
+              if (e.target.checked) {
+                persistIndicatorVisibility(defaultDtrIndicatorVisibility());
+              } else {
+                persistIndicatorVisibility(
+                  Object.fromEntries(
+                    DTR_INDICATOR_OPTIONS.map((opt) => [opt.key, false]),
+                  ),
+                );
+              }
             }}
-          >
-            All on
-          </Button>
-          <Button
-            size="small"
-            onClick={() =>
-              persistIndicatorVisibility(
-                Object.fromEntries(
-                  DTR_INDICATOR_OPTIONS.map((opt) => [opt.key, false]),
-                ),
-              )
-            }
+            inputProps={{ 'aria-label': 'Toggle all DTR indicators' }}
             sx={{
-              textTransform: 'none',
-              fontSize: '0.72rem',
-              fontWeight: 700,
-              color: T.muted,
-              minWidth: 0,
-              px: 1,
+              flexShrink: 0,
+              '& .MuiSwitch-switchBase.Mui-checked': { color: T.accent },
+              '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                bgcolor: T.accent,
+              },
             }}
-          >
-            All off
-          </Button>
+          />
         </Box>
       </Box>
       <Divider />
-      <Box sx={{ py: 0.5, px: 0.5 }}>
-        {DTR_INDICATOR_OPTIONS.map((opt) => (
-          <FormControlLabel
-            key={opt.key}
-            sx={{
-              display: 'flex',
-              mx: 0,
-              px: 0.75,
-              py: 0.15,
-              borderRadius: 1,
-              width: '100%',
-              maxWidth: '100%',
-              boxSizing: 'border-box',
-              '&:hover': { bgcolor: T.accentFaint },
-            }}
-            control={
+      <Box
+        sx={{
+          py: 0.6,
+          px: 0.75,
+          overflowY: 'auto',
+          flex: 1,
+          minHeight: 0,
+        }}
+      >
+        {DTR_INDICATOR_OPTIONS.map((opt) => {
+          const checked = indicatorVisibility[opt.key] !== false;
+          const toggle = () =>
+            persistIndicatorVisibility((prev) => ({
+              ...prev,
+              [opt.key]: !checked,
+            }));
+          return (
+            <Box
+              key={opt.key}
+              onClick={toggle}
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 1,
+                px: 0.85,
+                py: 0.55,
+                borderRadius: 1.25,
+                cursor: 'pointer',
+                userSelect: 'none',
+                bgcolor: checked ? alpha(opt.color, 0.06) : 'transparent',
+                '&:hover': { bgcolor: alpha(opt.color, 0.1) },
+              }}
+            >
               <Checkbox
                 size="small"
-                checked={indicatorVisibility[opt.key] !== false}
-                onChange={(e) =>
+                checked={checked}
+                onChange={(e) => {
+                  e.stopPropagation();
                   persistIndicatorVisibility((prev) => ({
                     ...prev,
                     [opt.key]: e.target.checked,
-                  }))
-                }
+                  }));
+                }}
+                onClick={(e) => e.stopPropagation()}
                 sx={{
-                  p: 0.5,
-                  color: alpha(opt.color, 0.7),
+                  p: 0.35,
+                  color: alpha(opt.color, 0.55),
                   '&.Mui-checked': { color: opt.color },
                 }}
               />
-            }
-            label={
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Box
-                  sx={{
-                    width: 16,
-                    height: 12,
-                    borderRadius: '2px',
-                    bgcolor: opt.bg,
-                    border: `1.5px solid ${opt.color}`,
-                    flexShrink: 0,
-                  }}
-                />
-                <Typography sx={{ fontSize: '0.8rem', fontWeight: 600, color: T.text }}>
-                  {opt.label}
-                </Typography>
-              </Box>
-            }
-          />
-        ))}
+              <Box
+                sx={{
+                  width: 16,
+                  height: 12,
+                  borderRadius: '2px',
+                  bgcolor: opt.bg,
+                  border: `1.5px solid ${opt.color}`,
+                  flexShrink: 0,
+                }}
+              />
+              <Typography
+                sx={{
+                  fontSize: '0.8rem',
+                  fontWeight: 600,
+                  color: T.text,
+                  lineHeight: 1.25,
+                  flex: 1,
+                  minWidth: 0,
+                }}
+              >
+                {opt.label}
+              </Typography>
+            </Box>
+          );
+        })}
       </Box>
     </Popover>
   );
@@ -4018,25 +4402,11 @@ const DailyTimeRecordFaculty = ({
                               >
                                 Compute &amp; save:
                               </Typography>
-                              {appliedLateUtLabel && (
-                                <Chip
-                                  size="small"
-                                  label={`On DTR: ${appliedLateUtLabel}`}
-                                  sx={{
-                                    height: 22,
-                                    fontSize: '0.65rem',
-                                    fontWeight: 700,
-                                    bgcolor: appliedLateUtColor,
-                                    color: '#fff',
-                                    display: { xs: 'none', md: 'inline-flex' },
-                                  }}
-                                />
-                              )}
                               {HUB_COMPUTATION_BUTTONS.map((btn) => {
-                                const isActive =
+                                const drawerOpen =
                                   activeComputationDrawer === btn.drawer ||
                                   moduleDrawer === btn.drawer;
-                                const isApplied =
+                                const isOnDtr =
                                   appliedLateUtModuleType === btn.moduleType;
                                 const categoryColor =
                                   btn.categoryColor || T.accent;
@@ -4046,9 +4416,11 @@ const DailyTimeRecordFaculty = ({
                                   <Tooltip
                                     key={`compute-${btn.drawer}`}
                                     title={
-                                      isApplied
-                                        ? `${btn.label} late/undertime is on this DTR — open to review or Save to Summary`
-                                        : `Open ${btn.label} module to review late/undertime, then Save to Summary`
+                                      isOnDtr
+                                        ? `${btn.label} is currently on this DTR — open to review or Save to Summary again`
+                                        : drawerOpen
+                                          ? `${btn.label} panel is open`
+                                          : `Open ${btn.label} to compute late/undertime, then Save to Summary`
                                     }
                                     placement="top"
                                   >
@@ -4057,12 +4429,21 @@ const DailyTimeRecordFaculty = ({
                                         variant="outlined"
                                         size="small"
                                         disabled={disabled}
+                                        aria-pressed={isOnDtr || drawerOpen}
                                         startIcon={
-                                          <AccessTime
-                                            sx={{
-                                              fontSize: '15px !important',
-                                            }}
-                                          />
+                                          isOnDtr ? (
+                                            <CheckCircle
+                                              sx={{
+                                                fontSize: '15px !important',
+                                              }}
+                                            />
+                                          ) : (
+                                            <AccessTime
+                                              sx={{
+                                                fontSize: '15px !important',
+                                              }}
+                                            />
+                                          )
                                         }
                                         onClick={() =>
                                           openComputationDrawer(btn.drawer)
@@ -4072,44 +4453,73 @@ const DailyTimeRecordFaculty = ({
                                           fontSize: '0.72rem',
                                           fontWeight: 700,
                                           px: 1.25,
-                                          ...((isActive || isApplied)
+                                          ...(isOnDtr
                                             ? {
                                                 bgcolor: categoryColor,
                                                 color: '#fff',
                                                 borderColor: categoryColor,
-                                                boxShadow: `0 2px 8px ${alpha(categoryColor, 0.35)}`,
+                                                borderWidth: 2,
+                                                boxShadow: `0 0 0 2px ${alpha(
+                                                  categoryColor,
+                                                  0.28,
+                                                )}, 0 2px 8px ${alpha(
+                                                  categoryColor,
+                                                  0.35,
+                                                )}`,
                                                 '&:hover': {
                                                   bgcolor: categoryColor,
                                                   filter: 'brightness(0.92)',
                                                   borderColor: categoryColor,
+                                                  borderWidth: 2,
                                                 },
                                                 '&.Mui-focusVisible': {
                                                   bgcolor: categoryColor,
                                                   borderColor: categoryColor,
                                                 },
                                               }
-                                            : {
-                                                color: categoryColor,
-                                                borderColor: alpha(
-                                                  categoryColor,
-                                                  0.45,
-                                                ),
-                                                bgcolor: alpha(
-                                                  categoryColor,
-                                                  0.1,
-                                                ),
-                                                '&:hover': {
+                                            : drawerOpen
+                                              ? {
+                                                  color: categoryColor,
+                                                  borderColor: categoryColor,
+                                                  borderWidth: 2,
                                                   bgcolor: alpha(
                                                     categoryColor,
-                                                    0.18,
+                                                    0.16,
                                                   ),
-                                                  borderColor: categoryColor,
-                                                },
-                                              }),
+                                                  boxShadow: `inset 0 0 0 1px ${alpha(
+                                                    categoryColor,
+                                                    0.35,
+                                                  )}`,
+                                                  '&:hover': {
+                                                    bgcolor: alpha(
+                                                      categoryColor,
+                                                      0.22,
+                                                    ),
+                                                    borderColor: categoryColor,
+                                                    borderWidth: 2,
+                                                  },
+                                                }
+                                              : {
+                                                  color: categoryColor,
+                                                  borderColor: alpha(
+                                                    categoryColor,
+                                                    0.35,
+                                                  ),
+                                                  bgcolor: '#fff',
+                                                  '&:hover': {
+                                                    bgcolor: alpha(
+                                                      categoryColor,
+                                                      0.08,
+                                                    ),
+                                                    borderColor: categoryColor,
+                                                  },
+                                                }),
                                           '&.Mui-disabled': { opacity: 0.55 },
                                         }}
                                       >
-                                        {btn.label}
+                                        {isOnDtr
+                                          ? `Using · ${btn.label}`
+                                          : btn.label}
                                       </AccentButton>
                                     </span>
                                   </Tooltip>
@@ -4197,37 +4607,53 @@ const DailyTimeRecordFaculty = ({
                                 className="dtr-print-area"
                                 sx={{
                                   bgcolor: '#f4f0f0',
-                                  p: 2.5,
+                                  p: { xs: 1, sm: 1.5, md: 2 },
                                   display: 'flex',
                                   justifyContent: 'center',
+                                  alignItems: 'flex-start',
                                   position: 'relative',
+                                  width: '100%',
+                                  minWidth: 0,
+                                  boxSizing: 'border-box',
                                 }}
                               >
                                 <Paper
                                   elevation={2}
                                   sx={{
-                                    p: 2,
+                                    p: { xs: 1, sm: 1.25, md: 1.5 },
                                     borderRadius: '8px',
                                     bgcolor: '#fff',
                                     position: 'relative',
                                     boxSizing: 'border-box',
-                                    overflowX: 'auto',
+                                    overflow: 'hidden',
                                     width: '100%',
+                                    maxWidth: '100%',
+                                    minWidth: 0,
                                     opacity: singlePrintLoading ? 0 : 1,
                                     pointerEvents: singlePrintLoading
                                       ? 'none'
                                       : 'auto',
                                   }}
                                 >
-                                  <Box sx={{ overflowX: 'auto' }}>
+                                  <div
+                                    className="table-container"
+                                    ref={dtrRef}
+                                    style={{
+                                      width: '100%',
+                                      maxWidth: '100%',
+                                      minWidth: 0,
+                                    }}
+                                  >
                                     <div
-                                      className="table-container"
-                                      ref={dtrRef}
+                                      className="table-wrapper"
+                                      style={{
+                                        position: 'relative',
+                                        width: '100%',
+                                        maxWidth: '100%',
+                                        minWidth: 0,
+                                      }}
                                     >
-                                      <div
-                                        className="table-wrapper"
-                                        style={{ position: 'relative' }}
-                                      >
+                                      <DtrFitPreview>
                                         {renderDTRTablePair(
                                           records,
                                           employeeName,
@@ -4242,9 +4668,9 @@ const DailyTimeRecordFaculty = ({
                                             ? Number(selectedEmployee.branch)
                                             : selectedEmployee?.rawUser?.branch,
                                         )}
-                                      </div>
+                                      </DtrFitPreview>
                                     </div>
-                                  </Box>
+                                  </div>
                                 </Paper>
                               </Box>
                             </Fade>
@@ -4932,7 +5358,7 @@ const DailyTimeRecordFaculty = ({
                                     }}
                                     sx={selectSx}
                                   >
-                                    {[10, 20, 50, 100].map((n) => (
+                                    {[5, 10, 20, 50, 100].map((n) => (
                                       <MenuItem
                                         key={n}
                                         value={n}
@@ -5073,27 +5499,24 @@ const DailyTimeRecordFaculty = ({
                                     >
                                       <Checkbox
                                         checked={(() => {
-                                          const sel = filteredUsers.filter(
-                                            (u) =>
-                                              !printStatusMap.has(
-                                                u.employeeNumber,
-                                              ),
+                                          const sel = filteredUsers;
+                                          const capped = Math.min(
+                                            sel.length,
+                                            BULK_DTR_LIMIT,
                                           );
                                           return (
-                                            sel.length > 0 &&
-                                            selectedUsers.size === sel.length
+                                            capped > 0 &&
+                                            selectedUsers.size === capped
                                           );
                                         })()}
                                         indeterminate={(() => {
-                                          const sel = filteredUsers.filter(
-                                            (u) =>
-                                              !printStatusMap.has(
-                                                u.employeeNumber,
-                                              ),
-                                          ).length;
+                                          const capped = Math.min(
+                                            filteredUsers.length,
+                                            BULK_DTR_LIMIT,
+                                          );
                                           return (
                                             selectedUsers.size > 0 &&
-                                            selectedUsers.size < sel
+                                            selectedUsers.size < capped
                                           );
                                         })()}
                                         onChange={(e) =>
@@ -5132,7 +5555,7 @@ const DailyTimeRecordFaculty = ({
                                 <TableBody>
                                   {paginatedUsers.map((user, idx) => {
                                     const isPrinted = printStatusMap.has(
-                                      user.employeeNumber,
+                                      printStatusKey(user.employeeNumber),
                                     );
                                     const isSelected = selectedUsers.has(
                                       user.employeeNumber,
@@ -5163,7 +5586,7 @@ const DailyTimeRecordFaculty = ({
                                                 user.employeeNumber,
                                               )
                                             }
-                                            disabled={isPrinted || isLoading}
+                                            disabled={isLoading}
                                             sx={{
                                               '&.Mui-checked': {
                                                 color: T.accent,
@@ -5333,7 +5756,7 @@ const DailyTimeRecordFaculty = ({
                                             <Tooltip
                                               title={
                                                 isPrinted
-                                                  ? 'Re-print DTR'
+                                                  ? 'Print another copy'
                                                   : 'Print DTR'
                                               }
                                             >
@@ -5437,8 +5860,9 @@ const DailyTimeRecordFaculty = ({
                                     </MenuItem>
                                     <MenuItem value={10}>First 10</MenuItem>
                                     <MenuItem value={20}>First 20</MenuItem>
-                                    <MenuItem value={50}>
-                                      First 50 (max)
+                                    <MenuItem value={50}>First 50</MenuItem>
+                                    <MenuItem value={100}>
+                                      First 100 (max)
                                     </MenuItem>
                                   </Select>
                                 </FormControl>
@@ -5537,8 +5961,8 @@ const DailyTimeRecordFaculty = ({
                       className="no-print"
                       sx={{
                         display: 'flex',
-                        flex: { lg: '0 0 320px' },
-                        width: { xs: '100%', lg: 320 },
+                        flex: { lg: '0 0 320px', xl: '0 0 360px' },
+                        width: { xs: '100%', lg: 320, xl: 360 },
                         maxWidth: '100%',
                         minWidth: 0,
                         minHeight: 0,
@@ -5566,6 +5990,8 @@ const DailyTimeRecordFaculty = ({
                         }
                         onIssuesChange={handlePunchIssuesChange}
                         reviewFocusToken={reviewFocusToken}
+                        reviewFocusDate={reviewFocusDate}
+                        reviewFocusRowKey={reviewFocusRowKey}
                         onStatusUpdated={(info) => {
                           setSnackbar({
                             open: true,
@@ -5757,11 +6183,13 @@ const DailyTimeRecordFaculty = ({
                       <Paper
                         elevation={0}
                         sx={{
-                          p: 2,
+                          p: { xs: 1, sm: 1.5, md: 2 },
                           bgcolor: 'white',
                           borderRadius: 2,
-                          width: 'fit-content',
+                          width: '100%',
                           maxWidth: '100%',
+                          minWidth: 0,
+                          overflow: 'hidden',
                           border: `1px solid ${T.accentBorder}`,
                         }}
                       >
@@ -5933,88 +6361,578 @@ const DailyTimeRecordFaculty = ({
             {/* ── Punches that will not print ── */}
             <Dialog
               open={unmountedPrintDialog.open}
-              onClose={() =>
-                setUnmountedPrintDialog({ open: false, issues: [], pending: null })
-              }
+              onClose={() => {
+                setUnmountedPrintDialog({
+                  open: false,
+                  issues: [],
+                  pending: null,
+                });
+                setUnmountedExpandedIds(new Set());
+              }}
               maxWidth="sm"
               fullWidth
               className="no-print"
               PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden' } }}
             >
-              <Box
-                sx={{
-                  px: 2.5,
-                  py: 2,
-                  bgcolor: '#fdf5f5',
-                  borderBottom: `1px solid ${T.divider}`,
-                }}
-              >
-                <Typography sx={{ fontSize: '1rem', fontWeight: 800, color: T.text }}>
-                  {unmountedPrintDialog.issues.length} punch
-                  {unmountedPrintDialog.issues.length === 1 ? '' : 'es'} will not print
-                </Typography>
-                <Typography sx={{ fontSize: '0.78rem', color: T.muted, mt: 0.5, lineHeight: 1.45 }}>
-                  These taps are Uncategorized or an extra click of the same status, so the DTR cell stays blank. Correct them in the punch list. Nothing is changed automatically.
-                </Typography>
-              </Box>
-              <DialogContent sx={{ px: 2.5, py: 1.5, maxHeight: 360 }}>
-                {(unmountedPrintDialog.issues || []).slice(0, 8).map((issue) => (
-                  <Box
-                    key={`${issue.personID}-${issue.rowKey}`}
-                    sx={{
-                      py: 1,
-                      borderBottom: `1px solid ${T.divider}`,
-                    }}
-                  >
-                    <Typography sx={{ fontSize: '0.78rem', fontWeight: 700, color: T.text }}>
-                      {issue.employeeName || issue.personID} · {issue.dateLabel} {issue.time}
-                    </Typography>
-                    <Typography sx={{ fontSize: '0.72rem', color: T.muted, mt: 0.25 }}>
-                      {issue.statusLabel} — {issue.reason}
-                    </Typography>
-                  </Box>
-                ))}
-                {unmountedPrintDialog.issues.length > 8 && (
-                  <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: T.muted, mt: 1 }}>
-                    and {unmountedPrintDialog.issues.length - 8} more
-                  </Typography>
-                )}
-              </DialogContent>
-              <Box
-                sx={{
-                  px: 2.5,
-                  py: 1.75,
-                  display: 'flex',
-                  justifyContent: 'flex-end',
-                  gap: 1,
-                  borderTop: `1px solid ${T.divider}`,
-                }}
-              >
-                <AccentButton
-                  variant="outlined"
-                  onClick={handleReviewUnmountedPunches}
-                  sx={{
-                    borderColor: T.accentBorder,
-                    color: T.accent,
-                    '&:hover': { bgcolor: T.accentFaint, borderColor: T.accent },
-                  }}
-                >
-                  Review punches
-                </AccentButton>
-                <AccentButton
-                  variant="contained"
-                  onClick={handlePrintDespiteUnmounted}
-                  sx={{
-                    bgcolor: T.accent,
-                    color: '#fff',
-                    '&:hover': { bgcolor: T.accentDark },
-                  }}
-                >
-                  {unmountedPrintDialog.pending?.kind === 'download'
-                    ? 'Download anyway'
-                    : 'Print anyway'}
-                </AccentButton>
-              </Box>
+              {(() => {
+                const issues = unmountedPrintDialog.issues || [];
+                const byEmployee = new Map();
+                issues.forEach((issue) => {
+                  const id = String(issue.personID || '').trim() || 'unknown';
+                  if (!byEmployee.has(id)) {
+                    byEmployee.set(id, {
+                      personID: id,
+                      employeeName: issue.employeeName || id,
+                      punches: [],
+                    });
+                  }
+                  byEmployee.get(id).punches.push(issue);
+                });
+                const groups = [...byEmployee.values()];
+                const empCount = groups.length;
+                return (
+                  <>
+                    <Box
+                      sx={{
+                        px: 2.5,
+                        py: 2,
+                        bgcolor: '#fdf5f5',
+                        borderBottom: `1px solid ${T.divider}`,
+                      }}
+                    >
+                      <Typography
+                        sx={{ fontSize: '1rem', fontWeight: 800, color: T.text }}
+                      >
+                        {issues.length} punch
+                        {issues.length === 1 ? '' : 'es'} will not print
+                      </Typography>
+                      <Typography
+                        sx={{
+                          fontSize: '0.78rem',
+                          color: T.muted,
+                          mt: 0.45,
+                          lineHeight: 1.45,
+                        }}
+                      >
+                        Across {empCount} employee
+                        {empCount === 1 ? '' : 's'}. These taps are uncategorized
+                        or an extra click of the same status, so the DTR cell
+                        stays blank. Nothing is changed automatically.
+                      </Typography>
+                      <Chip
+                        size="small"
+                        label="Uncategorized / not on DTR"
+                        sx={{
+                          mt: 1.1,
+                          height: 22,
+                          fontWeight: 700,
+                          fontSize: '0.68rem',
+                          bgcolor: alpha('#c62828', 0.1),
+                          color: '#b71c1c',
+                          border: `1px solid ${alpha('#c62828', 0.25)}`,
+                        }}
+                      />
+                    </Box>
+                    <DialogContent
+                      sx={{
+                        px: 2,
+                        py: 1.5,
+                        maxHeight: 400,
+                        ...scrollbarSx,
+                      }}
+                    >
+                      {(() => {
+                        const useEmpDropdown = empCount > 1;
+                        const showReviewActions = !useEmpDropdown;
+
+                        const groupPunchesByDay = (punches) => {
+                          const byDay = new Map();
+                          punches.forEach((issue) => {
+                            const dayKey =
+                              String(issue.date || issue.dateLabel || 'unknown').trim() ||
+                              'unknown';
+                            if (!byDay.has(dayKey)) {
+                              byDay.set(dayKey, {
+                                dayKey,
+                                dateLabel:
+                                  issue.dateLabel || issue.date || dayKey,
+                                punches: [],
+                              });
+                            }
+                            byDay.get(dayKey).punches.push(issue);
+                          });
+                          return [...byDay.values()];
+                        };
+
+                        const renderPunchRow = (issue, { withDate = false } = {}) => (
+                          <Box
+                            key={`${issue.personID}-${issue.rowKey}`}
+                            sx={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              gap: 1,
+                              px: 0.75,
+                              py: 0.65,
+                              borderRadius: 1.25,
+                              '&:not(:last-of-type)': {
+                                borderBottom: `1px solid ${T.divider}`,
+                              },
+                            }}
+                          >
+                            <Box sx={{ minWidth: 0, flex: 1 }}>
+                              {withDate ? (
+                                <Typography
+                                  sx={{
+                                    fontSize: '0.72rem',
+                                    fontWeight: 600,
+                                    color: T.muted,
+                                    lineHeight: 1.2,
+                                    mb: 0.15,
+                                  }}
+                                >
+                                  {issue.dateLabel || issue.date || '—'}
+                                </Typography>
+                              ) : null}
+                              <Typography
+                                sx={{
+                                  fontSize: '0.8rem',
+                                  fontWeight: 800,
+                                  color: T.accent,
+                                  fontVariantNumeric: 'tabular-nums',
+                                }}
+                              >
+                                {issue.time || '—'}
+                              </Typography>
+                            </Box>
+                            {showReviewActions ? (
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openPunchStatusForReview(issue);
+                                }}
+                                sx={{
+                                  flexShrink: 0,
+                                  minWidth: 0,
+                                  px: 1.1,
+                                  py: 0.25,
+                                  height: 26,
+                                  fontSize: '0.68rem',
+                                  fontWeight: 700,
+                                  textTransform: 'none',
+                                  borderColor: T.accentBorder,
+                                  color: T.accent,
+                                  bgcolor: '#fff',
+                                  '&:hover': {
+                                    borderColor: T.accent,
+                                    bgcolor: T.accentFaint,
+                                  },
+                                }}
+                              >
+                                Review
+                              </Button>
+                            ) : null}
+                          </Box>
+                        );
+
+                        const renderPunchTimes = (punches) =>
+                          punches.map((issue) =>
+                            renderPunchRow(issue, {
+                              withDate: !showReviewActions,
+                            }),
+                          );
+
+                        const renderDaySections = (group, nested) => {
+                          const days = groupPunchesByDay(group.punches);
+                          const useDayDropdown = days.length > 1;
+
+                          if (!useDayDropdown) {
+                            return (
+                              <Box sx={{ px: 1.25, py: 0.75 }}>
+                                {showReviewActions
+                                  ? group.punches.map((issue) =>
+                                      renderPunchRow(issue, { withDate: true }),
+                                    )
+                                  : renderPunchTimes(group.punches)}
+                              </Box>
+                            );
+                          }
+
+                          return (
+                            <Box sx={{ px: nested ? 1 : 1.25, py: 0.75 }}>
+                              {days.map((day) => {
+                                const dayExpandKey = `${group.personID}::${day.dayKey}`;
+                                const dayOpen =
+                                  unmountedExpandedIds.has(dayExpandKey);
+                                return (
+                                  <Box
+                                    key={dayExpandKey}
+                                    sx={{
+                                      mb: 0.75,
+                                      border: `1px solid ${
+                                        dayOpen ? T.accent : T.divider
+                                      }`,
+                                      borderRadius: 1.5,
+                                      overflow: 'hidden',
+                                      bgcolor: '#fff',
+                                    }}
+                                  >
+                                    <Box
+                                      role="button"
+                                      tabIndex={0}
+                                      aria-expanded={dayOpen}
+                                      onClick={() =>
+                                        toggleUnmountedExpand(dayExpandKey)
+                                      }
+                                      onKeyDown={(e) => {
+                                        if (
+                                          e.key === 'Enter' ||
+                                          e.key === ' '
+                                        ) {
+                                          e.preventDefault();
+                                          toggleUnmountedExpand(dayExpandKey);
+                                        }
+                                      }}
+                                      sx={{
+                                        px: 1.25,
+                                        py: 0.85,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        gap: 1,
+                                        cursor: 'pointer',
+                                        userSelect: 'none',
+                                        bgcolor: dayOpen
+                                          ? alpha(T.accent, 0.06)
+                                          : 'rgba(0,0,0,0.02)',
+                                        '&:hover': {
+                                          bgcolor: alpha(T.accent, 0.08),
+                                        },
+                                      }}
+                                    >
+                                      <Typography
+                                        sx={{
+                                          fontSize: '0.8rem',
+                                          fontWeight: 800,
+                                          color: T.text,
+                                        }}
+                                      >
+                                        {day.dateLabel}
+                                      </Typography>
+                                      <Box
+                                        sx={{
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          gap: 0.75,
+                                        }}
+                                      >
+                                        <Chip
+                                          size="small"
+                                          label={`${day.punches.length}`}
+                                          sx={{
+                                            height: 20,
+                                            minWidth: 28,
+                                            fontWeight: 700,
+                                            fontSize: '0.68rem',
+                                            bgcolor: '#fff',
+                                            color: T.accent,
+                                            border: `1px solid ${T.accentBorder}`,
+                                          }}
+                                        />
+                                        <ExpandMore
+                                          sx={{
+                                            fontSize: 20,
+                                            color: T.accent,
+                                            transform: dayOpen
+                                              ? 'rotate(180deg)'
+                                              : 'none',
+                                            transition: 'transform 0.18s ease',
+                                          }}
+                                        />
+                                      </Box>
+                                    </Box>
+                                    <Collapse
+                                      in={dayOpen}
+                                      timeout="auto"
+                                      unmountOnExit
+                                    >
+                                      <Box
+                                        sx={{
+                                          px: 1,
+                                          py: 0.5,
+                                          borderTop: `1px solid ${T.divider}`,
+                                        }}
+                                      >
+                                        {day.punches.map((issue) =>
+                                          showReviewActions
+                                            ? renderPunchRow(issue)
+                                            : (
+                                              <Box
+                                                key={`${issue.personID}-${issue.rowKey}`}
+                                                sx={{
+                                                  display: 'flex',
+                                                  alignItems: 'center',
+                                                  justifyContent: 'flex-end',
+                                                  px: 0.75,
+                                                  py: 0.65,
+                                                  '&:not(:last-of-type)': {
+                                                    borderBottom: `1px solid ${T.divider}`,
+                                                  },
+                                                }}
+                                              >
+                                                <Typography
+                                                  sx={{
+                                                    fontSize: '0.8rem',
+                                                    fontWeight: 800,
+                                                    color: T.accent,
+                                                    fontVariantNumeric:
+                                                      'tabular-nums',
+                                                  }}
+                                                >
+                                                  {issue.time || '—'}
+                                                </Typography>
+                                              </Box>
+                                            ),
+                                        )}
+                                      </Box>
+                                    </Collapse>
+                                  </Box>
+                                );
+                              })}
+                            </Box>
+                          );
+                        };
+
+                        return groups.map((group) => {
+                          if (!useEmpDropdown) {
+                            // Single employee — no employee dropdown; day dropdowns if many days.
+                            return (
+                              <Box
+                                key={group.personID}
+                                sx={{
+                                  border: `1px solid ${T.accentBorder}`,
+                                  borderRadius: 2,
+                                  overflow: 'hidden',
+                                  bgcolor: '#fff',
+                                }}
+                              >
+                                <Box
+                                  sx={{
+                                    px: 1.5,
+                                    py: 1,
+                                    bgcolor: T.accentFaint,
+                                    borderBottom: `1px solid ${T.accentBorder}`,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    gap: 1,
+                                  }}
+                                >
+                                  <Box sx={{ minWidth: 0, flex: 1 }}>
+                                    <Typography
+                                      sx={{
+                                        fontSize: '0.86rem',
+                                        fontWeight: 800,
+                                        color: T.accent,
+                                        lineHeight: 1.25,
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                        whiteSpace: 'nowrap',
+                                      }}
+                                    >
+                                      {group.employeeName}
+                                    </Typography>
+                                    <Typography
+                                      sx={{
+                                        fontSize: '0.7rem',
+                                        color: T.muted,
+                                        fontWeight: 600,
+                                        mt: 0.15,
+                                      }}
+                                    >
+                                      #{group.personID}
+                                    </Typography>
+                                  </Box>
+                                  <Chip
+                                    size="small"
+                                    label={`${group.punches.length} punch${
+                                      group.punches.length === 1 ? '' : 'es'
+                                    }`}
+                                    sx={{
+                                      height: 22,
+                                      fontWeight: 700,
+                                      fontSize: '0.68rem',
+                                      bgcolor: '#fff',
+                                      color: T.accent,
+                                      border: `1px solid ${T.accentBorder}`,
+                                      flexShrink: 0,
+                                    }}
+                                  />
+                                </Box>
+                                {renderDaySections(group, false)}
+                              </Box>
+                            );
+                          }
+
+                          const expanded = unmountedExpandedIds.has(
+                            group.personID,
+                          );
+                          return (
+                            <Box
+                              key={group.personID}
+                              sx={{
+                                mb: 1,
+                                border: `1px solid ${
+                                  expanded ? T.accent : T.accentBorder
+                                }`,
+                                borderRadius: 2,
+                                overflow: 'hidden',
+                                bgcolor: '#fff',
+                              }}
+                            >
+                              <Box
+                                role="button"
+                                tabIndex={0}
+                                aria-expanded={expanded}
+                                onClick={() =>
+                                  toggleUnmountedExpand(group.personID)
+                                }
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    toggleUnmountedExpand(group.personID);
+                                  }
+                                }}
+                                sx={{
+                                  px: 1.5,
+                                  py: 1,
+                                  bgcolor: expanded
+                                    ? alpha(T.accent, 0.08)
+                                    : T.accentFaint,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  gap: 1,
+                                  cursor: 'pointer',
+                                  userSelect: 'none',
+                                  '&:hover': {
+                                    bgcolor: alpha(T.accent, 0.1),
+                                  },
+                                }}
+                              >
+                                <Box sx={{ minWidth: 0, flex: 1 }}>
+                                  <Typography
+                                    sx={{
+                                      fontSize: '0.86rem',
+                                      fontWeight: 800,
+                                      color: T.accent,
+                                      lineHeight: 1.25,
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis',
+                                      whiteSpace: 'nowrap',
+                                    }}
+                                  >
+                                    {group.employeeName}
+                                  </Typography>
+                                  <Typography
+                                    sx={{
+                                      fontSize: '0.7rem',
+                                      color: T.muted,
+                                      fontWeight: 600,
+                                      mt: 0.15,
+                                    }}
+                                  >
+                                    #{group.personID}
+                                  </Typography>
+                                </Box>
+                                <Chip
+                                  size="small"
+                                  label={`${group.punches.length} punch${
+                                    group.punches.length === 1 ? '' : 'es'
+                                  }`}
+                                  sx={{
+                                    height: 22,
+                                    fontWeight: 700,
+                                    fontSize: '0.68rem',
+                                    bgcolor: '#fff',
+                                    color: T.accent,
+                                    border: `1px solid ${T.accentBorder}`,
+                                    flexShrink: 0,
+                                  }}
+                                />
+                                <ExpandMore
+                                  sx={{
+                                    fontSize: 22,
+                                    color: T.accent,
+                                    flexShrink: 0,
+                                    transform: expanded
+                                      ? 'rotate(180deg)'
+                                      : 'rotate(0deg)',
+                                    transition: 'transform 0.18s ease',
+                                  }}
+                                />
+                              </Box>
+                              <Collapse
+                                in={expanded}
+                                timeout="auto"
+                                unmountOnExit
+                              >
+                                <Box
+                                  sx={{
+                                    borderTop: `1px solid ${T.accentBorder}`,
+                                  }}
+                                >
+                                  {renderDaySections(group, true)}
+                                </Box>
+                              </Collapse>
+                            </Box>
+                          );
+                        });
+                      })()}
+                    </DialogContent>
+                    <Box
+                      sx={{
+                        px: 2.5,
+                        py: 1.75,
+                        display: 'flex',
+                        justifyContent: 'flex-end',
+                        gap: 1,
+                        borderTop: `1px solid ${T.divider}`,
+                      }}
+                    >
+                      <AccentButton
+                        variant="outlined"
+                        onClick={handleReviewUnmountedPunches}
+                        sx={{
+                          borderColor: T.accentBorder,
+                          color: T.accent,
+                          '&:hover': {
+                            bgcolor: T.accentFaint,
+                            borderColor: T.accent,
+                          },
+                        }}
+                      >
+                        Review punches
+                      </AccentButton>
+                      <AccentButton
+                        variant="contained"
+                        onClick={handlePrintDespiteUnmounted}
+                        sx={{
+                          bgcolor: T.accent,
+                          color: '#fff',
+                          '&:hover': { bgcolor: T.accentDark },
+                        }}
+                      >
+                        {unmountedPrintDialog.pending?.kind === 'download'
+                          ? 'Download anyway'
+                          : 'Print anyway'}
+                      </AccentButton>
+                    </Box>
+                  </>
+                );
+              })()}
             </Dialog>
 
             {/* ── Re-print Confirmation Modal ── */}
@@ -6046,116 +6964,271 @@ const DailyTimeRecordFaculty = ({
                 >
                   <PrintIcon sx={{ fontSize: 36 }} />
                 </Box>
-                <Typography
-                  sx={{
-                    fontSize: '1rem',
-                    fontWeight: 700,
-                    mb: 0.5,
-                    color: T.text,
-                  }}
-                >
-                  {printStatusMap.has(confirmModal.user?.employeeNumber)
-                    ? 'Re-print DTR?'
-                    : 'Confirm Print Job'}
-                </Typography>
-                <Typography
-                  sx={{
-                    fontSize: '0.82rem',
-                    color: T.muted,
-                    mb: 3,
-                    maxWidth: '85%',
-                    lineHeight: 1.6,
-                  }}
-                >
-                  {printStatusMap.has(confirmModal.user?.employeeNumber)
-                    ? 'This record was printed previously. Generate a new copy?'
-                    : 'Verify the details below before printing.'}
-                </Typography>
-                {confirmModal.user && (
-                  <Box
-                    sx={{
-                      width: '100%',
-                      border: `1.5px dashed ${T.accentBorder}`,
-                      bgcolor: T.accentFaint,
-                      borderRadius: 2,
-                      p: 2.5,
-                      mb: 3,
-                    }}
-                  >
-                    <Typography
-                      sx={{
-                        fontSize: '0.88rem',
-                        fontWeight: 700,
-                        color: T.text,
-                        mb: 1,
-                      }}
-                    >
-                      {confirmModal.user.fullName ||
-                        `${confirmModal.user.firstName} ${confirmModal.user.lastName}`}
-                    </Typography>
-                    <Box
-                      sx={{
-                        width: 40,
-                        height: 3,
-                        bgcolor: T.accent,
-                        borderRadius: 2,
-                        mx: 'auto',
-                        mb: 1,
-                      }}
-                    />
-                    <Box
-                      sx={{ display: 'flex', gap: 2, justifyContent: 'center' }}
-                    >
-                      <Typography sx={{ fontSize: '0.75rem', color: T.muted }}>
-                        #{confirmModal.user.employeeNumber}
+                {(() => {
+                  const isBulk = Boolean(confirmModal.bulkUsers?.length);
+                  const alreadyCount = confirmModal.alreadyPrintedCount || 0;
+                  const bulkTotal = confirmModal.bulkUsers?.length || 0;
+                  const alreadyUsers = confirmModal.alreadyPrintedUsers || [];
+                  const isReprint =
+                    alreadyCount > 0 ||
+                    printStatusMap.has(
+                      printStatusKey(confirmModal.user?.employeeNumber),
+                    );
+                  const title = isBulk
+                    ? isReprint
+                      ? 'Already printed'
+                      : 'Confirm Print Job'
+                    : isReprint
+                      ? 'Already printed'
+                      : 'Confirm Print Job';
+                  const message = isBulk
+                    ? alreadyCount === bulkTotal
+                      ? bulkTotal === 1
+                        ? 'This DTR has already been printed. Print another copy?'
+                        : `These ${bulkTotal} DTRs have already been printed. Print another copy for each?`
+                      : `${alreadyCount} of ${bulkTotal} selected DTRs have already been printed. Print another copy anyway?`
+                    : isReprint
+                      ? 'This DTR has already been printed. Print another copy?'
+                      : 'Verify the details below before printing.';
+                  const confirmLabel = isReprint
+                    ? 'Print another copy'
+                    : 'Print';
+                  const nameOf = (u) =>
+                    u?.fullName ||
+                    [u?.lastName, u?.firstName].filter(Boolean).join(', ') ||
+                    u?.devicePersonName ||
+                    'Unknown';
+                  const listed = alreadyUsers.slice(0, 8);
+                  const extra = Math.max(0, alreadyUsers.length - listed.length);
+                  return (
+                    <>
+                      <Typography
+                        sx={{
+                          fontSize: '1rem',
+                          fontWeight: 700,
+                          mb: 0.5,
+                          color: T.text,
+                        }}
+                      >
+                        {title}
                       </Typography>
-                      <Typography sx={{ fontSize: '0.75rem', color: T.faint }}>
-                        |
+                      <Typography
+                        sx={{
+                          fontSize: '0.82rem',
+                          color: T.muted,
+                          mb: 2,
+                          maxWidth: '90%',
+                          lineHeight: 1.6,
+                        }}
+                      >
+                        {message}
                       </Typography>
-                      <Typography sx={{ fontSize: '0.75rem', color: T.muted }}>
-                        {formatMonth(startDate)}
-                        {printQuincena !== 'full' ? ` · ${printPeriodCaption}` : ''}
-                      </Typography>
-                    </Box>
-                  </Box>
-                )}
-                <Box
-                  sx={{ display: 'flex', gap: 1.5, justifyContent: 'center' }}
-                >
-                  <AccentButton
-                    variant="outlined"
-                    onClick={closeConfirm}
-                    sx={{
-                      borderColor: T.accentBorder,
-                      color: T.muted,
-                      '&:hover': {
-                        borderColor: T.accent,
-                        color: T.accent,
-                        bgcolor: T.accentFaint,
-                      },
-                    }}
-                  >
-                    Cancel
-                  </AccentButton>
-                  <AccentButton
-                    variant="contained"
-                    onClick={() =>
-                      confirmModal.user &&
-                      handleIndividualPrintConfirmed(confirmModal.user)
-                    }
-                    startIcon={
-                      <PrintIcon sx={{ fontSize: '16px !important' }} />
-                    }
-                    sx={{
-                      bgcolor: T.accent,
-                      color: '#fff',
-                      boxShadow: `0 4px 14px ${alpha(T.accent, 0.35)}`,
-                      '&:hover': { bgcolor: T.accentDark },
-                    }}
-                  >
-                    Print
-                  </AccentButton>
-                </Box>
+                      {confirmModal.user && (
+                        <Box
+                          sx={{
+                            width: '100%',
+                            border: `1.5px dashed ${T.accentBorder}`,
+                            bgcolor: T.accentFaint,
+                            borderRadius: 2,
+                            p: 2.5,
+                            mb: 3,
+                          }}
+                        >
+                          <Typography
+                            sx={{
+                              fontSize: '0.88rem',
+                              fontWeight: 700,
+                              color: T.text,
+                              mb: 1,
+                            }}
+                          >
+                            {nameOf(confirmModal.user)}
+                          </Typography>
+                          <Box
+                            sx={{
+                              width: 40,
+                              height: 3,
+                              bgcolor: T.accent,
+                              borderRadius: 2,
+                              mx: 'auto',
+                              mb: 1,
+                            }}
+                          />
+                          <Box
+                            sx={{
+                              display: 'flex',
+                              gap: 2,
+                              justifyContent: 'center',
+                            }}
+                          >
+                            <Typography
+                              sx={{ fontSize: '0.75rem', color: T.muted }}
+                            >
+                              #{confirmModal.user.employeeNumber}
+                            </Typography>
+                            <Typography
+                              sx={{ fontSize: '0.75rem', color: T.faint }}
+                            >
+                              |
+                            </Typography>
+                            <Typography
+                              sx={{ fontSize: '0.75rem', color: T.muted }}
+                            >
+                              {formatMonth(startDate)}
+                              {printQuincena !== 'full'
+                                ? ` · ${printPeriodCaption}`
+                                : ''}
+                            </Typography>
+                          </Box>
+                        </Box>
+                      )}
+                      {isBulk && (
+                        <Box
+                          sx={{
+                            width: '100%',
+                            border: `1.5px dashed ${T.accentBorder}`,
+                            bgcolor: T.accentFaint,
+                            borderRadius: 2,
+                            p: 2,
+                            mb: 3,
+                            textAlign: 'left',
+                          }}
+                        >
+                          <Typography
+                            sx={{
+                              fontSize: '0.85rem',
+                              fontWeight: 700,
+                              color: T.text,
+                            }}
+                          >
+                            {bulkTotal} employee
+                            {bulkTotal === 1 ? '' : 's'} selected
+                          </Typography>
+                          <Typography
+                            sx={{
+                              fontSize: '0.75rem',
+                              color: T.muted,
+                              mt: 0.35,
+                              mb: alreadyUsers.length ? 1.25 : 0,
+                            }}
+                          >
+                            {alreadyCount} already printed ·{' '}
+                            {bulkTotal - alreadyCount} not yet printed
+                          </Typography>
+                          {alreadyUsers.length > 0 && (
+                            <Box
+                              sx={{
+                                maxHeight: 160,
+                                overflowY: 'auto',
+                                borderTop: `1px solid ${T.accentBorder}`,
+                                pt: 1,
+                                ...scrollbarSx,
+                              }}
+                            >
+                              <Typography
+                                sx={{
+                                  fontSize: '0.68rem',
+                                  fontWeight: 700,
+                                  letterSpacing: '0.06em',
+                                  textTransform: 'uppercase',
+                                  color: alpha(T.accent, 0.7),
+                                  mb: 0.75,
+                                }}
+                              >
+                                Already printed
+                              </Typography>
+                              {listed.map((u) => (
+                                <Box
+                                  key={printStatusKey(u.employeeNumber)}
+                                  sx={{
+                                    display: 'flex',
+                                    alignItems: 'baseline',
+                                    justifyContent: 'space-between',
+                                    gap: 1,
+                                    py: 0.35,
+                                  }}
+                                >
+                                  <Typography
+                                    sx={{
+                                      fontSize: '0.78rem',
+                                      fontWeight: 600,
+                                      color: T.text,
+                                      minWidth: 0,
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis',
+                                      whiteSpace: 'nowrap',
+                                    }}
+                                  >
+                                    {nameOf(u)}
+                                  </Typography>
+                                  <Typography
+                                    sx={{
+                                      fontSize: '0.72rem',
+                                      color: T.muted,
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    #{u.employeeNumber}
+                                  </Typography>
+                                </Box>
+                              ))}
+                              {extra > 0 && (
+                                <Typography
+                                  sx={{
+                                    fontSize: '0.72rem',
+                                    color: T.faint,
+                                    mt: 0.5,
+                                    fontStyle: 'italic',
+                                  }}
+                                >
+                                  and {extra} more…
+                                </Typography>
+                              )}
+                            </Box>
+                          )}
+                        </Box>
+                      )}
+                      <Box
+                        sx={{
+                          display: 'flex',
+                          gap: 1.5,
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <AccentButton
+                          variant="outlined"
+                          onClick={closeConfirm}
+                          sx={{
+                            borderColor: T.accentBorder,
+                            color: T.muted,
+                            '&:hover': {
+                              borderColor: T.accent,
+                              color: T.accent,
+                              bgcolor: T.accentFaint,
+                            },
+                          }}
+                        >
+                          Cancel
+                        </AccentButton>
+                        <AccentButton
+                          variant="contained"
+                          onClick={handlePrintConfirmAction}
+                          startIcon={
+                            <PrintIcon sx={{ fontSize: '16px !important' }} />
+                          }
+                          sx={{
+                            bgcolor: T.accent,
+                            color: '#fff',
+                            boxShadow: `0 4px 14px ${alpha(T.accent, 0.35)}`,
+                            '&:hover': { bgcolor: T.accentDark },
+                          }}
+                        >
+                          {confirmLabel}
+                        </AccentButton>
+                      </Box>
+                    </>
+                  );
+                })()}
               </DialogContent>
             </Dialog>
           </Box>

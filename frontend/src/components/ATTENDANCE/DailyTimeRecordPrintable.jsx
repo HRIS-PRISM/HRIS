@@ -348,57 +348,146 @@ export const triggerFileDownload = (blob, fileName) => {
 
 /**
  * Same A4 image layout as Download PDF. Shared so Print and Download match.
+ *
+ * Bulk speed notes:
+ * - html2canvas is the bottleneck. We capture in small DOM chunks with limited
+ *   concurrency instead of one giant iframe + one-at-a-time rasterize.
+ * - Scale 1 for multi-page jobs (scale 2 is ~4× pixels / time).
+ * - JPEG for large batches (PNG encode of full A4 pages dominates at 50–100).
  */
+const PDF_CAPTURE_CHUNK = 8;
+const PDF_CAPTURE_CONCURRENCY = 3;
+
+const canvasToDataUrl = (canvas, { mime = 'image/png', quality = 0.92 } = {}) =>
+  new Promise((resolve, reject) => {
+    if (mime === 'image/png' && typeof canvas.toDataURL === 'function') {
+      try {
+        resolve(canvas.toDataURL('image/png'));
+        return;
+      } catch (e) {
+        reject(e);
+        return;
+      }
+    }
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          reject(new Error('Canvas export failed'));
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error || new Error('Read failed'));
+        reader.readAsDataURL(blob);
+      },
+      mime,
+      quality,
+    );
+  });
+
+const captureAreaToCanvas = (area, scale) =>
+  html2canvas(area, {
+    scale,
+    useCORS: true,
+    backgroundColor: '#ffffff',
+    logging: false,
+    onclone: prepareDtrGridForHtml2Canvas,
+  });
+
+const mapPool = async (items, concurrency, mapper) => {
+  const results = new Array(items.length);
+  let next = 0;
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    async () => {
+      while (next < items.length) {
+        const index = next;
+        next += 1;
+        results[index] = await mapper(items[index], index);
+      }
+    },
+  );
+  await Promise.all(workers);
+  return results;
+};
+
 const renderDtrPdfBlob = async (htmlPages, { title, onProgress } = {}) => {
   const pages = normalizeHtmlPages(htmlPages);
   if (!pages.length) return null;
 
-  const frame = await createDtrFrameDocument(pages, { title });
-  if (!frame) return null;
+  const pdf = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
+    compress: true,
+  });
+  const pageW = pdf.internal.pageSize.getWidth();
+  const pageH = pdf.internal.pageSize.getHeight();
+  const margin = DTR_PAGE_MARGIN_MM;
+  const maxW = pageW - margin * 2;
+  const maxH = pageH - margin * 2;
 
-  try {
-    const doc = frame.contentDocument;
-    const areas = Array.from(doc.querySelectorAll('.dtr-print-area'));
-    if (!areas.length) throw new Error('No DTR pages to print.');
+  // Multi-page: scale 1 (much faster). Large bulk: JPEG is far quicker to encode.
+  const scale = pages.length >= 5 ? 1 : 2;
+  const useJpeg = pages.length >= 15;
+  const imgFormat = useJpeg ? 'JPEG' : 'PNG';
+  const mime = useJpeg ? 'image/jpeg' : 'image/png';
 
-    const pdf = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: 'a4',
+  let pdfPageIndex = 0;
+
+  for (let start = 0; start < pages.length; start += PDF_CAPTURE_CHUNK) {
+    const slice = pages.slice(start, start + PDF_CAPTURE_CHUNK);
+    const frame = await createDtrFrameDocument(slice, {
+      title: title ? `${title} (${start + 1}-${start + slice.length})` : 'DTR',
     });
-    const pageW = pdf.internal.pageSize.getWidth();
-    const pageH = pdf.internal.pageSize.getHeight();
-    const margin = DTR_PAGE_MARGIN_MM;
-    const maxW = pageW - margin * 2;
-    const maxH = pageH - margin * 2;
+    if (!frame) continue;
 
-    for (let i = 0; i < areas.length; i++) {
-      onProgress?.(i + 1, areas.length);
-      const canvas = await html2canvas(areas[i], {
-        // Integer scale keeps 1px grid lines on pixel boundaries.
-        scale: areas.length >= 30 ? 1 : 2,
-        useCORS: true,
-        backgroundColor: '#ffffff',
-        logging: false,
-        onclone: prepareDtrGridForHtml2Canvas,
-      });
-      // PNG keeps hairline grid strokes; JPEG smears 1px rules into thicker bars.
-      const imgData = canvas.toDataURL('image/png');
-      const srcW = (areas[i].offsetWidth || canvas.width) * PX_TO_MM;
-      const srcH = (areas[i].offsetHeight || canvas.height) * PX_TO_MM;
-      const fit = Math.min(maxW / srcW, maxH / srcH, 1);
-      const drawW = srcW * fit;
-      const drawH = srcH * fit;
-      const x = (pageW - drawW) / 2;
-      const y = (pageH - drawH) / 2;
-      if (i > 0) pdf.addPage();
-      pdf.addImage(imgData, 'PNG', x, y, drawW, drawH);
+    try {
+      const doc = frame.contentDocument;
+      const areas = Array.from(doc.querySelectorAll('.dtr-print-area'));
+      if (!areas.length) continue;
+
+      const captures = await mapPool(
+        areas,
+        PDF_CAPTURE_CONCURRENCY,
+        async (area, localIdx) => {
+          const globalIdx = start + localIdx;
+          onProgress?.(globalIdx + 1, pages.length);
+          const canvas = await captureAreaToCanvas(area, scale);
+          const imgData = await canvasToDataUrl(canvas, {
+            mime,
+            quality: 0.9,
+          });
+          const srcW = (area.offsetWidth || canvas.width) * PX_TO_MM;
+          const srcH = (area.offsetHeight || canvas.height) * PX_TO_MM;
+          // Free canvas memory ASAP on large jobs.
+          canvas.width = 0;
+          canvas.height = 0;
+          return { imgData, srcW, srcH };
+        },
+      );
+
+      for (const cap of captures) {
+        if (!cap?.imgData) continue;
+        const fit = Math.min(maxW / cap.srcW, maxH / cap.srcH, 1);
+        const drawW = cap.srcW * fit;
+        const drawH = cap.srcH * fit;
+        const x = (pageW - drawW) / 2;
+        const y = (pageH - drawH) / 2;
+        if (pdfPageIndex > 0) pdf.addPage();
+        pdf.addImage(cap.imgData, imgFormat, x, y, drawW, drawH);
+        pdfPageIndex += 1;
+      }
+    } finally {
+      frame.remove();
     }
 
-    return pdf.output('blob');
-  } finally {
-    frame.remove();
+    // Yield so the UI can paint progress between chunks.
+    await new Promise((r) => setTimeout(r, 0));
   }
+
+  if (!pdfPageIndex) throw new Error('No DTR pages to print.');
+  return pdf.output('blob');
 };
 
 const printPdfBlob = (blob) => {

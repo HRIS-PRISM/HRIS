@@ -53,6 +53,8 @@ import {
   WorkOutline as WorkOutlineIcon,
   Payments as PaymentsIcon,
   InfoOutlined as InfoOutlinedIcon,
+  ContentCopy as ContentCopyIcon,
+  CleaningServices as CleaningServicesIcon,
 } from '@mui/icons-material';
 
 import ReorderIcon from '@mui/icons-material/Reorder';
@@ -653,7 +655,7 @@ const EmployeeAutocomplete = memo(({
 });
 
 // ─── Memoized Grid Card ────────────────────────────────────────────────────────
-const ItemGridCard = memo(({ item, employeeName, amountLabel, onClick }) => {
+const ItemGridCard = memo(({ item, employeeName, amountLabel, isDuplicate, duplicateCount, onClick }) => {
   const name     = employeeName || item.name || `Employee #${item.employeeID || 'N/A'}`;
   const position = item.item_description || item.item_code || 'No Position';
   const grade    = gradePillLabel(item.salary_grade, item.step);
@@ -665,12 +667,14 @@ const ItemGridCard = memo(({ item, employeeName, amountLabel, onClick }) => {
       sx={{
         width: '100%', display: 'flex', flexDirection: 'column',
         p: 2, borderRadius: 2, cursor: 'pointer', bgcolor: '#fff',
-        border: `1px solid ${T.accentBorder}`, transition: 'all 0.13s',
-        '&:hover': { bgcolor: T.rowHover, borderColor: T.accent, transform: 'translateY(-1px)', boxShadow: `0 4px 12px ${alpha(T.accent, 0.08)}` },
+        border: `1px solid ${isDuplicate ? 'rgba(198,40,40,0.35)' : T.accentBorder}`,
+        boxShadow: isDuplicate ? 'inset 3px 0 0 #c62828' : 'none',
+        transition: 'all 0.13s',
+        '&:hover': { bgcolor: T.rowHover, borderColor: isDuplicate ? '#c62828' : T.accent, transform: 'translateY(-1px)', boxShadow: isDuplicate ? 'inset 3px 0 0 #c62828, 0 4px 12px rgba(198,40,40,0.12)' : `0 4px 12px ${alpha(T.accent, 0.08)}` },
       }}
     >
       <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.25, mb: 1 }}>
-        <Box sx={{ width: 32, height: 32, borderRadius: '8px', bgcolor: alpha(T.accent, 0.1), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 700, color: T.accent, flexShrink: 0 }}>
+        <Box sx={{ width: 32, height: 32, borderRadius: '8px', bgcolor: isDuplicate ? 'rgba(198,40,40,0.1)' : alpha(T.accent, 0.1), display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 700, color: isDuplicate ? '#c62828' : T.accent, flexShrink: 0 }}>
           {initials}
         </Box>
         <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -680,6 +684,11 @@ const ItemGridCard = memo(({ item, employeeName, amountLabel, onClick }) => {
       </Box>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
         <Typography sx={{ fontSize: '0.68rem', fontWeight: 700, color: T.accent }}>#{item.employeeID}</Typography>
+        {isDuplicate && (
+          <Box sx={{ fontSize: '0.6rem', fontWeight: 800, color: '#c62828', bgcolor: 'rgba(198,40,40,0.1)', border: '0.5px solid rgba(198,40,40,0.35)', borderRadius: '4px', px: '5px', py: '2px', lineHeight: 1 }}>
+            DUP ×{duplicateCount || 2}
+          </Box>
+        )}
         {grade && (
           <Box sx={{ fontSize: '0.62rem', fontWeight: 600, color: T.accent, bgcolor: alpha(T.accent, 0.07), borderRadius: '4px', px: '5px', py: '2px', lineHeight: 1 }}>{grade}</Box>
         )}
@@ -695,7 +704,7 @@ const ItemGridCard = memo(({ item, employeeName, amountLabel, onClick }) => {
 });
 
 // ─── Memoized List Row ─────────────────────────────────────────────────────────
-const ItemListRow = memo(({ item, employeeName, amountLabel, onClick, isOdd }) => {
+const ItemListRow = memo(({ item, employeeName, amountLabel, isDuplicate, duplicateCount, onClick, isOdd }) => {
   const name     = employeeName || item.name || `Employee #${item.employeeID || 'N/A'}`;
   const position = item.item_description || item.item_code || 'No Position';
   const grade    = gradePillLabel(item.salary_grade, item.step);
@@ -707,13 +716,20 @@ const ItemListRow = memo(({ item, employeeName, amountLabel, onClick, isOdd }) =
         px: 1.5, py: 1.25,
         display: 'grid', gridTemplateColumns: '90px 1fr 140px 100px 110px',
         gap: 1, alignItems: 'center', borderRadius: 1.5, cursor: 'pointer',
-        bgcolor: isOdd ? T.rowOdd : T.rowEven,
-        border: '1px solid transparent',
+        bgcolor: isDuplicate ? 'rgba(198,40,40,0.05)' : (isOdd ? T.rowOdd : T.rowEven),
+        border: `1px solid ${isDuplicate ? 'rgba(198,40,40,0.2)' : 'transparent'}`,
         transition: 'background 0.13s ease',
-        '&:hover': { bgcolor: T.rowHover },
+        '&:hover': { bgcolor: isDuplicate ? 'rgba(198,40,40,0.08)' : T.rowHover },
       }}
     >
-      <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.accent }}>#{item.employeeID}</Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
+        <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.accent }}>#{item.employeeID}</Typography>
+        {isDuplicate && (
+          <Box sx={{ fontSize: '0.55rem', fontWeight: 800, color: '#c62828', bgcolor: 'rgba(198,40,40,0.1)', borderRadius: '3px', px: '4px', py: '1px', lineHeight: 1, flexShrink: 0 }}>
+            ×{duplicateCount || 2}
+          </Box>
+        )}
+      </Box>
       <Typography noWrap sx={{ fontSize: '0.82rem', fontWeight: 500, color: T.text }}>{name}</Typography>
       <Typography noWrap sx={{ fontSize: '0.75rem', color: T.muted }}>{position}</Typography>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
@@ -776,6 +792,7 @@ const ItemTable = () => {
   const [isEditing, setIsEditing]               = useState(false);
   const [searchTerm, setSearchTerm]             = useState('');
   const [filterPosition, setFilterPosition]     = useState(null);
+  const [duplicateFilter, setDuplicateFilter]   = useState('all'); // all | duplicates | unique
   const [loading, setLoading]                   = useState(false);
   const [pageLoading, setPageLoading]           = useState(true);
   const [successOpen, setSuccessOpen]           = useState(false);
@@ -873,21 +890,66 @@ const ItemTable = () => {
     [data]
   );
 
+  /** Count of item records per employeeID (duplicates = count > 1). */
+  const duplicateInfo = useMemo(() => {
+    const countByEmp = {};
+    data.forEach((item) => {
+      const key = String(item.employeeID || '').trim();
+      if (!key) return;
+      countByEmp[key] = (countByEmp[key] || 0) + 1;
+    });
+    const duplicateEmployeeIds = Object.keys(countByEmp).filter((k) => countByEmp[k] > 1);
+    const duplicateRecordCount = duplicateEmployeeIds.reduce((sum, k) => sum + countByEmp[k], 0);
+    const idsToDeleteForCleanup = [];
+    duplicateEmployeeIds.forEach((empId) => {
+      const rows = data
+        .filter((r) => String(r.employeeID || '').trim() === empId)
+        .sort((a, b) => {
+          const da = a.dateCreated ? new Date(a.dateCreated).getTime() : 0;
+          const db = b.dateCreated ? new Date(b.dateCreated).getTime() : 0;
+          if (db !== da) return db - da;
+          return (Number(b.id) || 0) - (Number(a.id) || 0);
+        });
+      // Keep newest; mark the rest for cleanup
+      rows.slice(1).forEach((r) => idsToDeleteForCleanup.push(r.id));
+    });
+    return {
+      countByEmp,
+      duplicateEmployeeIds,
+      duplicateEmployeeCount: duplicateEmployeeIds.length,
+      duplicateRecordCount,
+      idsToDeleteForCleanup,
+    };
+  }, [data]);
+
   const filteredData = useMemo(() => {
     const s = searchTerm.toLowerCase().trim();
     return sortEmployeesByLastName(
       data.filter((item) => {
+        const empKey = String(item.employeeID || '').trim();
+        const empCount = duplicateInfo.countByEmp[empKey] || 0;
+        const isDup = empCount > 1;
+        const matchDup =
+          duplicateFilter === 'all'
+          || (duplicateFilter === 'duplicates' && isDup)
+          || (duplicateFilter === 'unique' && !isDup);
         const matchSearch = !s
           || (item.employeeID?.toString() || '').includes(s)
           || (item.name?.toLowerCase() || '').includes(s)
           || (item.item_description?.toLowerCase() || '').includes(s)
           || (employeeNames[item.employeeID]?.toLowerCase() || '').includes(s);
         const matchPosition = !filterPosition || item.item_description === filterPosition;
-        return matchSearch && matchPosition;
+        return matchDup && matchSearch && matchPosition;
       }),
       (item) => employeeNames[item.employeeID] || item.name || item,
     );
-  }, [data, employeeNames, searchTerm, filterPosition]);
+  }, [data, employeeNames, searchTerm, filterPosition, duplicateFilter, duplicateInfo.countByEmp]);
+
+  const selectedEmployeeExistingCount = useMemo(() => {
+    const empId = String(newItem.employeeID || selectedEmployee?.employeeNumber || '').trim();
+    if (!empId) return 0;
+    return duplicateInfo.countByEmp[empId] || 0;
+  }, [newItem.employeeID, selectedEmployee, duplicateInfo.countByEmp]);
 
   const newItemAmount = useMemo(
     () => resolveSalaryAmount(salaryGrades, newItem.salary_grade, newItem.step, newItem.effectivityDate),
@@ -946,45 +1008,101 @@ const ItemTable = () => {
   }, [newItem, selectedEmployee]);
 
   // ─── Handlers ─────────────────────────────────────────────────────────────
+  const doAddItem = useCallback(async () => {
+    setConfirmModal((p) => ({ ...p, loading: true }));
+    setLoading(true);
+    try {
+      const itemData = {
+        item_description: newItem.item_description || '',
+        employeeID: newItem.employeeID || selectedEmployee?.employeeNumber || '',
+        name: newItem.name || selectedEmployee?.name || '',
+        item_code: newItem.item_code || '',
+        salary_grade: newItem.salary_grade || '',
+        step: newItem.step || '',
+        effectivityDate: newItem.effectivityDate || '',
+        exempt_from_biometrics: newItem.exempt_from_biometrics ? 1 : 0,
+      };
+      await axios.post(`${API_BASE_URL}/api/item-table`, itemData, getAuthHeaders());
+      setNewItem({ item_description: '', employeeID: '', name: '', item_code: '', salary_grade: '', step: '', effectivityDate: '', exempt_from_biometrics: 0 });
+      setSelectedEmployee(null);
+      setErrors({});
+      setSuccessAction('adding');
+      setSuccessOpen(true);
+      setTimeout(() => setSuccessOpen(false), 2000);
+      fetchItems();
+    } catch { showError('Submission Failed', 'Failed to add item record. Please try again.'); } finally {
+      setLoading(false);
+      closeConfirm();
+    }
+  }, [newItem, selectedEmployee, showError, closeConfirm, fetchItems]);
+
   const handleAdd = useCallback(async () => {
     if (!validateForm()) {
       showError('Missing Required Fields', 'Please select an employee and fill in the position before submitting.', { icon: WarningIcon, iconColor: '#F57C00', iconBg: '#FFF3E0' });
       return;
     }
+    const empId = newItem.employeeID || selectedEmployee?.employeeNumber;
+    const existing = selectedEmployeeExistingCount;
+    if (existing > 0) {
+      showConfirm({
+        title: 'Duplicate Employee Record',
+        message: `Employee #${empId} already has ${existing} item record${existing > 1 ? 's' : ''}.\n\nAdding another will create a duplicate. Payroll uses the newest record per employee.\n\nDo you still want to add another?`,
+        confirmLabel: 'Add Anyway',
+        confirmColor: '#F57C00',
+        confirmHoverColor: '#E65100',
+        icon: ContentCopyIcon,
+        iconColor: '#F57C00',
+        iconBg: '#FFF3E0',
+        onConfirm: doAddItem,
+      });
+      return;
+    }
     showConfirm({
       title: 'Confirm Add Item',
-      message: `Add item record for Employee #${newItem.employeeID || selectedEmployee?.employeeNumber}?\n\nThis will create a new item entry.`,
+      message: `Add item record for Employee #${empId}?\n\nThis will create a new item entry.`,
       confirmLabel: 'Add Record',
       icon: AddIcon,
+      onConfirm: doAddItem,
+    });
+  }, [newItem, selectedEmployee, selectedEmployeeExistingCount, validateForm, showConfirm, showError, doAddItem]);
+
+  const handleCleanupDuplicates = useCallback(() => {
+    const ids = duplicateInfo.idsToDeleteForCleanup;
+    if (!ids.length) {
+      showSnackbar('No duplicate records to clean up.', 'info');
+      return;
+    }
+    showConfirm({
+      title: 'Clean Up Duplicates',
+      message: `Found ${duplicateInfo.duplicateEmployeeCount} employee${duplicateInfo.duplicateEmployeeCount > 1 ? 's' : ''} with duplicates (${duplicateInfo.duplicateRecordCount} records total).\n\nThis will keep the newest record for each employee and delete ${ids.length} older duplicate${ids.length > 1 ? 's' : ''}.\n\nThis cannot be undone.`,
+      confirmLabel: `Delete ${ids.length} Duplicate${ids.length > 1 ? 's' : ''}`,
+      confirmColor: '#C62828',
+      confirmHoverColor: '#B71C1C',
+      icon: CleaningServicesIcon,
+      iconColor: '#C62828',
+      iconBg: '#FFEBEE',
       onConfirm: async () => {
         setConfirmModal((p) => ({ ...p, loading: true }));
         setLoading(true);
         try {
-          const itemData = {
-            item_description: newItem.item_description || '',
-            employeeID: newItem.employeeID || selectedEmployee?.employeeNumber || '',
-            name: newItem.name || selectedEmployee?.name || '',
-            item_code: newItem.item_code || '',
-            salary_grade: newItem.salary_grade || '',
-            step: newItem.step || '',
-            effectivityDate: newItem.effectivityDate || '',
-            exempt_from_biometrics: newItem.exempt_from_biometrics ? 1 : 0,
-          };
-          await axios.post(`${API_BASE_URL}/api/item-table`, itemData, getAuthHeaders());
-          setNewItem({ item_description: '', employeeID: '', name: '', item_code: '', salary_grade: '', step: '', effectivityDate: '', exempt_from_biometrics: 0 });
-          setSelectedEmployee(null);
-          setErrors({});
-          setSuccessAction('adding');
-          setSuccessOpen(true);
-          setTimeout(() => setSuccessOpen(false), 2000);
-          fetchItems();
-        } catch { showError('Submission Failed', 'Failed to add item record. Please try again.'); } finally {
+          let deleted = 0;
+          for (const id of ids) {
+            await axios.delete(`${API_BASE_URL}/api/item-table/${id}`, getAuthHeaders());
+            deleted += 1;
+          }
+          setEditItem(null); setOriginalItem(null); setSelectedEditEmployee(null); setIsEditing(false);
+          await fetchItems();
+          showSnackbar(`Removed ${deleted} duplicate record${deleted > 1 ? 's' : ''}. Newest kept.`, 'success');
+          setDuplicateFilter('all');
+        } catch {
+          showError('Cleanup Failed', 'Some duplicates could not be deleted. Please refresh and try again.');
+        } finally {
           setLoading(false);
           closeConfirm();
         }
       },
     });
-  }, [newItem, selectedEmployee, validateForm, showConfirm, showError, closeConfirm, fetchItems]);
+  }, [duplicateInfo, showConfirm, showSnackbar, showError, closeConfirm, fetchItems]);
 
   const handleUpdate = useCallback(async () => {
     try {
@@ -1145,7 +1263,7 @@ const ItemTable = () => {
                 </Box>
 
                 {selectedEmployee ? (
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, px: 1.75, py: 1.25, mb: 2.5, borderRadius: 2, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, px: 1.75, py: 1.25, mb: selectedEmployeeExistingCount > 0 ? 1 : 2.5, borderRadius: 2, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
                     <Avatar sx={{ width: 30, height: 30, bgcolor: alpha(T.accent, 0.15), fontSize: '0.78rem', color: T.accent, fontWeight: 700, flexShrink: 0 }}>
                       {(selectedEmployee.name?.[0] || '?').toUpperCase()}
                     </Avatar>
@@ -1157,6 +1275,15 @@ const ItemTable = () => {
                 ) : (
                   <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', border: `1.5px dashed ${T.accentBorder}`, borderRadius: 2, py: 1.5, mb: 2.5, bgcolor: alpha(T.accent, 0.02) }}>
                     <Typography sx={{ fontSize: '0.75rem', color: T.faint, fontStyle: 'italic' }}>No employee selected yet</Typography>
+                  </Box>
+                )}
+
+                {selectedEmployeeExistingCount > 0 && (
+                  <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, px: 1.5, py: 1.15, mb: 2.5, borderRadius: 2, bgcolor: 'rgba(245,124,0,0.08)', border: '1px solid rgba(245,124,0,0.35)' }}>
+                    <WarningIcon sx={{ fontSize: 16, color: '#F57C00', mt: 0.15, flexShrink: 0 }} />
+                    <Typography sx={{ fontSize: '0.72rem', color: '#E65100', lineHeight: 1.4 }}>
+                      This employee already has <Box component="span" sx={{ fontWeight: 800 }}>{selectedEmployeeExistingCount}</Box> item record{selectedEmployeeExistingCount > 1 ? 's' : ''}. Adding another will create a duplicate.
+                    </Typography>
                   </Box>
                 )}
 
@@ -1282,23 +1409,47 @@ const ItemTable = () => {
               {/* Toolbar */}
               <Box sx={{ px: 3.5, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
                     <ReorderIcon sx={{ fontSize: 17, color: T.accent }} />
                     <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, color: T.text }}>Item Records</Typography>
                     {filteredData.length !== data.length && (
                       <Chip label={`${filteredData.length} of ${data.length}`} size="small" sx={{ height: 18, fontSize: '0.62rem', bgcolor: alpha(T.accent, 0.1), color: T.accent, fontWeight: 700 }} />
                     )}
+                    {duplicateInfo.duplicateEmployeeCount > 0 && (
+                      <Chip
+                        icon={<ContentCopyIcon sx={{ fontSize: '12px !important' }} />}
+                        label={`${duplicateInfo.duplicateEmployeeCount} emp. duplicated`}
+                        size="small"
+                        onClick={() => setDuplicateFilter('duplicates')}
+                        sx={{ height: 20, fontSize: '0.62rem', bgcolor: 'rgba(198,40,40,0.1)', color: '#c62828', fontWeight: 700, border: '1px solid rgba(198,40,40,0.3)', cursor: 'pointer', '& .MuiChip-icon': { color: '#c62828' } }}
+                      />
+                    )}
                   </Box>
-                  <ToggleButtonGroup value={viewMode} exclusive onChange={(_, m) => { if (m) setViewMode(m); }} size="small"
-                    sx={{ '& .MuiToggleButton-root': { px: 1, py: 0.35, border: `1px solid ${T.accentBorder}`, color: T.muted, '&.Mui-selected': { bgcolor: T.accentFaint, color: T.accent } } }}>
-                    <ToggleButton value="grid"><ViewModuleIcon sx={{ fontSize: 14 }} /></ToggleButton>
-                    <ToggleButton value="list"><ViewListIcon sx={{ fontSize: 14 }} /></ToggleButton>
-                  </ToggleButtonGroup>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    {duplicateInfo.idsToDeleteForCleanup.length > 0 && (
+                      <Tooltip title="Keep newest record per employee, delete older duplicates">
+                        <AccentButton
+                          size="small"
+                          variant="outlined"
+                          onClick={handleCleanupDuplicates}
+                          startIcon={<CleaningServicesIcon sx={{ fontSize: '14px !important' }} />}
+                          sx={{ fontSize: '0.72rem', py: 0.4, borderColor: 'rgba(198,40,40,0.4)', color: '#c62828', '&:hover': { bgcolor: 'rgba(198,40,40,0.06)', borderColor: '#c62828', transform: 'none' } }}
+                        >
+                          Clean Duplicates
+                        </AccentButton>
+                      </Tooltip>
+                    )}
+                    <ToggleButtonGroup value={viewMode} exclusive onChange={(_, m) => { if (m) setViewMode(m); }} size="small"
+                      sx={{ '& .MuiToggleButton-root': { px: 1, py: 0.35, border: `1px solid ${T.accentBorder}`, color: T.muted, '&.Mui-selected': { bgcolor: T.accentFaint, color: T.accent } } }}>
+                      <ToggleButton value="grid"><ViewModuleIcon sx={{ fontSize: 14 }} /></ToggleButton>
+                      <ToggleButton value="list"><ViewListIcon sx={{ fontSize: 14 }} /></ToggleButton>
+                    </ToggleButtonGroup>
+                  </Box>
                 </Box>
 
-                {/* Search + Position filter row */}
+                {/* Search + Position + Duplicate filters */}
                 <Grid container spacing={1}>
-                  <Grid item xs={12} sm={7}>
+                  <Grid item xs={12} sm={5}>
                     <FieldInput
                       size="small" fullWidth
                       placeholder="Search by name, ID, or position…"
@@ -1307,7 +1458,7 @@ const ItemTable = () => {
                       InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon sx={{ fontSize: 15, color: T.muted }} /></InputAdornment> }}
                     />
                   </Grid>
-                  <Grid item xs={12} sm={5}>
+                  <Grid item xs={12} sm={4}>
                     <Autocomplete
                       options={uniquePositions}
                       value={filterPosition}
@@ -1326,18 +1477,49 @@ const ItemTable = () => {
                       componentsProps={{ popper: dropdownPopperProps }}
                     />
                   </Grid>
+                  <Grid item xs={12} sm={3}>
+                    <ToggleButtonGroup
+                      value={duplicateFilter}
+                      exclusive
+                      fullWidth
+                      size="small"
+                      onChange={(_, v) => { if (v) setDuplicateFilter(v); }}
+                      sx={{
+                        height: '100%',
+                        '& .MuiToggleButton-root': {
+                          flex: 1, py: 0.55, fontSize: '0.65rem', fontWeight: 700, textTransform: 'none',
+                          border: `1px solid ${T.accentBorder}`, color: T.muted,
+                          '&.Mui-selected': { bgcolor: T.accentFaint, color: T.accent },
+                        },
+                      }}
+                    >
+                      <ToggleButton value="all">All</ToggleButton>
+                      <ToggleButton value="duplicates">Dups</ToggleButton>
+                      <ToggleButton value="unique">Unique</ToggleButton>
+                    </ToggleButtonGroup>
+                  </Grid>
                 </Grid>
 
-                {/* Active position filter chip */}
-                {filterPosition && (
-                  <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                {/* Active filter chips */}
+                {(filterPosition || duplicateFilter !== 'all') && (
+                  <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
                     <Typography sx={{ fontSize: '0.7rem', color: T.muted }}>Filtered by:</Typography>
-                    <Chip
-                      label={filterPosition}
-                      size="small"
-                      onDelete={() => setFilterPosition(null)}
-                      sx={{ height: 20, fontSize: '0.68rem', bgcolor: alpha(T.accent, 0.1), color: T.accent, fontWeight: 600, border: `1px solid ${T.accentBorder}`, '& .MuiChip-deleteIcon': { fontSize: 14, color: T.accentMid } }}
-                    />
+                    {filterPosition && (
+                      <Chip
+                        label={filterPosition}
+                        size="small"
+                        onDelete={() => setFilterPosition(null)}
+                        sx={{ height: 20, fontSize: '0.68rem', bgcolor: alpha(T.accent, 0.1), color: T.accent, fontWeight: 600, border: `1px solid ${T.accentBorder}`, '& .MuiChip-deleteIcon': { fontSize: 14, color: T.accentMid } }}
+                      />
+                    )}
+                    {duplicateFilter !== 'all' && (
+                      <Chip
+                        label={duplicateFilter === 'duplicates' ? 'Duplicates only' : 'Unique only'}
+                        size="small"
+                        onDelete={() => setDuplicateFilter('all')}
+                        sx={{ height: 20, fontSize: '0.68rem', bgcolor: duplicateFilter === 'duplicates' ? 'rgba(198,40,40,0.1)' : alpha(T.accent, 0.1), color: duplicateFilter === 'duplicates' ? '#c62828' : T.accent, fontWeight: 600, border: `1px solid ${duplicateFilter === 'duplicates' ? 'rgba(198,40,40,0.3)' : T.accentBorder}`, '& .MuiChip-deleteIcon': { fontSize: 14 } }}
+                      />
+                    )}
                   </Box>
                 )}
               </Box>
@@ -1353,21 +1535,31 @@ const ItemTable = () => {
                       {data.length === 0 ? 'No item records yet' : 'No records match your filters'}
                     </Typography>
                     <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>
-                      {data.length === 0 ? 'Use the form on the left to add a record.' : 'Try adjusting your search or position filter.'}
+                      {data.length === 0
+                        ? 'Use the form on the left to add a record.'
+                        : duplicateFilter === 'duplicates'
+                          ? 'No duplicate employee records found.'
+                          : 'Try adjusting your search or filters.'}
                     </Typography>
                   </Box>
                 ) : viewMode === 'grid' ? (
                   <Grid container spacing={1.5} alignItems="stretch">
-                    {filteredData.map((item) => (
+                    {filteredData.map((item) => {
+                      const empKey = String(item.employeeID || '').trim();
+                      const dupCount = duplicateInfo.countByEmp[empKey] || 0;
+                      return (
                       <Grid item xs={12} sm={3} key={item.id} sx={{ display: 'flex' }}>
                         <ItemGridCard
                           item={item}
                           employeeName={employeeNames[item.employeeID]}
                           amountLabel={amountByItemId[item.id]}
+                          isDuplicate={dupCount > 1}
+                          duplicateCount={dupCount}
                           onClick={() => handleOpenModal(item)}
                         />
                       </Grid>
-                    ))}
+                      );
+                    })}
                   </Grid>
                 ) : (
                   <>
@@ -1377,16 +1569,22 @@ const ItemTable = () => {
                         <Typography key={col} sx={{ fontSize: '0.65rem', fontWeight: 700, color: T.accent, textTransform: 'uppercase', letterSpacing: '0.07em', textAlign: col === 'Amount' ? 'right' : 'left' }}>{col}</Typography>
                       ))}
                     </Box>
-                    {filteredData.map((item, idx) => (
+                    {filteredData.map((item, idx) => {
+                      const empKey = String(item.employeeID || '').trim();
+                      const dupCount = duplicateInfo.countByEmp[empKey] || 0;
+                      return (
                       <ItemListRow
                         key={item.id}
                         item={item}
                         employeeName={employeeNames[item.employeeID]}
                         amountLabel={amountByItemId[item.id]}
+                        isDuplicate={dupCount > 1}
+                        duplicateCount={dupCount}
                         onClick={() => handleOpenModal(item)}
                         isOdd={idx % 2 !== 0}
                       />
-                    ))}
+                      );
+                    })}
                   </>
                 )}
               </Box>
@@ -1417,6 +1615,13 @@ const ItemTable = () => {
                           </Typography>
                           {!isEditing && <Chip label="View mode" size="small" sx={{ height: 16, fontSize: '0.62rem', bgcolor: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.7)', fontWeight: 500 }} />}
                           {isEditing  && <Chip label="Editing"   size="small" sx={{ height: 16, fontSize: '0.62rem', bgcolor: 'rgba(255,200,0,0.22)', color: '#ffe082', fontWeight: 600 }} />}
+                          {(duplicateInfo.countByEmp[String(editItem.employeeID || '').trim()] || 0) > 1 && (
+                            <Chip
+                              label={`Duplicate ×${duplicateInfo.countByEmp[String(editItem.employeeID || '').trim()]}`}
+                              size="small"
+                              sx={{ height: 16, fontSize: '0.62rem', bgcolor: 'rgba(255,120,120,0.25)', color: '#ffcdd2', fontWeight: 700 }}
+                            />
+                          )}
                         </Box>
                       </Box>
                     </Box>

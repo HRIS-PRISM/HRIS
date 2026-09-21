@@ -251,6 +251,8 @@ const AttendancePunchStatusSidebar = ({
   onStatusUpdated,
   onIssuesChange,
   reviewFocusToken = 0,
+  reviewFocusDate = '',
+  reviewFocusRowKey = '',
 }) => {
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -331,9 +333,27 @@ const AttendancePunchStatusSidebar = ({
     setRangeEnd(endDate ? dayjs(endDate) : null);
   }, [personID, startDate, endDate]);
 
+  // Individual "Review" from the print-warning dialog: Needs review + optional day focus.
+  useEffect(() => {
+    if (!reviewFocusToken) return;
+    setStatusFilter('review');
+    setPage(0);
+    if (reviewFocusDate) {
+      const day = dayjs(reviewFocusDate);
+      if (day.isValid()) {
+        setRangeStart(day.startOf('day'));
+        setRangeEnd(day.endOf('day'));
+      }
+    } else {
+      setRangeStart(startDate ? dayjs(startDate) : null);
+      setRangeEnd(endDate ? dayjs(endDate) : null);
+    }
+    if (listRef.current) listRef.current.scrollTop = 0;
+  }, [reviewFocusToken, reviewFocusDate, reviewFocusRowKey, startDate, endDate]);
+
   useEffect(() => {
     if (listRef.current) listRef.current.scrollTop = 0;
-  }, [personID, startDate, endDate, reviewFocusToken, page]);
+  }, [personID, startDate, endDate, page]);
 
   useAttendanceRealtimeRefresh(
     useCallback(() => {
@@ -683,7 +703,7 @@ const AttendancePunchStatusSidebar = ({
       <Box
         sx={{
           display: 'grid',
-          gridTemplateColumns: '1.25fr 0.85fr 1.15fr',
+          gridTemplateColumns: '1.1fr 0.95fr 1.35fr',
           px: 1.25,
           py: 0.85,
           bgcolor: T.accent,
@@ -729,6 +749,7 @@ const AttendancePunchStatusSidebar = ({
           flex: 1,
           minHeight: 0,
           overflowY: 'auto',
+          overflowX: 'hidden',
           '&::-webkit-scrollbar': { width: 4 },
           '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 },
           '&::-webkit-scrollbar-track': { bgcolor: 'transparent' },
@@ -808,7 +829,7 @@ const AttendancePunchStatusSidebar = ({
                 <Box
                   sx={{
                     display: 'grid',
-                    gridTemplateColumns: '1.25fr 0.85fr 1.15fr',
+                    gridTemplateColumns: '1.1fr 0.95fr 1.35fr',
                     gap: 0.75,
                     alignItems: 'center',
                   }}
