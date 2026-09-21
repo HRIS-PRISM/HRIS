@@ -51,6 +51,8 @@ import {
   FilterList as FilterListIcon,
   ChevronRight as ChevronRightIcon,
   WorkOutline as WorkOutlineIcon,
+  Payments as PaymentsIcon,
+  InfoOutlined as InfoOutlinedIcon,
 } from '@mui/icons-material';
 
 import ReorderIcon from '@mui/icons-material/Reorder';
@@ -276,6 +278,258 @@ const gradePillLabel = (salary_grade, step) => {
   return parts.length ? parts.join(' ') : null;
 };
 
+/** Normalize SG labels so JO variants and numeric grades match Salary Grade Table rows. */
+const normalizeSgKey = (sg) => {
+  const raw = String(sg ?? '').trim();
+  if (!raw) return '';
+  const lower = raw.toLowerCase();
+  if (lower.includes('job order') || lower === 'jo grad' || lower === 'jo undergrad') {
+    if (lower.includes('undergrad')) return 'joborder:undergrad';
+    if (lower.includes('grad')) return 'joborder:grad';
+  }
+  if (/^\d+$/.test(raw)) return String(parseInt(raw, 10));
+  return lower;
+};
+
+/** Accept step1–step8, "1", "Step 1", etc. */
+const normalizeStepKey = (step) => {
+  const raw = String(step ?? '').trim().toLowerCase();
+  if (!raw) return '';
+  const match = raw.match(/(\d+)/);
+  if (!match) return '';
+  const n = parseInt(match[1], 10);
+  if (n < 1 || n > 8) return '';
+  return `step${n}`;
+};
+
+const formatSalaryAmount = (val) => {
+  if (val === null || val === undefined || val === '') return null;
+  const num = parseFloat(String(val).replace(/,/g, ''));
+  if (isNaN(num)) return String(val);
+  return num.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
+const parseAmountNumber = (val) => {
+  if (val === null || val === undefined || val === '') return null;
+  const num = parseFloat(String(val).replace(/,/g, '').replace(/₱/g, '').trim());
+  return isNaN(num) ? null : num;
+};
+
+/**
+ * Flatten Salary Grade Table rows into searchable amount options.
+ * Each option: { id, amount, formatted, salary_grade, step, effectivityDate, label }
+ */
+const buildSalaryAmountOptions = (salaryGrades) => {
+  if (!Array.isArray(salaryGrades) || !salaryGrades.length) return [];
+  const options = [];
+  salaryGrades.forEach((row) => {
+    const salary_grade = String(row.sg_number ?? '').trim();
+    const effectivityDate = String(row.effectivityDate ?? '').trim();
+    if (!salary_grade) return;
+    for (let i = 1; i <= 8; i += 1) {
+      const step = `step${i}`;
+      const raw = row[step];
+      const amount = parseAmountNumber(raw);
+      if (amount === null) continue;
+      const formatted = formatSalaryAmount(raw);
+      options.push({
+        id: `${salary_grade}|${step}|${effectivityDate}|${amount}`,
+        amount,
+        formatted,
+        salary_grade,
+        step,
+        effectivityDate,
+        label: `₱ ${formatted}  ·  SG ${salary_grade}  ·  ${step}${effectivityDate ? `  ·  ${effectivityDate}` : ''}`,
+      });
+    }
+  });
+  return options.sort((a, b) => {
+    if (a.amount !== b.amount) return a.amount - b.amount;
+    const yearA = parseInt(a.effectivityDate, 10) || 0;
+    const yearB = parseInt(b.effectivityDate, 10) || 0;
+    if (yearA !== yearB) return yearB - yearA;
+    const sgA = parseInt(a.salary_grade, 10);
+    const sgB = parseInt(b.salary_grade, 10);
+    if (!isNaN(sgA) && !isNaN(sgB) && sgA !== sgB) return sgA - sgB;
+    return String(a.salary_grade).localeCompare(String(b.salary_grade));
+  });
+};
+
+/**
+ * Resolve monthly rate from Salary Grade Table data for a grade + step + effectivity year.
+ * Returns { amount, formatted, matched } or null fields when incomplete / not found.
+ */
+const resolveSalaryAmount = (salaryGrades, salary_grade, step, effectivityDate) => {
+  const gradeKey = normalizeSgKey(salary_grade);
+  const stepKey = normalizeStepKey(step);
+  const year = String(effectivityDate ?? '').trim();
+  if (!gradeKey || !stepKey || !year || !Array.isArray(salaryGrades) || !salaryGrades.length) {
+    return { amount: null, formatted: null, matched: false, incomplete: !gradeKey || !stepKey || !year };
+  }
+  const row = salaryGrades.find(
+    (r) => normalizeSgKey(r.sg_number) === gradeKey && String(r.effectivityDate || '').trim() === year
+  );
+  if (!row) return { amount: null, formatted: null, matched: false, incomplete: false };
+  const raw = row[stepKey];
+  const formatted = formatSalaryAmount(raw);
+  return { amount: raw, formatted, matched: formatted !== null, incomplete: false, stepKey };
+};
+
+/** Find the amount-option that matches current grade/step/year (for controlled Autocomplete value). */
+const findAmountOption = (amountOptions, salary_grade, step, effectivityDate) => {
+  if (!amountOptions?.length) return null;
+  const gradeKey = normalizeSgKey(salary_grade);
+  const stepKey = normalizeStepKey(step);
+  const year = String(effectivityDate ?? '').trim();
+  if (!gradeKey || !stepKey || !year) return null;
+  return amountOptions.find(
+    (o) => normalizeSgKey(o.salary_grade) === gradeKey
+      && normalizeStepKey(o.step) === stepKey
+      && String(o.effectivityDate || '').trim() === year
+  ) || null;
+};
+
+// ─── Salary amount preview (from Salary Grade Table) ───────────────────────────
+const SalaryAmountPreview = memo(({ result, compact = false }) => {
+  if (result?.incomplete) {
+    return (
+      <Box
+        sx={{
+          mt: compact ? 0 : 1.5, px: 1.5, py: 1.25, borderRadius: 2,
+          bgcolor: 'rgba(0,0,0,0.02)', border: `1px dashed ${T.accentBorder}`,
+          display: 'flex', alignItems: 'center', gap: 1,
+        }}
+      >
+        <InfoOutlinedIcon sx={{ fontSize: 15, color: T.faint, flexShrink: 0 }} />
+        <Typography sx={{ fontSize: '0.75rem', color: T.faint, lineHeight: 1.35 }}>
+          Search an amount below, or select Salary Grade, Step, and Year to verify.
+        </Typography>
+      </Box>
+    );
+  }
+  if (!result?.matched) {
+    return (
+      <Box
+        sx={{
+          mt: compact ? 0 : 1.5, px: 1.5, py: 1.25, borderRadius: 2,
+          bgcolor: 'rgba(198,40,40,0.04)', border: '1px solid rgba(198,40,40,0.22)',
+          display: 'flex', alignItems: 'center', gap: 1,
+        }}
+      >
+        <WarningIcon sx={{ fontSize: 15, color: '#c62828', flexShrink: 0 }} />
+        <Typography sx={{ fontSize: '0.75rem', color: '#c62828', lineHeight: 1.35 }}>
+          No matching salary amount in Salary Grade Table for this combination.
+        </Typography>
+      </Box>
+    );
+  }
+  return (
+    <Box
+      sx={{
+        mt: compact ? 0 : 1.5, px: 1.75, py: 1.35, borderRadius: 2,
+        bgcolor: alpha(T.accent, 0.05), border: `1px solid ${alpha(T.accent, 0.22)}`,
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1.5,
+      }}
+    >
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+        <Box
+          sx={{
+            width: 28, height: 28, borderRadius: 1.5, flexShrink: 0,
+            bgcolor: alpha(T.accent, 0.12), display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          <PaymentsIcon sx={{ fontSize: 15, color: T.accent }} />
+        </Box>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography sx={{ fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: alpha(T.accent, 0.55), lineHeight: 1.2 }}>
+            Salary Amount
+          </Typography>
+          <Typography sx={{ fontSize: '0.68rem', color: T.muted, lineHeight: 1.2 }}>
+            From Salary Grade Table · {result.stepKey}
+          </Typography>
+        </Box>
+      </Box>
+      <Typography sx={{ fontSize: '0.95rem', fontWeight: 800, color: T.accent, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+        ₱ {result.formatted}
+      </Typography>
+    </Box>
+  );
+});
+
+/**
+ * Search salary amounts from Salary Grade Table.
+ * On select → auto-fills salary_grade, step, and effectivityDate via onApply.
+ */
+const AmountSearchField = memo(({
+  amountOptions, value, onApply, dropdownPopperProps, autocompleteSx, disabled = false, label = 'Search Amount',
+}) => {
+  const filterOptions = useCallback((options, { inputValue }) => {
+    const q = String(inputValue || '').replace(/,/g, '').replace(/₱/g, '').trim().toLowerCase();
+    if (!q) return options.slice(0, 80);
+    const numQ = parseAmountNumber(q);
+    return options.filter((o) => {
+      const hay = `${o.formatted} ${o.amount} ${o.salary_grade} ${o.step} ${o.effectivityDate}`.toLowerCase();
+      if (hay.includes(q)) return true;
+      if (numQ !== null) {
+        const formattedPlain = String(o.formatted || '').replace(/,/g, '');
+        return String(o.amount).includes(String(numQ)) || formattedPlain.startsWith(String(numQ));
+      }
+      return false;
+    }).slice(0, 80);
+  }, []);
+
+  return (
+    <Box>
+      <Typography sx={{ fontSize: '0.72rem', fontWeight: 600, color: T.accent, mb: 0.5 }}>{label}</Typography>
+      <Autocomplete
+        options={amountOptions}
+        value={value}
+        disabled={disabled}
+        filterOptions={filterOptions}
+        getOptionLabel={(o) => (typeof o === 'string' ? o : o?.label || '')}
+        isOptionEqualToValue={(a, b) => a?.id === b?.id}
+        componentsProps={{ popper: dropdownPopperProps }}
+        onChange={(_, selected) => {
+          if (!selected) {
+            onApply?.(null);
+            return;
+          }
+          onApply?.(selected);
+        }}
+        renderOption={(props, option) => (
+          <Box component="li" {...props} key={option.id} sx={{ display: 'flex !important', flexDirection: 'column', alignItems: 'flex-start !important', gap: 0.25, py: '10px !important' }}>
+            <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.accent, fontVariantNumeric: 'tabular-nums' }}>
+              ₱ {option.formatted}
+            </Typography>
+            <Typography sx={{ fontSize: '0.7rem', color: T.muted }}>
+              SG {option.salary_grade} · {option.step}{option.effectivityDate ? ` · ${option.effectivityDate}` : ''}
+            </Typography>
+          </Box>
+        )}
+        renderInput={(params) => (
+          <TextField
+            {...params}
+            size="small"
+            placeholder="Type amount e.g. 27000 or 27,000.00"
+            sx={autocompleteSx}
+            InputProps={{
+              ...params.InputProps,
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon sx={{ fontSize: 15, color: T.muted }} />
+                </InputAdornment>
+              ),
+            }}
+          />
+        )}
+      />
+      <Typography sx={{ fontSize: '0.65rem', color: T.faint, mt: 0.5, lineHeight: 1.35 }}>
+        Selecting an amount auto-fills Salary Grade, Step, and Effectivity Year from Salary Grade Table.
+      </Typography>
+    </Box>
+  );
+});
+
 // ─── Employee Autocomplete ─────────────────────────────────────────────────────
 const EmployeeAutocomplete = memo(({
   value, onChange, placeholder = 'Search employee...', required = false, disabled = false,
@@ -399,7 +653,7 @@ const EmployeeAutocomplete = memo(({
 });
 
 // ─── Memoized Grid Card ────────────────────────────────────────────────────────
-const ItemGridCard = memo(({ item, employeeName, onClick }) => {
+const ItemGridCard = memo(({ item, employeeName, amountLabel, onClick }) => {
   const name     = employeeName || item.name || `Employee #${item.employeeID || 'N/A'}`;
   const position = item.item_description || item.item_code || 'No Position';
   const grade    = gradePillLabel(item.salary_grade, item.step);
@@ -429,6 +683,9 @@ const ItemGridCard = memo(({ item, employeeName, onClick }) => {
         {grade && (
           <Box sx={{ fontSize: '0.62rem', fontWeight: 600, color: T.accent, bgcolor: alpha(T.accent, 0.07), borderRadius: '4px', px: '5px', py: '2px', lineHeight: 1 }}>{grade}</Box>
         )}
+        {amountLabel && (
+          <Box sx={{ fontSize: '0.62rem', fontWeight: 700, color: T.accentDark, bgcolor: alpha(T.accent, 0.1), borderRadius: '4px', px: '5px', py: '2px', lineHeight: 1 }}>₱ {amountLabel}</Box>
+        )}
         {!!item.exempt_from_biometrics && (
           <Box sx={{ fontSize: '0.6rem', fontWeight: 700, color: '#2e7d32', bgcolor: 'rgba(46,125,50,0.08)', border: '0.5px solid rgba(46,125,50,0.3)', borderRadius: '4px', px: '5px', py: '2px', lineHeight: 1 }}>AUTO-ATT</Box>
         )}
@@ -438,7 +695,7 @@ const ItemGridCard = memo(({ item, employeeName, onClick }) => {
 });
 
 // ─── Memoized List Row ─────────────────────────────────────────────────────────
-const ItemListRow = memo(({ item, employeeName, onClick, isOdd }) => {
+const ItemListRow = memo(({ item, employeeName, amountLabel, onClick, isOdd }) => {
   const name     = employeeName || item.name || `Employee #${item.employeeID || 'N/A'}`;
   const position = item.item_description || item.item_code || 'No Position';
   const grade    = gradePillLabel(item.salary_grade, item.step);
@@ -448,7 +705,7 @@ const ItemListRow = memo(({ item, employeeName, onClick, isOdd }) => {
       onClick={onClick}
       sx={{
         px: 1.5, py: 1.25,
-        display: 'grid', gridTemplateColumns: '90px 1fr 150px 90px',
+        display: 'grid', gridTemplateColumns: '90px 1fr 140px 100px 110px',
         gap: 1, alignItems: 'center', borderRadius: 1.5, cursor: 'pointer',
         bgcolor: isOdd ? T.rowOdd : T.rowEven,
         border: '1px solid transparent',
@@ -459,7 +716,7 @@ const ItemListRow = memo(({ item, employeeName, onClick, isOdd }) => {
       <Typography sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.accent }}>#{item.employeeID}</Typography>
       <Typography noWrap sx={{ fontSize: '0.82rem', fontWeight: 500, color: T.text }}>{name}</Typography>
       <Typography noWrap sx={{ fontSize: '0.75rem', color: T.muted }}>{position}</Typography>
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
         {!!item.exempt_from_biometrics && (
           <Box sx={{ fontSize: '0.6rem', fontWeight: 700, color: '#2e7d32', bgcolor: 'rgba(46,125,50,0.08)', border: '0.5px solid rgba(46,125,50,0.3)', borderRadius: '4px', px: '4px', py: '1px', lineHeight: 1 }}>AUTO</Box>
         )}
@@ -469,6 +726,9 @@ const ItemListRow = memo(({ item, employeeName, onClick, isOdd }) => {
           <Typography sx={{ fontSize: '0.7rem', color: T.faint }}>—</Typography>
         )}
       </Box>
+      <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: amountLabel ? T.accent : T.faint, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+        {amountLabel ? `₱ ${amountLabel}` : '—'}
+      </Typography>
     </Box>
   );
 });
@@ -628,6 +888,52 @@ const ItemTable = () => {
       (item) => employeeNames[item.employeeID] || item.name || item,
     );
   }, [data, employeeNames, searchTerm, filterPosition]);
+
+  const newItemAmount = useMemo(
+    () => resolveSalaryAmount(salaryGrades, newItem.salary_grade, newItem.step, newItem.effectivityDate),
+    [salaryGrades, newItem.salary_grade, newItem.step, newItem.effectivityDate]
+  );
+
+  const editItemAmount = useMemo(
+    () => (editItem
+      ? resolveSalaryAmount(salaryGrades, editItem.salary_grade, editItem.step, editItem.effectivityDate)
+      : null),
+    [salaryGrades, editItem]
+  );
+
+  const amountOptions = useMemo(() => buildSalaryAmountOptions(salaryGrades), [salaryGrades]);
+
+  const newItemAmountOption = useMemo(
+    () => findAmountOption(amountOptions, newItem.salary_grade, newItem.step, newItem.effectivityDate),
+    [amountOptions, newItem.salary_grade, newItem.step, newItem.effectivityDate]
+  );
+
+  const editItemAmountOption = useMemo(
+    () => (editItem
+      ? findAmountOption(amountOptions, editItem.salary_grade, editItem.step, editItem.effectivityDate)
+      : null),
+    [amountOptions, editItem]
+  );
+
+  const amountByItemId = useMemo(() => {
+    const map = {};
+    data.forEach((item) => {
+      const resolved = resolveSalaryAmount(salaryGrades, item.salary_grade, item.step, item.effectivityDate);
+      map[item.id] = resolved.matched ? resolved.formatted : null;
+    });
+    return map;
+  }, [data, salaryGrades]);
+
+  const applySalaryFromAmount = useCallback((opt, isEdit = false) => {
+    if (!opt) return;
+    const patch = {
+      salary_grade: String(opt.salary_grade ?? ''),
+      step: String(opt.step ?? ''),
+      effectivityDate: String(opt.effectivityDate ?? ''),
+    };
+    if (isEdit) setEditItem((prev) => (prev ? { ...prev, ...patch } : prev));
+    else setNewItem((prev) => ({ ...prev, ...patch }));
+  }, []);
 
   // ─── Validate ──────────────────────────────────────────────────────────────
   const validateForm = useCallback(() => {
@@ -880,6 +1186,17 @@ const ItemTable = () => {
                     <FieldInput value={newItem.item_code} onChange={(e) => handleChange('item_code', e.target.value)} fullWidth size="small" />
                   </Grid>
 
+                  {/* Amount search → auto-fill SG / Step / Year */}
+                  <Grid item xs={12}>
+                    <AmountSearchField
+                      amountOptions={amountOptions}
+                      value={newItemAmountOption}
+                      dropdownPopperProps={dropdownPopperProps}
+                      autocompleteSx={autocompleteSx}
+                      onApply={(opt) => applySalaryFromAmount(opt, false)}
+                    />
+                  </Grid>
+
                   {/* Salary Grade */}
                   <Grid item xs={12} sm={6}>
                     <Typography sx={{ fontSize: '0.72rem', fontWeight: 600, color: T.accent, mb: 0.5 }}>Salary Grade</Typography>
@@ -920,6 +1237,11 @@ const ItemTable = () => {
                         renderInput={(params) => <TextField {...params} size="small" placeholder="YYYY" sx={autocompleteSx} />}
                       />
                     </FormControl>
+                  </Grid>
+
+                  {/* Live amount from Salary Grade Table */}
+                  <Grid item xs={12}>
+                    <SalaryAmountPreview result={newItemAmount} />
                   </Grid>
 
                   {/* Biometrics */}
@@ -1038,20 +1360,32 @@ const ItemTable = () => {
                   <Grid container spacing={1.5} alignItems="stretch">
                     {filteredData.map((item) => (
                       <Grid item xs={12} sm={3} key={item.id} sx={{ display: 'flex' }}>
-                        <ItemGridCard item={item} employeeName={employeeNames[item.employeeID]} onClick={() => handleOpenModal(item)} />
+                        <ItemGridCard
+                          item={item}
+                          employeeName={employeeNames[item.employeeID]}
+                          amountLabel={amountByItemId[item.id]}
+                          onClick={() => handleOpenModal(item)}
+                        />
                       </Grid>
                     ))}
                   </Grid>
                 ) : (
                   <>
                     {/* List header */}
-                    <Box sx={{ px: 1.5, py: 1, display: 'grid', gridTemplateColumns: '90px 1fr 150px 90px', gap: 1, alignItems: 'center', bgcolor: alpha(T.accent, 0.04), borderRadius: 1.5, mb: 1 }}>
-                      {['Emp. No', 'Employee', 'Position', 'Grade'].map((col) => (
-                        <Typography key={col} sx={{ fontSize: '0.65rem', fontWeight: 700, color: T.accent, textTransform: 'uppercase', letterSpacing: '0.07em' }}>{col}</Typography>
+                    <Box sx={{ px: 1.5, py: 1, display: 'grid', gridTemplateColumns: '90px 1fr 140px 100px 110px', gap: 1, alignItems: 'center', bgcolor: alpha(T.accent, 0.04), borderRadius: 1.5, mb: 1 }}>
+                      {['Emp. No', 'Employee', 'Position', 'Grade', 'Amount'].map((col) => (
+                        <Typography key={col} sx={{ fontSize: '0.65rem', fontWeight: 700, color: T.accent, textTransform: 'uppercase', letterSpacing: '0.07em', textAlign: col === 'Amount' ? 'right' : 'left' }}>{col}</Typography>
                       ))}
                     </Box>
                     {filteredData.map((item, idx) => (
-                      <ItemListRow key={item.id} item={item} employeeName={employeeNames[item.employeeID]} onClick={() => handleOpenModal(item)} isOdd={idx % 2 !== 0} />
+                      <ItemListRow
+                        key={item.id}
+                        item={item}
+                        employeeName={employeeNames[item.employeeID]}
+                        amountLabel={amountByItemId[item.id]}
+                        onClick={() => handleOpenModal(item)}
+                        isOdd={idx % 2 !== 0}
+                      />
                     ))}
                   </>
                 )}
@@ -1153,6 +1487,28 @@ const ItemTable = () => {
                         )}
                       </Grid>
 
+                      {/* Amount search → auto-fill SG / Step / Year */}
+                      <Grid item xs={12}>
+                        {isEditing ? (
+                          <AmountSearchField
+                            amountOptions={amountOptions}
+                            value={editItemAmountOption}
+                            dropdownPopperProps={dropdownPopperProps}
+                            autocompleteSx={autocompleteSx}
+                            onApply={(opt) => applySalaryFromAmount(opt, true)}
+                          />
+                        ) : (
+                          <Box>
+                            <Typography sx={{ fontSize: '0.72rem', fontWeight: 600, color: T.accent, mb: 0.5 }}>Salary Amount</Typography>
+                            <Box sx={{ px: 1.5, py: 1, bgcolor: T.accentFaint, borderRadius: 2, border: `1px solid ${T.accentBorder}` }}>
+                              <Typography sx={{ fontSize: '0.82rem', color: T.text, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                                {editItemAmount?.matched ? `₱ ${editItemAmount.formatted}` : '—'}
+                              </Typography>
+                            </Box>
+                          </Box>
+                        )}
+                      </Grid>
+
                       {/* Salary Grade */}
                       <Grid item xs={12} sm={4}>
                         <Typography sx={{ fontSize: '0.72rem', fontWeight: 600, color: T.accent, mb: 0.5 }}>Salary Grade</Typography>
@@ -1211,6 +1567,11 @@ const ItemTable = () => {
                             <Typography sx={{ fontSize: '0.82rem', color: T.text }}>{editItem.effectivityDate || '—'}</Typography>
                           </Box>
                         )}
+                      </Grid>
+
+                      {/* Live amount from Salary Grade Table */}
+                      <Grid item xs={12}>
+                        <SalaryAmountPreview result={editItemAmount} />
                       </Grid>
 
                       {/* Biometrics exemption */}
