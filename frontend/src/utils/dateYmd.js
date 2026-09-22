@@ -12,6 +12,15 @@ export const dateFromYmd = (value) => {
   return new Date(parts.y, parts.mo - 1, parts.d);
 };
 
+export const toLocalYmd = (value) => {
+  const date = value instanceof Date ? value : dateFromYmd(value);
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return null;
+  const y = date.getFullYear();
+  const mo = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${mo}-${d}`;
+};
+
 export const shiftYmdDays = (value, offsetDays) => {
   const base = dateFromYmd(value);
   if (!base) return value;

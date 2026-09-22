@@ -20,6 +20,7 @@ import {
   TextField,
   IconButton,
 } from '@mui/material';
+import { toLocalYmd } from '../../utils/dateYmd';
 import {
   EventNote,
   Person,
@@ -580,10 +581,10 @@ const AttendanceUserState = () => {
   }, []);
 
   const handleMonthClick = (monthIndex) => {
-    const start = new Date(Date.UTC(selectedYear, monthIndex, 1));
-    const end = new Date(Date.UTC(selectedYear, monthIndex + 1, 0));
-    setStartDate(start.toISOString().substring(0, 10));
-    setEndDate(end.toISOString().substring(0, 10));
+    const start = new Date(selectedYear, monthIndex, 1);
+    const end = new Date(selectedYear, monthIndex + 1, 0);
+    setStartDate(toLocalYmd(start));
+    setEndDate(toLocalYmd(end));
     setSelectedMonth(monthIndex);
     setRecordDateFilter('');
     setHasSearched(false);
@@ -608,26 +609,26 @@ const AttendanceUserState = () => {
     if (value === 'yesterday') {
       const y = new Date(today);
       y.setDate(y.getDate() - 1);
-      const s = y.toISOString().substring(0, 10);
+      const s = toLocalYmd(y);
       setQuickDate(s, s);
       return;
     }
     if (value === 'last7') {
       const d = new Date(today);
       d.setDate(d.getDate() - 7);
-      setQuickDate(d.toISOString().substring(0, 10), formattedToday);
+      setQuickDate(toLocalYmd(d), formattedToday);
       return;
     }
     if (value === 'last15') {
       const d = new Date(today);
       d.setDate(d.getDate() - 15);
-      setQuickDate(d.toISOString().substring(0, 10), formattedToday);
+      setQuickDate(toLocalYmd(d), formattedToday);
       return;
     }
     if (value === 'last30') {
       const d = new Date(today);
       d.setMonth(d.getMonth() - 1);
-      setQuickDate(d.toISOString().substring(0, 10), formattedToday);
+      setQuickDate(toLocalYmd(d), formattedToday);
     }
   };
 

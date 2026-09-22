@@ -63,6 +63,7 @@ import {
   Avatar,
   CircularProgress,
 } from '@mui/material';
+import { toLocalYmd } from '../../utils/dateYmd';
 import { Male as MaleIcon, Female as FemaleIcon } from '@mui/icons-material';
 import { DeptBadge, EmpCatBadge } from '../LEAVE/EARNINGS/RecordsList';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
@@ -2386,10 +2387,10 @@ const DailyTimeRecordFaculty = ({
 
   // ─── Month click ────────────────────────────────────────────────────────
   const handleMonthClick = (idx) => {
-    const start = new Date(Date.UTC(selectedYear, idx, 1));
-    const end = new Date(Date.UTC(selectedYear, idx + 1, 0));
-    const nextStart = start.toISOString().substring(0, 10);
-    const nextEnd = end.toISOString().substring(0, 10);
+    const start = new Date(selectedYear, idx, 1);
+    const end = new Date(selectedYear, idx + 1, 0);
+    const nextStart = toLocalYmd(start);
+    const nextEnd = toLocalYmd(end);
     setStartDate(nextStart);
     setEndDate(nextEnd);
     setPrintRangeStart(nextStart);
