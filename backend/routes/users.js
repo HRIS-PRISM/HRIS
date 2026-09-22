@@ -22,6 +22,29 @@ const validateEmail = (email, isRestricted) => {
 
 const VALID_BRANCH_CODES = [0, 1];
 
+/** Display name as "Surname, First M." (middle name → initial). */
+function formatSurnameFirstName({
+  firstName,
+  middleName,
+  lastName,
+  nameExtension,
+} = {}) {
+  const last = String(lastName || '').trim();
+  const first = String(firstName || '').trim();
+  const middleRaw = String(middleName || '').trim();
+  const ext = String(nameExtension || '').trim();
+  const middle = middleRaw
+    ? `${middleRaw.replace(/\./g, '').charAt(0).toUpperCase()}.`
+    : '';
+  const given = [first, middle].filter(Boolean).join(' ');
+  let name = '';
+  if (last && given) name = `${last}, ${given}`;
+  else name = last || given;
+  if (ext && name) name = `${name} ${ext}`;
+  else if (ext) name = ext;
+  return name;
+}
+
 // GET: Check email domain restriction setting
 router.get('/email-domain-restriction', authenticateToken, async (req, res) => {
   try {
@@ -1166,7 +1189,11 @@ router.get('/users', authenticateToken, requireAdmin, async (req, res) => {
       LEFT JOIN department_assignment da
         ON da.employeeNumber = da_max.employeeNumber AND da.id = da_max.max_id
       LEFT JOIN department_table dt ON da.code = dt.code
-      ORDER BY u.created_at DESC
+      ORDER BY
+        CASE WHEN p.lastName IS NULL OR TRIM(p.lastName) = '' THEN 1 ELSE 0 END,
+        p.lastName ASC,
+        p.firstName ASC,
+        u.employeeNumber ASC
     `;
 
     const [baseRows] = await db.promise().query(baseQuery);
@@ -1175,11 +1202,7 @@ router.get('/users', authenticateToken, requireAdmin, async (req, res) => {
       const currentStatus = row.dbStatus || 'Default';
       return {
         employeeNumber: row.employeeNumber,
-        fullName: `${row.firstName || ''} ${
-          row.middleName ? row.middleName + ' ' : ''
-        }${row.lastName || ''}${
-          row.nameExtension ? ' ' + row.nameExtension : ''
-        }`.trim(),
+        fullName: formatSurnameFirstName(row),
         firstName: row.firstName,
         middleName: row.middleName,
         lastName: row.lastName,
@@ -1358,7 +1381,11 @@ router.get('/users/search', authenticateToken, requireAdmin, (req, res) => {
         return res.status(500).json({ error: 'Failed to search users' });
       }
 
-      res.status(200).json(results);
+      const users = (results || []).map((row) => ({
+        ...row,
+        fullName: formatSurnameFirstName(row),
+      }));
+      res.status(200).json(users);
     });
   } catch (err) {
     console.error('Error during user search:', err);
@@ -1456,11 +1483,7 @@ router.get('/users/:employeeNumber', authenticateToken, requireSelfOrAdmin('empl
       const base = results[0];
       const user = {
         employeeNumber: base.employeeNumber,
-        fullName: `${base.firstName || ''} ${
-          base.middleName ? base.middleName + ' ' : ''
-        }${base.lastName || ''}${
-          base.nameExtension ? ' ' + base.nameExtension : ''
-        }`.trim(),
+        fullName: formatSurnameFirstName(base),
         firstName: base.firstName,
         middleName: base.middleName,
         lastName: base.lastName,

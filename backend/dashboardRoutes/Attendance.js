@@ -2403,9 +2403,15 @@
     }
   });
 
+  // Get unique PersonIDs from AttendanceRecordInfo (optionally scoped to a date range)
+  // Cached briefly — Facial Compare and Device Insights hit this on large tables.
+  const allDeviceUsersCache = new Map();
+  const ALL_DEVICE_USERS_TTL_MS = 90_000;
+
   router.get('/api/all-device-users', authenticateToken, (req, res) => {
-    const { startDate, endDate } = req.query || {};
+    const { startDate, endDate, mode } = req.query || {};
     const hasRange = Boolean(startDate && endDate);
+    const lean = String(mode || '') === 'compare';
     let startTimestamp;
     let endTimestamp;
     if (hasRange) {
@@ -2414,8 +2420,38 @@
       endTimestamp = range.endTimestamp;
     }
 
+    const cacheKey = hasRange
+      ? `range:${startTimestamp}:${endTimestamp}:${lean ? 'lean' : 'full'}`
+      : `all:${lean ? 'lean' : 'full'}`;
+    const cached = allDeviceUsersCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      res.set('X-Device-Users-Cache', 'HIT');
+      return res.json(cached.data);
+    }
+    if (cached?.inflight) {
+      return cached.inflight
+        .then((data) => {
+          res.set('X-Device-Users-Cache', 'WAIT');
+          res.json(data);
+        })
+        .catch((err) => {
+          res.status(500).json({ error: err.message });
+        });
+    }
+
+    // Lean compare mode skips firstSeen + ORDER BY (sort client-side if needed).
     const query = hasRange
-      ? `
+      ? lean
+        ? `
+      SELECT
+        PersonID,
+        MAX(PersonName) AS PersonName,
+        MAX(AttendanceDateTime) AS lastSeen
+      FROM AttendanceRecordInfo
+      WHERE AttendanceDateTime BETWEEN ? AND ?
+      GROUP BY PersonID
+    `
+        : `
       SELECT
         PersonID,
         MAX(PersonName) AS PersonName,
@@ -2426,7 +2462,16 @@
       GROUP BY PersonID
       ORDER BY PersonName ASC
     `
-      : `
+      : lean
+        ? `
+      SELECT
+        PersonID,
+        MAX(PersonName) AS PersonName,
+        MAX(AttendanceDateTime) AS lastSeen
+      FROM AttendanceRecordInfo
+      GROUP BY PersonID
+    `
+        : `
       SELECT
         PersonID,
         MAX(PersonName) AS PersonName,
@@ -2438,13 +2483,34 @@
     `;
 
     const params = hasRange ? [startTimestamp, endTimestamp] : [];
-    db.query(query, params, (err, results) => {
-      if (err) {
-        console.error('Error fetching device users:', err);
-        return res.status(500).json({ error: err.message });
-      }
-      res.json(results);
+    const inflight = new Promise((resolve, reject) => {
+      db.query(query, params, (err, results) => {
+        if (err) reject(err);
+        else resolve(results || []);
+      });
     });
+
+    allDeviceUsersCache.set(cacheKey, {
+      data: null,
+      expiresAt: 0,
+      inflight,
+    });
+
+    inflight
+      .then((results) => {
+        allDeviceUsersCache.set(cacheKey, {
+          data: results,
+          expiresAt: Date.now() + ALL_DEVICE_USERS_TTL_MS,
+          inflight: null,
+        });
+        res.set('X-Device-Users-Cache', 'MISS');
+        res.json(results);
+      })
+      .catch((err) => {
+        allDeviceUsersCache.delete(cacheKey);
+        console.error('Error fetching device users:', err);
+        res.status(500).json({ error: err.message });
+      });
   });
 
   // One round-trip for Device Insights section (date-scoped)

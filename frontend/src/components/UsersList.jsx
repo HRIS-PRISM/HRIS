@@ -128,7 +128,52 @@ import SearchIcon from "@mui/icons-material/Search";
 import WifiOffIcon from "@mui/icons-material/WifiOff";
 import axios from "axios";
 import SuccessfulOverlay from "./SuccessfulOverlay";
-import FacialUserComparePanel from "./FacialUserCompareDialog";
+import FacialUserComparePanel, {
+  prefetchFacialUsers,
+} from "./FacialUserCompareDialog";
+
+/** Display name as "Surname, First M." (middle name → initial). */
+function formatSurnameFirstName({
+  firstName,
+  middleName,
+  lastName,
+  nameExtension,
+  fullName,
+} = {}) {
+  const last = String(lastName || "").trim();
+  const first = String(firstName || "").trim();
+  const middleRaw = String(middleName || "").trim();
+  const ext = String(nameExtension || "").trim();
+  if (last || first) {
+    const middle = middleRaw
+      ? `${middleRaw.replace(/\./g, "").charAt(0).toUpperCase()}.`
+      : "";
+    const given = [first, middle].filter(Boolean).join(" ");
+    let name = last && given ? `${last}, ${given}` : last || given;
+    if (ext && name) name = `${name} ${ext}`;
+    else if (ext) name = ext;
+    return name;
+  }
+  const raw = String(fullName || "").trim();
+  if (!raw) return "";
+  if (raw.includes(",")) return raw;
+  const parts = raw.split(/\s+/).filter(Boolean);
+  const suffixes = new Set(["JR", "JR.", "SR", "SR.", "II", "III", "IV", "V"]);
+  let suffix = "";
+  if (suffixes.has(parts[parts.length - 1]?.toUpperCase())) suffix = parts.pop();
+  if (parts.length <= 1) return suffix ? `${parts[0] || ""} ${suffix}`.trim() : parts[0] || "";
+  const firstNamePart = parts[0];
+  const lastNamePart = parts[parts.length - 1];
+  const middleFormatted = parts
+    .slice(1, -1)
+    .map((m) => {
+      const mm = String(m).replace(/\./g, "");
+      return mm.length === 1 ? `${mm.toUpperCase()}.` : `${mm.charAt(0).toUpperCase()}.`;
+    })
+    .join(" ");
+  const base = `${lastNamePart}, ${firstNamePart}${middleFormatted ? ` ${middleFormatted}` : ""}`;
+  return suffix ? `${base} ${suffix}` : base;
+}
 
 // ─── Unified Theme Tokens ──────────────────────────────────────────────────────
 const T = {
@@ -278,7 +323,9 @@ const OfflineBanner = ({ visible, retryIn }) => (
 const PAGE_SHELL_SX = {
   py: { xs: 1, md: 2 },
   mt: { xs: 0, md: -2 },
-  mb: { xs: 1, md: 2 },
+  // Clear the fixed app footer (minHeight ~45px + padding)
+  pb: { xs: 9, md: 10 },
+  mb: 0,
   // Slightly wider than attendance default (63/-61); still respects sidebar
   width: "100vw",
   maxWidth: "100%",
@@ -794,6 +841,22 @@ const UsersList = () => {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
+  // Users Management tabs: lock page scroll so only the table scrolls inside.
+  useEffect(() => {
+    const html = document.documentElement;
+    const body = document.body;
+    const prevHtmlOverflow = html.style.overflow;
+    const prevBodyOverflow = body.style.overflow;
+    html.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+    return () => {
+      html.style.overflow = prevHtmlOverflow;
+      body.style.overflow = prevBodyOverflow;
+      if (!prevHtmlOverflow) html.style.removeProperty("overflow");
+      if (!prevBodyOverflow) body.style.removeProperty("overflow");
+    };
+  }, []);
+
   const scrollToTop = () => window.scrollTo({ top: 0, behavior: "smooth" });
 
   const EnterpriseCard = useMemo(
@@ -957,7 +1020,13 @@ const UsersList = () => {
         return;
       }
       const data = await res.json();
-      setPwUsers(Array.isArray(data) ? data : []);
+      const list = Array.isArray(data) ? data : [];
+      setPwUsers(
+        list.map((u) => ({
+          ...u,
+          fullName: formatSurnameFirstName(u) || u.fullName || "",
+        })),
+      );
     } catch {
       setPwErrMessage("Something went wrong while fetching users.");
       setPwUsers([]);
@@ -1189,9 +1258,9 @@ const UsersList = () => {
       const profilePic = user.profilePicture || user.profile_picture || null;
 
       const fullName =
-        user.fullName ||
+        formatSurnameFirstName(user) ||
         user.username ||
-        `${user.firstName || ""} ${user.lastName || ""}`.trim();
+        "";
 
       const avatar = profilePic
         ? String(profilePic).startsWith("http")
@@ -1241,7 +1310,10 @@ const UsersList = () => {
     });
 
     setEmpCatMap(newEmpCatMap);
-    return mapped;
+    return sortEmployeesByLastName(mapped, (user) => {
+      if (user?.lastName) return user;
+      return user?.fullName || user;
+    });
   }, []);
 
   const fetchUsers = useCallback(
@@ -1268,6 +1340,8 @@ const UsersList = () => {
         setError("");
         // Keep the user on the same table page after edit/delete refreshes.
         setPage(savedPage);
+        // Warm Facial Compare cache in the background.
+        prefetchFacialUsers().catch(() => {});
       } catch (err) {
         if (!mountedRef.current) return;
         setRefreshing(false);
@@ -2274,7 +2348,14 @@ const UsersList = () => {
   };
   const getInitials = (n) => {
     if (!n) return "U";
-    const parts = n.trim().split(" ").filter(Boolean);
+    const cleaned = String(n).trim();
+    if (cleaned.includes(",")) {
+      const [last, rest] = cleaned.split(",");
+      const first = (rest || "").trim().split(/\s+/).filter(Boolean)[0] || "";
+      const initials = `${(last || "").trim().charAt(0)}${first.charAt(0)}`;
+      return initials.toUpperCase() || "U";
+    }
+    const parts = cleaned.split(/\s+/).filter(Boolean);
     if (parts.length === 1) return parts[0][0].toUpperCase();
     return (parts[0][0] + parts[1][0]).toUpperCase();
   };
@@ -2594,8 +2675,25 @@ const UsersList = () => {
      MAIN RENDER
   ═══════════════════════════════════════════════════════════════ */
   return (
-    <Box sx={PAGE_SHELL_SX}>
-      <style>{PAGE_SHELL_CSS}</style>
+    <Box
+      sx={{
+        ...PAGE_SHELL_SX,
+        // Viewport-locked shell: same bottom clearance on all three tabs.
+        height: { md: "calc(100dvh - 64px)" },
+        maxHeight: { md: "calc(100dvh - 64px)" },
+        pb: { xs: 8.5, md: 8.5 },
+        mb: 0,
+        boxSizing: "border-box",
+        display: { md: "flex" },
+        flexDirection: { md: "column" },
+        overflow: { md: "hidden" },
+      }}
+    >
+      <style>
+        {`${shimmerKf}
+html, body { overflow: hidden !important; }
+`}
+      </style>
       <Portal>
         <SuccessfulOverlay
           open={successOpen}
@@ -2605,7 +2703,7 @@ const UsersList = () => {
       </Portal>
 
       {/* ── Page Header ── */}
-      <SectionCard sx={{ mb: 1.25 }}>
+      <SectionCard sx={{ mb: 1.25, flexShrink: 0 }}>
         <Box
           sx={{
             px: 3,
@@ -2720,11 +2818,11 @@ const UsersList = () => {
         </Box>
       </SectionCard>
 
-      {/* ── Stats Strip ── */}
-      {tableTab !== 2 && <>
+      {/* ── Stats Strip (always visible — keeps layout stable across tabs) ── */}
       <Box
         sx={{
           mb: 1.25,
+          flexShrink: 0,
           display: "grid",
           gridTemplateColumns: {
             xs: "1fr 1fr",
@@ -2842,6 +2940,7 @@ const UsersList = () => {
           px: 0.25,
           fontSize: "0.7rem",
           color: T.muted,
+          flexShrink: 0,
         }}
       >
         Active {fmtCount(userStats.Active)}
@@ -2866,11 +2965,100 @@ const UsersList = () => {
         </Box>
         Retired {fmtCount(userStats.Retired)}
       </Typography>
-      </>}
 
       {/* ── Registered Users — filters + table share one card ── */}
-      <SectionCard sx={{ overflow: "hidden", width: "100%" }}>
+      <SectionCard
+        sx={{
+          overflow: "hidden",
+          width: "100%",
+          mb: 0,
+          display: "flex",
+          flexDirection: "column",
+          flex: { md: 1 },
+          minHeight: { md: 0 },
+        }}
+      >
+        {/* Tabs first so they stay put when filters show/hide */}
+        <Box
+          sx={{
+            px: 3.5,
+            borderBottom: `1px solid ${T.divider}`,
+            display: "flex",
+            flexShrink: 0,
+          }}
+        >
+          {[
+            {
+              label: "Accounts",
+              count: properUsers.length,
+              color: "#2E7D32",
+              icon: <CheckCircle sx={{ fontSize: 13 }} />,
+            },
+            {
+              label: "Incomplete Accounts",
+              count: incompleteUsers.length,
+              color: "#F57C00",
+              icon: <WarningAmberRounded sx={{ fontSize: 13 }} />,
+            },
+            {
+              label: "Facial / System Comparison",
+              count: facialCompareStats?.noRecordsCount ?? "—",
+              color: "#C62828",
+              icon: <CompareArrows sx={{ fontSize: 13 }} />,
+            },
+          ].map((tab, idx) => (
+            <Box
+              key={idx}
+              onClick={() => {
+                setTableTab(idx);
+                setPage(0);
+                setSearchTerm("");
+              }}
+              sx={{
+                display: "flex",
+                alignItems: "center",
+                gap: 0.75,
+                px: 1.5,
+                py: 1.75,
+                cursor: "pointer",
+                borderBottom:
+                  tableTab === idx
+                    ? `2.5px solid ${T.accent}`
+                    : "2.5px solid transparent",
+                color: tableTab === idx ? T.accent : T.muted,
+                fontWeight: tableTab === idx ? 700 : 500,
+                fontSize: "0.82rem",
+                transition: "all 0.15s",
+                "&:hover": { color: T.accent },
+              }}
+            >
+              {tab.icon}
+              <span>{tab.label}</span>
+              <Box
+                sx={{
+                  px: 0.9,
+                  py: 0.1,
+                  bgcolor:
+                    tableTab === idx ? T.accentFaint : "rgba(0,0,0,0.05)",
+                  borderRadius: "20px",
+                }}
+              >
+                <Typography
+                  sx={{
+                    fontSize: "0.62rem",
+                    fontWeight: 700,
+                    color: tableTab === idx ? T.accent : T.faint,
+                  }}
+                >
+                  {tab.count}
+                </Typography>
+              </Box>
+            </Box>
+          ))}
+        </Box>
+
   {tableTab !== 2 && (
+  <Box sx={{ flexShrink: 0 }}>
   <>
   <Box
     sx={{
@@ -3398,92 +3586,25 @@ const UsersList = () => {
           </Box>
         </Box>
   </>
+  </Box>
   )}
-
-        <Box
-          sx={{
-            px: 3.5,
-            borderBottom: `1px solid ${T.divider}`,
-            display: "flex",
-          }}
-        >
-          {[
-            {
-              label: "Accounts",
-              count: properUsers.length,
-              color: "#2E7D32",
-              icon: <CheckCircle sx={{ fontSize: 13 }} />,
-            },
-            {
-              label: "Incomplete Accounts",
-              count: incompleteUsers.length,
-              color: "#F57C00",
-              icon: <WarningAmberRounded sx={{ fontSize: 13 }} />,
-            },
-            {
-              label: "Facial Compare",
-              count: facialCompareStats?.noRecordsCount ?? "—",
-              color: "#C62828",
-              icon: <CompareArrows sx={{ fontSize: 13 }} />,
-            },
-          ].map((tab, idx) => (
-            <Box
-              key={idx}
-              onClick={() => {
-                setTableTab(idx);
-                setPage(0);
-                setSearchTerm("");
-              }}
-              sx={{
-                display: "flex",
-                alignItems: "center",
-                gap: 0.75,
-                px: 1.5,
-                py: 1.75,
-                cursor: "pointer",
-                borderBottom:
-                  tableTab === idx
-                    ? `2.5px solid ${T.accent}`
-                    : "2.5px solid transparent",
-                color: tableTab === idx ? T.accent : T.muted,
-                fontWeight: tableTab === idx ? 700 : 500,
-                fontSize: "0.82rem",
-                transition: "all 0.15s",
-                "&:hover": { color: T.accent },
-              }}
-            >
-              {tab.icon}
-              <span>{tab.label}</span>
-              <Box
-                sx={{
-                  px: 0.9,
-                  py: 0.1,
-                  bgcolor:
-                    tableTab === idx ? T.accentFaint : "rgba(0,0,0,0.05)",
-                  borderRadius: "20px",
-                }}
-              >
-                <Typography
-                  sx={{
-                    fontSize: "0.62rem",
-                    fontWeight: 700,
-                    color: tableTab === idx ? T.accent : T.faint,
-                  }}
-                >
-                  {tab.count}
-                </Typography>
-              </Box>
-            </Box>
-          ))}
-        </Box>
 
         <FacialUserComparePanel
           active={tableTab === 2}
           users={users}
           onStats={setFacialCompareStats}
+          prefetch
         />
         {tableTab !== 2 && (
-          <>
+          <Box
+            sx={{
+              display: "flex",
+              flexDirection: "column",
+              flex: { md: 1 },
+              minHeight: { md: 0 },
+              overflow: { md: "hidden" },
+            }}
+          >
         {tableTab === 1 && incompleteUsers.length > 0 && (
           <Box
             sx={{
@@ -3494,6 +3615,7 @@ const UsersList = () => {
               display: "flex",
               alignItems: "center",
               gap: 1,
+              flexShrink: 0,
             }}
           >
             <WarningAmberRounded
@@ -3518,10 +3640,8 @@ const UsersList = () => {
           component={Paper}
           elevation={0}
           sx={{
-            // Table owns the remaining viewport so the list is the focus.
-            // Offset accounts for header + stats + filter row + tabs + pagination.
-            maxHeight: { xs: "60vh", md: "calc(100vh - 400px)" },
-            minHeight: { md: 300 },
+            flex: 1,
+            minHeight: { md: 0, xs: 240 },
             overflowY: "auto",
           }}
         >
@@ -4071,7 +4191,14 @@ const UsersList = () => {
         </SharpTableContainer>
 
         {filteredUsers.length > 0 && (
-          <Box sx={{ px: 2, py: 0.5, borderTop: `1px solid ${T.divider}` }}>
+          <Box
+            sx={{
+              px: 2,
+              py: 0.5,
+              borderTop: `1px solid ${T.divider}`,
+              flexShrink: 0,
+            }}
+          >
             <TablePagination
               component="div"
               count={filteredUsers.length}
@@ -4090,7 +4217,7 @@ const UsersList = () => {
             />
           </Box>
         )}
-          </>
+          </Box>
         )}
       </SectionCard>
 

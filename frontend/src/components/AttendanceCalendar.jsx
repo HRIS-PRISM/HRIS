@@ -106,13 +106,13 @@ const CHIPS = {
 };
 
 const Chip = ({ code }) => {
-  if (!code) return <Box sx={{ width: 34, height: 28 }} />;
+  if (!code) return <Box sx={{ width: 28, height: 24 }} />;
   const c = CHIPS[code] || {};
   return (
     <Box sx={{
       display: "inline-flex", alignItems: "center", justifyContent: "center",
-      width: 34, height: 28, borderRadius: "5px",
-      fontSize: "13px", fontWeight: 800, lineHeight: 1,
+      width: 28, height: 24, borderRadius: "5px",
+      fontSize: "11px", fontWeight: 800, lineHeight: 1,
       bgcolor: c.bg, color: c.fg, userSelect: "none", flexShrink: 0,
     }}>
       {code}
@@ -319,7 +319,7 @@ export default function AttendanceCalendar({ employeeNumber, holidays = [] }) {
       size="small"
       onClick={() => setCursor(new Date(year, month + dir, 1))}
       sx={{
-        width: 26, height: 26, borderRadius: "5px",
+        width: 24, height: 24, borderRadius: "6px",
         border: `1px solid ${T.accentBorder}`,
         color: T.accent,
         "&:hover": { bgcolor: T.accentFaint },
@@ -339,68 +339,88 @@ export default function AttendanceCalendar({ employeeNumber, holidays = [] }) {
       bgcolor: T.surface,
       minWidth: 0,
       width: "100%",
-      borderRadius: "12px",
-      border: `2px solid ${T.accentBorder}`,
-      boxShadow: "0 1px 6px rgba(109,35,35,0.10)",
+      height: "100%",
+      boxSizing: "border-box",
+      borderRadius: "16px",
+      border: "0 !important",
+      outline: "none",
+      boxShadow: "0 1px 2px rgba(15,23,42,0.04), 0 4px 12px rgba(15,23,42,0.06), 0 14px 28px rgba(15,23,42,0.07) !important",
       overflow: "hidden",
+      transition: "box-shadow 0.22s ease, transform 0.22s ease",
+      willChange: "transform, box-shadow",
+      "&:hover": {
+        transform: "translateY(-2px)",
+        boxShadow: "0 0 0 1.5px rgba(109,35,35,0.22), 0 6px 16px rgba(15,23,42,0.08), 0 20px 40px rgba(15,23,42,0.12) !important",
+      },
     }}>
 
       {/* ── HEADER ── */}
       <Box sx={{
-        px: 2.5, py: 1.4,
-        display: "flex", alignItems: "center", gap: 1.5,
-        bgcolor: T.accentFaint,
-        borderBottom: `1.5px solid ${T.accentBorder}`,
+        px: 1.75, py: 1.1,
+        display: "flex", alignItems: "center", gap: 1,
+        bgcolor: "#fff",
+        borderBottom: `1px solid ${T.divider}`,
         flexShrink: 0,
+        minHeight: 44,
       }}>
-        <CalendarMonth sx={{ fontSize: 16, color: T.accent, flexShrink: 0 }} />
-        <Typography sx={{ fontSize: "0.85rem", fontWeight: 800, color: T.accent, lineHeight: 1, flexShrink: 0 }}>
-          My attendance
+        <Box sx={{ width: 26, height: 26, borderRadius: "8px", bgcolor: T.accentFaint, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <CalendarMonth sx={{ fontSize: 14, color: T.accent }} />
+        </Box>
+        <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.text, lineHeight: 1, flexShrink: 0, letterSpacing: "-0.01em" }}>
+          My Attendance
         </Typography>
         <Box sx={{ flex: 1 }} />
-        <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
           {navBtn(-1)}
-          <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: T.text, minWidth: 84, textAlign: "center" }}>
+          <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: T.text, minWidth: 92, textAlign: "center" }}>
             {loading ? "…" : monthLabel}
           </Typography>
           {navBtn(1)}
         </Box>
-        <Box sx={{ flex: 1 }} />
         <Box sx={{
-          display: "flex", alignItems: "center", gap: 0.5,
-          px: 1.2, py: 0.5, borderRadius: "20px",
-          bgcolor: T.surface, border: `1px solid ${T.accentBorder}`,
+          display: { xs: "none", sm: "flex" }, alignItems: "center", gap: 0.4,
+          ml: 0.5, px: 1, py: 0.35, borderRadius: "99px",
+          bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`,
           flexShrink: 0,
         }}>
-          <AccessTime sx={{ fontSize: 12, color: T.accent }} />
-          <Typography sx={{ fontSize: "0.7rem", fontWeight: 700, color: T.accent }}>
+          <AccessTime sx={{ fontSize: 11, color: T.accent }} />
+          <Typography sx={{ fontSize: "0.62rem", fontWeight: 700, color: T.accent, whiteSpace: "nowrap" }}>
             8:00 AM – 5:00 PM
           </Typography>
         </Box>
       </Box>
 
-      {/* ── TABLE ── */}
+      {/* ── TABLE (hugs content; scroll horizontally only) ── */}
       <Box sx={{
         overflowX: "auto",
         overflowY: "hidden",
         flexShrink: 0,
-        "&::-webkit-scrollbar":       { height: 6 },
-        "&::-webkit-scrollbar-thumb": { bgcolor: T.accent, borderRadius: 2 },
-        "&::-webkit-scrollbar-track": { bgcolor: T.accentFaint },
+        minWidth: 0,
+        width: "100%",
+        "&::-webkit-scrollbar": { height: 5 },
+        "&::-webkit-scrollbar-thumb": { bgcolor: "rgba(109,35,35,0.35)", borderRadius: 3 },
+        "&::-webkit-scrollbar-track": { bgcolor: "rgba(109,35,35,0.06)" },
       }}>
-        <Table size="small" sx={{ borderCollapse: "collapse", tableLayout: "fixed", "& th,& td": { boxSizing: "border-box" } }}>
+        <Table size="small" sx={{
+          borderCollapse: "separate",
+          borderSpacing: 0,
+          tableLayout: "fixed",
+          width: "max-content",
+          "& th, & td": { boxSizing: "border-box" },
+        }}>
           <colgroup>
-            <col style={{ width: 155 }} />
-            {days.map(({ d }) => <col key={d} style={{ width: 38 }} />)}
+            <col style={{ width: 120 }} />
+            {days.map(({ d }) => <col key={d} style={{ width: 32 }} />)}
           </colgroup>
 
           <TableHead>
             <TableRow>
               <TableCell sx={{
-                bgcolor: T.accent, color: "#fff", fontWeight: 700, fontSize: "13px",
-                pl: 1.5, py: 1,
-                borderRight: "1px solid rgba(255,255,255,0.14)",
-                position: "sticky", left: 0, zIndex: 3,
+                bgcolor: T.accent, color: "#fff", fontWeight: 700, fontSize: "0.7rem",
+                pl: 1.25, pr: 1, py: 0.85,
+                borderRight: "1px solid rgba(255,255,255,0.22)",
+                position: "sticky", left: 0, zIndex: 4,
+                boxShadow: "2px 0 6px rgba(0,0,0,0.12)",
               }}>
                 Employee
               </TableCell>
@@ -409,28 +429,31 @@ export default function AttendanceCalendar({ employeeNumber, holidays = [] }) {
                 <TableCell key={d} sx={{
                   bgcolor: isToday ? "#8B4545" : T.accent,
                   color: "#fff", textAlign: "center",
-                  p: "5px 2px", lineHeight: 1.1,
-                  borderRight: "1px solid rgba(255,255,255,0.10)",
+                  p: "4px 1px", lineHeight: 1.1,
+                  borderRight: "1px solid rgba(255,255,255,0.12)",
                 }}>
-                  <Box sx={{ fontSize: "10px", color: isWeekend ? "rgba(255,200,200,0.8)" : "rgba(255,255,255,0.7)" }}>{["Su","M","T","W","Th","F","Sa"][dow]}</Box>
-                  <Box sx={{ fontSize: "13px", color: isWeekend ? "rgba(255,200,200,1)" : "#fff", fontWeight: 800 }}>{d}</Box>
+                  <Box sx={{ fontSize: "0.55rem", fontWeight: 600, color: isWeekend ? "rgba(255,200,200,0.85)" : "rgba(255,255,255,0.72)" }}>
+                    {["Su","M","T","W","Th","F","Sa"][dow]}
+                  </Box>
+                  <Box sx={{ fontSize: "0.72rem", color: "#fff", fontWeight: 800 }}>{d}</Box>
                 </TableCell>
               ))}
             </TableRow>
           </TableHead>
 
           <TableBody>
-            <TableRow sx={{ "&:hover": { bgcolor: T.accentFaint }, transition: "background 0.12s" }}>
+            <TableRow sx={{ "&:hover td:not(:first-of-type)": { bgcolor: T.accentFaint } }}>
               <TableCell sx={{
-                pl: 1.5, py: 1.75,
-                borderRight: `1px solid ${T.divider}`,
-                position: "sticky", left: 0, bgcolor: T.surface, zIndex: 1,
+                pl: 1.25, pr: 1, py: 1.1,
+                borderRight: `1px solid ${T.accentBorder}`,
+                position: "sticky", left: 0, bgcolor: "#fff", zIndex: 3,
+                boxShadow: "2px 0 6px rgba(0,0,0,0.06)",
               }}>
-                <Typography sx={{ fontWeight: 800, fontSize: "15px", color: T.text, lineHeight: 1.3 }}>
+                <Typography sx={{ fontWeight: 700, fontSize: "0.78rem", color: T.text, lineHeight: 1.25 }}>
                   My attendance
                 </Typography>
                 {employeeNumber && (
-                  <Typography sx={{ fontSize: "12px", color: T.faint }}>#{employeeNumber}</Typography>
+                  <Typography sx={{ fontSize: "0.62rem", color: T.faint, mt: 0.15 }}>#{employeeNumber}</Typography>
                 )}
               </TableCell>
 
@@ -438,9 +461,9 @@ export default function AttendanceCalendar({ employeeNumber, holidays = [] }) {
                 <TableCell key={d}
                   title={CHIPS[getCode(iso)]?.label}
                   sx={{
-                    textAlign: "center", verticalAlign: "middle", p: "10px 3px",
+                    textAlign: "center", verticalAlign: "middle", p: "6px 1px",
                     borderRight: `1px solid ${T.divider}`,
-                    bgcolor: isToday ? "rgba(109,35,35,0.04)" : "transparent",
+                    bgcolor: isToday ? "rgba(109,35,35,0.04)" : "#fff",
                   }}
                 >
                   <Chip code={getCode(iso)} />
@@ -453,19 +476,20 @@ export default function AttendanceCalendar({ employeeNumber, holidays = [] }) {
 
       {/* ── LEGEND ── */}
       <Box sx={{
-        px: 2.5, py: 1.25,
-        display: "flex", flexWrap: "wrap", alignItems: "center", gap: "4px 14px",
+        mt: "auto",
+        px: 1.5, py: 1,
+        display: "flex", flexWrap: "wrap", alignItems: "center", gap: "5px 10px",
         borderTop: `1px solid ${T.divider}`,
-        bgcolor: T.surface, flexShrink: 0,
+        bgcolor: "#fff", flexShrink: 0,
       }}>
         {Object.entries(CHIPS).map(([code, { bg, fg, label }]) => (
           <Box key={code} sx={{ display: "flex", alignItems: "center", gap: "4px" }}>
             <Box sx={{
-              width: 20, height: 17, borderRadius: "3px",
-              bgcolor: bg, color: fg, fontSize: "9px", fontWeight: 800,
+              width: 18, height: 16, borderRadius: "3px",
+              bgcolor: bg, color: fg, fontSize: "0.55rem", fontWeight: 800,
               display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
             }}>{code}</Box>
-            <Typography sx={{ fontSize: "0.68rem", color: T.muted, lineHeight: 1, whiteSpace: "nowrap" }}>
+            <Typography sx={{ fontSize: "0.62rem", color: T.muted, lineHeight: 1, whiteSpace: "nowrap" }}>
               {label}
             </Typography>
           </Box>
@@ -474,11 +498,11 @@ export default function AttendanceCalendar({ employeeNumber, holidays = [] }) {
 
       {/* ── FOOTER NOTE ── */}
       <Box sx={{
-        px: 2.5, py: 1,
+        px: 1.5, py: 0.75,
         borderTop: `1px solid ${T.divider}`,
-        bgcolor: T.accentFaint, flexShrink: 0,
+        bgcolor: "#fff", flexShrink: 0,
       }}>
-        <Typography sx={{ fontSize: "0.63rem", color: T.faint, lineHeight: 1.4 }}>
+        <Typography sx={{ fontSize: "0.6rem", color: T.faint, lineHeight: 1.4 }}>
           Blank cells = no biometric punch recorded — not counted as absent.
         </Typography>
       </Box>

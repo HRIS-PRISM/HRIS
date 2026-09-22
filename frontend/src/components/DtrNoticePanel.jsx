@@ -316,17 +316,25 @@ export default function DtrNoticePanel({
   return (
     <Box sx={{
       display: "flex", flexDirection: "column", height: "100%", minHeight: 0,
-      bgcolor: T.surface, borderRadius: "12px", border: `2px solid ${T.accentBorder}`,
-      boxShadow: "0 1px 6px rgba(109,35,35,0.10)", overflow: "hidden",
+      bgcolor: T.surface, borderRadius: "16px", border: "0 !important", outline: "none",
+      boxShadow: "0 1px 2px rgba(15,23,42,0.04), 0 4px 12px rgba(15,23,42,0.06), 0 14px 28px rgba(15,23,42,0.07) !important",
+      overflow: "hidden",
+      transition: "box-shadow 0.22s ease, transform 0.22s ease",
+      willChange: "transform, box-shadow",
+      "&:hover": {
+        transform: "translateY(-2px)",
+        boxShadow: "0 0 0 1.5px rgba(109,35,35,0.22), 0 6px 16px rgba(15,23,42,0.08), 0 20px 40px rgba(15,23,42,0.12) !important",
+      },
     }}>
-      {/* ── HEADER ── */}
       <Box sx={{
-        px: 2.5, py: 1.4, display: "flex", alignItems: "center", gap: 1.25,
-        bgcolor: T.accentFaint, borderBottom: `1.5px solid ${T.accentBorder}`, flexShrink: 0,
+        px: 1.75, py: 1.1, display: "flex", alignItems: "center", gap: 1,
+        bgcolor: "#fff", borderBottom: `1px solid ${T.divider}`, flexShrink: 0, minHeight: 44,
       }}>
-        <WarningAmber sx={{ fontSize: 16, color: T.accent, flexShrink: 0 }} />
-        <Typography sx={{ fontSize: "0.85rem", fontWeight: 800, color: T.accent, lineHeight: 1 }}>
-          Daily Time Record (DTR) Notice:
+        <Box sx={{ width: 26, height: 26, borderRadius: "8px", bgcolor: T.accentFaint, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <WarningAmber sx={{ fontSize: 14, color: T.accent }} />
+        </Box>
+        <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.text, lineHeight: 1, letterSpacing: "-0.01em" }}>
+          DTR Notice
         </Typography>
         <Box sx={{ flex: 1 }} />
         {isBrowsable && (

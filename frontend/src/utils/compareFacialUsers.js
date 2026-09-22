@@ -12,12 +12,12 @@ export const ISSUE = {
 };
 
 export const ISSUE_LABELS = {
-  [ISSUE.matched]: "Numbers and names match",
-  [ISSUE.numberMatchNameDiff]: "Same number, different name",
-  [ISSUE.blankName]: "Same number, name missing",
-  [ISSUE.nameMatchNumberDiff]: "Same name, different number",
+  [ISSUE.matched]: "Emp. No. and names match",
+  [ISSUE.numberMatchNameDiff]: "Same Emp. No., different name",
+  [ISSUE.blankName]: "Same Emp. No., name missing",
+  [ISSUE.nameMatchNumberDiff]: "Same name, different Emp. No.",
   [ISSUE.nearNumber]: "Leading zeros or spaces",
-  [ISSUE.possibleIdMismatch]: "Possible ID mismatch",
+  [ISSUE.possibleIdMismatch]: "Possible Emp. No. mismatch",
   [ISSUE.usersOnly]: "Users List only",
   [ISSUE.facialOnly]: "AttendanceRecordInfo only",
 };
@@ -38,19 +38,25 @@ function trimText(value) {
 }
 
 export function usersListName(user) {
+  const full = trimText(user?.fullName);
+  if (full && full.toLowerCase() !== "username") return full;
   const fromParts = [
+    user?.lastName,
     user?.firstName,
     user?.middleName,
-    user?.lastName,
     user?.nameExtension,
   ]
     .map((part) => trimText(part))
-    .filter(Boolean)
-    .join(" ");
-  if (fromParts) return fromParts;
-  const full = trimText(user?.fullName);
-  if (!full || full.toLowerCase() === "username") return "";
-  return full;
+    .filter(Boolean);
+  if (fromParts.length >= 2 && user?.lastName) {
+    const last = trimText(user.lastName);
+    const given = [user?.firstName, user?.middleName, user?.nameExtension]
+      .map((part) => trimText(part))
+      .filter(Boolean)
+      .join(" ");
+    return given ? `${last}, ${given}` : last;
+  }
+  return fromParts.join(" ");
 }
 
 function nameTokens(name) {
@@ -147,15 +153,16 @@ function possibleTokenScore(left, right) {
   const shared = left.filter((token) => token.length >= 4 && rightSet.has(token));
   if (!shared.length) return 0;
   const sharedSet = new Set(shared);
-  const restLeft = left.filter((token) => !sharedSet.has(token));
-  const restRight = right.filter((token) => !sharedSet.has(token));
+  const restLeft = left.filter((token) => !sharedSet.has(token)).slice(0, 4);
+  const restRight = right.filter((token) => !sharedSet.has(token)).slice(0, 4);
   let close = false;
   for (const x of restLeft) {
     for (const y of restRight) {
       if (
         x.length >= 3 &&
         y.length >= 3 &&
-        (x.slice(0, 3) === y.slice(0, 3) || levenshtein(x, y) <= 1)
+        (x.slice(0, 3) === y.slice(0, 3) ||
+          (Math.abs(x.length - y.length) <= 1 && levenshtein(x, y) <= 1))
       ) {
         close = true;
         break;
@@ -189,8 +196,10 @@ function pairByIndexedName(users, facialRows, mode) {
   facialTokens.forEach((tokens, facialIndex) => {
     new Set(tokens.filter((token) => token.length >= 3)).forEach((token) => {
       const bucket = index.get(token);
-      if (bucket) bucket.push(facialIndex);
-      else index.set(token, [facialIndex]);
+      if (bucket) {
+        // Cap common-name buckets (e.g. "maria") to keep matching fast.
+        if (bucket.length < 48) bucket.push(facialIndex);
+      } else index.set(token, [facialIndex]);
     });
   });
 
@@ -205,16 +214,18 @@ function pairByIndexedName(users, facialRows, mode) {
     keys.forEach((token) => {
       const hits = index.get(token);
       if (!hits) return;
-      hits.forEach((facialIndex) => {
-        if (seen.has(facialIndex)) return;
+      for (let i = 0; i < hits.length; i += 1) {
+        const facialIndex = hits[i];
+        if (seen.has(facialIndex)) continue;
         seen.add(facialIndex);
+        if (seen.size > 64) break;
         const score =
           mode === "exact"
             ? tokensExact(tokens, facialTokens[facialIndex])
               ? 100
               : 0
             : possibleTokenScore(tokens, facialTokens[facialIndex]);
-        if (score <= 0) return;
+        if (score <= 0) continue;
         if (!best || score > best.score) {
           second = best ? best.score : 0;
           best = {
@@ -227,7 +238,7 @@ function pairByIndexedName(users, facialRows, mode) {
         } else if (score > second) {
           second = score;
         }
-      });
+      }
     });
     if (best && best.score > second) candidates.push(best);
   });

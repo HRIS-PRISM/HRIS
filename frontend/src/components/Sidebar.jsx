@@ -1782,7 +1782,7 @@ const Sidebar = ({
 
                 <Collapse in={open5} timeout="auto" unmountOnExit>
                   <List component="div" disablePadding sx={{ pl: 5.4 }}>
-                    {(() => {
+                    {/* {(() => {
                       const file201Route = "/file201";
                       return shouldShowMenuItem(file201Route) ? (
                         <ListItem
@@ -1836,7 +1836,7 @@ const Sidebar = ({
                           />
                         </ListItem>
                       ) : null;
-                    })()}
+                    })()} */}
 
                     {/* PDS1 */}
                     {shouldShowMenuItem("/pds1") && (
