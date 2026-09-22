@@ -9,11 +9,35 @@ export const ATTENDANCE_EMBEDDED_ROOT_SX = {
   boxSizing: 'border-box',
   display: 'flex',
   flexDirection: 'column',
-  overflow: 'hidden',
+  overflowX: 'hidden',
+  overflowY: 'auto',
   minHeight: 0,
   position: 'relative',
   left: 0,
   transform: 'none',
+};
+
+/** Horizontal scrollbar stays in layout (not overlay) so zoom cannot clip it. */
+export const ATTENDANCE_ALWAYS_VISIBLE_X_SCROLL_SX = {
+  overflowX: 'scroll',
+  scrollbarGutter: 'stable',
+  scrollbarWidth: 'auto',
+  paddingBottom: '2px',
+  '&::-webkit-scrollbar': {
+    height: 12,
+    width: 8,
+    display: 'block',
+  },
+  '&::-webkit-scrollbar-track': {
+    background: 'rgba(109,35,35,0.06)',
+    borderRadius: 4,
+  },
+  '&::-webkit-scrollbar-thumb': {
+    background: '#8B4545',
+    borderRadius: 4,
+    minWidth: 48,
+    '&:hover': { background: '#6d2323' },
+  },
 };
 
 export const seedEmbeddedModuleContext = ({

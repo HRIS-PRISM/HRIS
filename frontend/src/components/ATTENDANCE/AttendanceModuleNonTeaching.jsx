@@ -66,6 +66,7 @@ import AttendanceWorkflowNav from './AttendanceWorkflowNav';
 import { navigateAttendanceWorkflow } from '../../utils/attendanceWorkflow';
 import {
   ATTENDANCE_EMBEDDED_ROOT_SX,
+  ATTENDANCE_ALWAYS_VISIBLE_X_SCROLL_SX,
   useEmbeddedModuleAutoSearch,
   notifyModuleSaveSuccess,
 } from '../../utils/attendanceModuleEmbedded';
@@ -1177,7 +1178,7 @@ const FloatingTotalsBar = ({ totals, visible, onSave, saving, startDate, endDate
   return (
     <Box sx={{ width: '100%', maxWidth: '100%', minWidth: 0 }}>
       <Paper elevation={8} sx={{
-        borderRadius: '12px', overflow: 'hidden', width: '100%', maxWidth: '100%',
+        borderRadius: '12px', overflow: 'visible', width: '100%', maxWidth: '100%',
         border: `1px solid ${T.accentBorder}`, bgcolor: '#fff', mt: 2, mb: 2,
         boxShadow: '0 4px 24px rgba(0,0,0,0.10)',
       }}>
@@ -1235,11 +1236,12 @@ const FloatingTotalsBar = ({ totals, visible, onSave, saving, startDate, endDate
           sx={{
             width: '100%',
             maxWidth: '100%',
-            '& .MuiCollapse-wrapper': { width: '100%' },
-            '& .MuiCollapse-wrapperInner': { width: '100%', maxWidth: '100%' },
+            overflow: 'visible',
+            '& .MuiCollapse-wrapper': { width: '100%', overflow: 'visible' },
+            '& .MuiCollapse-wrapperInner': { width: '100%', maxWidth: '100%', overflow: 'visible' },
           }}
         >
-          {/* Outer: fixed viewport width + horizontal scroll. Inner: single intrinsic-width row (never wraps). */}
+          {/* Outer: reserved horizontal scrollbar so zoom cannot clip it. */}
           <Box
             sx={{
               px: 1.5, py: 1.25,
@@ -1247,9 +1249,9 @@ const FloatingTotalsBar = ({ totals, visible, onSave, saving, startDate, endDate
               maxWidth: '100%',
               minWidth: 0,
               boxSizing: 'border-box',
-              overflowX: 'auto',
               overflowY: 'hidden',
               WebkitOverflowScrolling: 'touch',
+              ...ATTENDANCE_ALWAYS_VISIBLE_X_SCROLL_SX,
             }}
           >
             <Box
@@ -2579,9 +2581,9 @@ setSuspensionByDate(scopedSuspensionByDate);
                   </Typography>
                 </Box>
 
-                <Box sx={{ position: 'relative', borderRadius: '8px', border: `1px solid ${T.accentBorder}`, overflow: 'hidden', bgcolor: '#fff' }}>
+                <Box sx={{ position: 'relative', borderRadius: '8px', border: `1px solid ${T.accentBorder}`, overflow: 'visible', bgcolor: '#fff' }}>
                   <Box
-                    sx={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 560, scrollbarWidth: 'thin', '&::-webkit-scrollbar': { height: 6, width: 6 }, '&::-webkit-scrollbar-track': { background: T.accentFaint, borderRadius: 4 }, '&::-webkit-scrollbar-thumb': { background: T.accentMid, borderRadius: 4 } }}>
+                    sx={{ overflowY: 'auto', maxHeight: 560, ...ATTENDANCE_ALWAYS_VISIBLE_X_SCROLL_SX }}>
                     <Table sx={{ minWidth: visibleColumns.reduce((s, col) => s + (col.minWidth || 100), 0), borderCollapse: 'separate', borderSpacing: 0 }}>
                       {buildTableHead()}
                       <TableBody>
@@ -2926,7 +2928,7 @@ setSuspensionByDate(scopedSuspensionByDate);
           </Fade>
         )}
 
-        <FloatingTotalsBar totals={totals} visible={attendanceData.length > 0} onSave={saveOverallAttendance} saving={saving} startDate={startDate} endDate={endDate} showSaveButton={!embedded} />
+        <FloatingTotalsBar totals={totals} visible={attendanceData.length > 0} onSave={saveOverallAttendance} saving={saving} startDate={startDate} endDate={endDate} showSaveButton />
 
         <UnresolvedHalfDaysDialog
           dates={unresolvedDatesModal}

@@ -64,7 +64,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import useAttendanceWorkflow from '../../hooks/useAttendanceWorkflow';
 import AttendanceWorkflowNav from './AttendanceWorkflowNav';
 import { navigateAttendanceWorkflow } from '../../utils/attendanceWorkflow';
-import { useEmbeddedModuleAutoSearch, ATTENDANCE_EMBEDDED_ROOT_SX, notifyModuleSaveSuccess } from '../../utils/attendanceModuleEmbedded';
+import { useEmbeddedModuleAutoSearch, ATTENDANCE_EMBEDDED_ROOT_SX, ATTENDANCE_ALWAYS_VISIBLE_X_SCROLL_SX, notifyModuleSaveSuccess } from '../../utils/attendanceModuleEmbedded';
 import { ATTENDANCE_PAGE_BOTTOM_PAD, ATTENDANCE_PAGE_SCROLL_CSS, useAttendancePageScroll } from './attendanceFilterLayout';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
@@ -1660,7 +1660,7 @@ const FloatingTotalsBar = ({
         elevation={8}
         sx={{
           borderRadius: '12px',
-          overflow: 'hidden',
+          overflow: 'visible',
           width: '100%',
           maxWidth: '100%',
           border: `1px solid ${T.accentBorder}`,
@@ -1759,8 +1759,9 @@ const FloatingTotalsBar = ({
           sx={{
             width: '100%',
             maxWidth: '100%',
-            '& .MuiCollapse-wrapper': { width: '100%' },
-            '& .MuiCollapse-wrapperInner': { width: '100%', maxWidth: '100%' },
+            overflow: 'visible',
+            '& .MuiCollapse-wrapper': { width: '100%', overflow: 'visible' },
+            '& .MuiCollapse-wrapperInner': { width: '100%', maxWidth: '100%', overflow: 'visible' },
           }}
         >
           <Box
@@ -1771,9 +1772,9 @@ const FloatingTotalsBar = ({
               maxWidth: '100%',
               minWidth: 0,
               boxSizing: 'border-box',
-              overflowX: 'auto',
               overflowY: 'hidden',
               WebkitOverflowScrolling: 'touch',
+              ...ATTENDANCE_ALWAYS_VISIBLE_X_SCROLL_SX,
             }}
           >
             <Box
@@ -1868,73 +1869,6 @@ const FloatingTotalsBar = ({
           </Box>
         </Collapse>
       </Paper>
-    </Box>
-  );
-};
-
-
-const StickyScrollbar = ({ innerRef }) => {
-  const proxyRef = useRef(null);
-  const ghostRef = useRef(null);
-  const syncingRef = useRef(false);
-  useEffect(() => {
-    const inner = innerRef.current,
-      proxy = proxyRef.current,
-      ghost = ghostRef.current;
-    if (!inner || !proxy || !ghost) return;
-    const updateWidth = () => {
-      ghost.style.width = inner.scrollWidth + 'px';
-    };
-    const ro = new ResizeObserver(updateWidth);
-    ro.observe(inner);
-    updateWidth();
-    const onInnerScroll = () => {
-      if (syncingRef.current) return;
-      syncingRef.current = true;
-      proxy.scrollLeft = inner.scrollLeft;
-      syncingRef.current = false;
-    };
-    const onProxyScroll = () => {
-      if (syncingRef.current) return;
-      syncingRef.current = true;
-      inner.scrollLeft = proxy.scrollLeft;
-      syncingRef.current = false;
-    };
-    inner.addEventListener('scroll', onInnerScroll);
-    proxy.addEventListener('scroll', onProxyScroll);
-    return () => {
-      inner.removeEventListener('scroll', onInnerScroll);
-      proxy.removeEventListener('scroll', onProxyScroll);
-      ro.disconnect();
-    };
-  }, [innerRef]);
-  return (
-    <Box
-      ref={proxyRef}
-      sx={{
-        position: 'sticky',
-        bottom: 0,
-        left: 0,
-        width: '100%',
-        zIndex: 10,
-        overflowX: 'auto',
-        overflowY: 'hidden',
-        height: 16,
-        bgcolor: '#fff',
-        borderTop: `1px solid ${T.divider}`,
-        '&::-webkit-scrollbar': { height: 12 },
-        '&::-webkit-scrollbar-track': {
-          background: T.accentFaint,
-          borderRadius: 4,
-        },
-        '&::-webkit-scrollbar-thumb': {
-          background: T.accentMid,
-          borderRadius: 4,
-          '&:hover': { background: T.accent },
-        },
-      }}
-    >
-      <Box ref={ghostRef} sx={{ height: 1 }} />
     </Box>
   );
 };
@@ -4612,24 +4546,14 @@ const AttendanceModuleFacultyDesignated = ({
                     position: 'relative',
                     borderRadius: '8px',
                     border: `1px solid ${T.accentBorder}`,
-                    overflow: 'hidden',
+                    overflow: 'visible',
                   }}
                 >
                   <Box
                     sx={{
-                      overflowX: 'auto',
                       overflowY: 'auto',
                       maxHeight: 500,
-                      scrollbarWidth: 'thin',
-                      '&::-webkit-scrollbar': { height: 6, width: 6 },
-                      '&::-webkit-scrollbar-track': {
-                        background: T.accentFaint,
-                        borderRadius: 4,
-                      },
-                      '&::-webkit-scrollbar-thumb': {
-                        background: T.accentMid,
-                        borderRadius: 4,
-                      },
+                      ...ATTENDANCE_ALWAYS_VISIBLE_X_SCROLL_SX,
                     }}
                   >
                     <Table
@@ -5257,7 +5181,6 @@ const AttendanceModuleFacultyDesignated = ({
                   </Box>
                 </Box>
 
-                {}
                 <Box
                   sx={{
                     pt: 1.5,
@@ -5364,6 +5287,7 @@ const AttendanceModuleFacultyDesignated = ({
           startDate={startDate}
           endDate={endDate}
           officialHoursPerDay={officialHoursPerDay}
+          showSaveButton
         />
 
         <UnresolvedHalfDaysDialog

@@ -108,6 +108,8 @@ import AttendanceComputationDrawer from './AttendanceComputationDrawer';
 import { readAttendanceWorkflow } from '../../utils/attendanceWorkflow';
 import { sortEmployeesByLastName } from '../../utils/sortEmployeesByLastName';
 import { resolveDrawerFromComputationModule,
+  resolveDrawerFromLateType,
+  mismatchComputationSnackbar,
   HUB_COMPUTATION_BUTTONS,
 } from '../../utils/attendanceHubFlow';
 import {
@@ -118,6 +120,7 @@ import {
   DTR_COMPUTED_LATE_STORAGE_KEY,
 } from '../../utils/dtrLateUndertimeFromOverall';
 import { fetchOfficialTimesBatch } from '../../utils/fetchOfficialTimesBatch';
+import { fetchEmploymentCategoryRow } from '../../utils/regularPayrollFromAttendance';
 import {
   personnelScopeFromEmployment,
   resolveAttendanceModuleFromEmployment,
@@ -491,6 +494,26 @@ const getAuthHeaders = () => {
   };
 };
 
+const mapEmploymentCategoryRow = (item) => {
+  if (!item) return null;
+  const label =
+    item.parentGroup && item.typeName
+      ? `${item.parentGroup} | ${item.typeName}`
+      : item.categoryLabel || '';
+  const employmentCategory =
+    item.employmentCategory != null && item.employmentCategory !== ''
+      ? item.employmentCategory
+      : null;
+  if (!label && employmentCategory == null) return null;
+  return {
+    label: label || '',
+    colorHex: item.colorHex || '#757575',
+    employmentCategory,
+    typeName: item.typeName || '',
+    parentGroup: item.parentGroup || '',
+  };
+};
+
 /** Bulk print / PDF download — raised with faster chunked capture. */
 const BULK_DTR_LIMIT = 100;
 /** Employees per attendance API request (by employeeNumbers — no SQL re-rank). */
@@ -764,6 +787,8 @@ const DailyTimeRecordFaculty = ({
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [currentPage, setCurrentPage] = useState(1);
   const [hasSearchedSingle, setHasSearchedSingle] = useState(false);
+  /** Bumped on each person search so that employee's category is refetched. */
+  const [empCatFreshNonce, setEmpCatFreshNonce] = useState(0);
   /** Sliding hub drawer: officialTime | modification | computation modules */
   const [moduleDrawer, setModuleDrawer] = useState(null);
   /** Last opened computation module — kept after drawer closes so Save to Summary stays enabled */
@@ -798,22 +823,9 @@ const DailyTimeRecordFaculty = ({
           const map = {};
           (Array.isArray(empCatRes.value.data) ? empCatRes.value.data : []).forEach((item) => {
             if (!item.employeeNumber) return;
-            const label =
-              item.parentGroup && item.typeName
-                ? `${item.parentGroup} | ${item.typeName}`
-                : item.categoryLabel || '';
-            const employmentCategory =
-              item.employmentCategory != null && item.employmentCategory !== ''
-                ? item.employmentCategory
-                : null;
-            if (!label && employmentCategory == null) return;
-            map[String(item.employeeNumber)] = {
-              label: label || '',
-              colorHex: item.colorHex || '#757575',
-              employmentCategory,
-              typeName: item.typeName || '',
-              parentGroup: item.parentGroup || '',
-            };
+            const mapped = mapEmploymentCategoryRow(item);
+            if (!mapped) return;
+            map[String(item.employeeNumber)] = mapped;
           });
           setEmpCatMap(map);
         }
@@ -1273,6 +1285,8 @@ const DailyTimeRecordFaculty = ({
   const lateLoadSettledRef = useRef('');
   const computedLateRef = useRef({});
   const applyingLateRef = useRef(false);
+  const lastAutoOpenKeyRef = useRef('');
+  const applyLateFromEmploymentCategoryRef = useRef(null);
 
   const loadComputedLateForEmployee = useCallback(
     async (employeeNumber) => {
@@ -1319,12 +1333,12 @@ const DailyTimeRecordFaculty = ({
   );
 
   const applyLateFromEmploymentCategory = useCallback(
-    async (employeeNumber) => {
+    async (employeeNumber, { force = false, meta: metaOverride } = {}) => {
       if (!employeeNumber || !startDate || !endDate || dtrType !== 'regular') return;
       const key = String(employeeNumber);
       const attemptKey = `${key}|${startDate}|${endDate}`;
-      if (autoLateAttemptedRef.current.has(attemptKey)) return;
-      const meta = empCatMap[key];
+      if (!force && autoLateAttemptedRef.current.has(attemptKey)) return;
+      const meta = metaOverride || empCatMap[key];
       const moduleType = resolveAttendanceModuleFromEmployment(meta);
       if (!moduleType) return;
       autoLateAttemptedRef.current.add(attemptKey);
@@ -1365,8 +1379,17 @@ const DailyTimeRecordFaculty = ({
     [startDate, endDate, dtrType, empCatMap],
   );
 
+  applyLateFromEmploymentCategoryRef.current = applyLateFromEmploymentCategory;
+
   useEffect(() => {
-    if (dtrType !== 'regular' || !hasSearchedSingle || !personID || !startDate || !endDate) {
+    if (
+      viewMode !== 'single' ||
+      dtrType !== 'regular' ||
+      !hasSearchedSingle ||
+      !personID ||
+      !startDate ||
+      !endDate
+    ) {
       return;
     }
     const key = String(personID);
@@ -1376,6 +1399,7 @@ const DailyTimeRecordFaculty = ({
     if (!empCatMap[key]) return;
     applyLateFromEmploymentCategory(personID);
   }, [
+    viewMode,
     dtrType,
     hasSearchedSingle,
     personID,
@@ -1396,6 +1420,11 @@ const DailyTimeRecordFaculty = ({
         String(sched.officialTimeOUT).trim() !== '00:00:00 PM',
     );
   }, [officialTimes]);
+
+  const expectedModuleType = useMemo(() => {
+    if (!hasSearchedSingle || !personID) return null;
+    return resolveAttendanceModuleFromEmployment(empCatMap[String(personID)]) || null;
+  }, [hasSearchedSingle, personID, empCatMap]);
 
   const appliedLateUtModuleType = useMemo(() => {
     if (!personID) return null;
@@ -1433,7 +1462,7 @@ const DailyTimeRecordFaculty = ({
   );
 
   const openComputationDrawer = useCallback(
-    (drawerKey) => {
+    (drawerKey, { silent = false } = {}) => {
       if (!drawerKey || !COMPUTATION_DRAWER_KEYS.has(drawerKey)) return;
       if (!hasOfficialTimeSchedule) {
         setSnackbar({
@@ -1445,11 +1474,94 @@ const DailyTimeRecordFaculty = ({
         setModuleDrawer('officialTime');
         return;
       }
+      if (!silent) {
+        const clicked = HUB_COMPUTATION_BUTTONS.find((b) => b.drawer === drawerKey);
+        if (clicked) {
+          const expected = expectedModuleType;
+          if (!expected || clicked.moduleType !== expected) {
+            setSnackbar({
+              open: true,
+              message: mismatchComputationSnackbar({
+                expectedModuleType: expected,
+                clickedLabel: clicked.label,
+              }),
+              severity: 'warning',
+            });
+          }
+        }
+      }
       setActiveComputationDrawer(drawerKey);
       setModuleDrawer(drawerKey);
     },
-    [hasOfficialTimeSchedule],
+    [hasOfficialTimeSchedule, expectedModuleType],
   );
+
+  useEffect(() => {
+    if (viewMode !== 'single' || !hasSearchedSingle || !personID) return;
+    let cancelled = false;
+    const key = String(personID);
+    (async () => {
+      const row = await fetchEmploymentCategoryRow(key, getAuthHeaders);
+      if (cancelled) return;
+      const mapped = mapEmploymentCategoryRow(row);
+      let moduleChanged = false;
+      setEmpCatMap((prev) => {
+        const prevModule = resolveAttendanceModuleFromEmployment(prev[key]);
+        const nextModule = resolveAttendanceModuleFromEmployment(mapped);
+        moduleChanged = Boolean(prevModule && nextModule && prevModule !== nextModule);
+        if (moduleChanged) {
+          autoLateAttemptedRef.current.delete(`${key}|${startDate}|${endDate}`);
+        }
+        if (!mapped) {
+          if (!prev[key]) return prev;
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        }
+        return { ...prev, [key]: mapped };
+      });
+      if (moduleChanged && mapped) {
+        void applyLateFromEmploymentCategoryRef.current?.(key, {
+          force: true,
+          meta: mapped,
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    viewMode,
+    hasSearchedSingle,
+    personID,
+    empCatFreshNonce,
+    startDate,
+    endDate,
+  ]);
+
+  useEffect(() => {
+    if (viewMode !== 'single' || !hasSearchedSingle || !personID || !startDate || !endDate) {
+      return;
+    }
+    if (dtrType !== 'regular') return;
+    if (!hasOfficialTimeSchedule || !expectedModuleType) return;
+    const drawer = resolveDrawerFromLateType(expectedModuleType);
+    if (!drawer) return;
+    const openKey = `${personID}|${startDate}|${endDate}|${expectedModuleType}`;
+    if (lastAutoOpenKeyRef.current === openKey) return;
+    lastAutoOpenKeyRef.current = openKey;
+    openComputationDrawer(drawer, { silent: true });
+  }, [
+    viewMode,
+    hasSearchedSingle,
+    personID,
+    startDate,
+    endDate,
+    dtrType,
+    hasOfficialTimeSchedule,
+    expectedModuleType,
+    openComputationDrawer,
+  ]);
 
   const handleSavedToSummary = useCallback(async () => {
     setSummaryRefreshKey((k) => k + 1);
@@ -2456,6 +2568,8 @@ const DailyTimeRecordFaculty = ({
       return;
     }
     setHasSearchedSingle(true);
+    setEmpCatFreshNonce((n) => n + 1);
+    lastAutoOpenKeyRef.current = '';
     await fetchRecords();
   };
 
@@ -4408,6 +4522,8 @@ const DailyTimeRecordFaculty = ({
                                   moduleDrawer === btn.drawer;
                                 const isOnDtr =
                                   appliedLateUtModuleType === btn.moduleType;
+                                const isExpected =
+                                  expectedModuleType === btn.moduleType;
                                 const categoryColor =
                                   btn.categoryColor || T.accent;
                                 const disabled =
@@ -4418,9 +4534,13 @@ const DailyTimeRecordFaculty = ({
                                     title={
                                       isOnDtr
                                         ? `${btn.label} is currently on this DTR — open to review or Save to Summary again`
-                                        : drawerOpen
-                                          ? `${btn.label} panel is open`
-                                          : `Open ${btn.label} to compute late/undertime, then Save to Summary`
+                                        : isExpected
+                                          ? `${btn.label} matches this employee's employment category`
+                                          : drawerOpen
+                                            ? `${btn.label} panel is open`
+                                            : expectedModuleType
+                                              ? `This employee is ${HUB_COMPUTATION_BUTTONS.find((b) => b.moduleType === expectedModuleType)?.label || 'a different type'}. Opening ${btn.label} uses a different formula.`
+                                              : `No employment category assigned. Opening ${btn.label} will still compute with this formula.`
                                     }
                                     placement="top"
                                   >
@@ -4429,9 +4549,9 @@ const DailyTimeRecordFaculty = ({
                                         variant="outlined"
                                         size="small"
                                         disabled={disabled}
-                                        aria-pressed={isOnDtr || drawerOpen}
+                                        aria-pressed={isOnDtr || drawerOpen || isExpected}
                                         startIcon={
-                                          isOnDtr ? (
+                                          isOnDtr || isExpected ? (
                                             <CheckCircle
                                               sx={{
                                                 fontSize: '15px !important',
@@ -4477,7 +4597,7 @@ const DailyTimeRecordFaculty = ({
                                                   borderColor: categoryColor,
                                                 },
                                               }
-                                            : drawerOpen
+                                            : isExpected || drawerOpen
                                               ? {
                                                   color: categoryColor,
                                                   borderColor: categoryColor,
@@ -4519,7 +4639,9 @@ const DailyTimeRecordFaculty = ({
                                       >
                                         {isOnDtr
                                           ? `Using · ${btn.label}`
-                                          : btn.label}
+                                          : isExpected
+                                            ? `Category · ${btn.label}`
+                                            : btn.label}
                                       </AccentButton>
                                     </span>
                                   </Tooltip>
