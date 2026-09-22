@@ -13,7 +13,11 @@ const { parseBranchField } = require("../utils/branchScope");
 
 // GET all suspensions (normalize date_start/date_end for backward compat)
 router.get("/api/suspensions", (req, res) => {
-  const query = `SELECT id, title, about, COALESCE(date_start, date) AS date_start, COALESCE(date_end, date) AS date_end, date, reason, image,
+  const query = `SELECT id, title, about,
+    DATE_FORMAT(COALESCE(date_start, date), '%Y-%m-%d') AS date_start,
+    DATE_FORMAT(COALESCE(date_end, date), '%Y-%m-%d') AS date_end,
+    DATE_FORMAT(date, '%Y-%m-%d') AS date,
+    reason, image,
     COALESCE(personnel_scope, 'all') AS personnel_scope, COALESCE(suspension_type, 'whole_day') AS suspension_type, effective_time,
     branch
     FROM suspensions ORDER BY COALESCE(date_start, date) DESC`;
