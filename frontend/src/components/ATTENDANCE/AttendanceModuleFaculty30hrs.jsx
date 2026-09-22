@@ -70,6 +70,7 @@ import API_BASE_URL from '../../apiConfig';
   import {
     useEmbeddedModuleAutoSearch,
     ATTENDANCE_EMBEDDED_ROOT_SX,
+    ATTENDANCE_ALWAYS_VISIBLE_X_SCROLL_SX,
     notifyModuleSaveSuccess,
   } from '../../utils/attendanceModuleEmbedded';
   import { ATTENDANCE_PAGE_BOTTOM_PAD, ATTENDANCE_PAGE_SCROLL_CSS, useAttendancePageScroll } from './attendanceFilterLayout';
@@ -1077,7 +1078,7 @@ const filterApplicableSuspensionsForFaculty = (suspensionByDate, employeeBranch)
     return (
       <Box sx={{ width: '100%' }}>
         <Paper elevation={8} sx={{
-          borderRadius: '12px', overflow: 'hidden', width: '100%',
+          borderRadius: '12px', overflow: 'visible', width: '100%',
           border: `1px solid ${T.accentBorder}`, bgcolor: '#fff', mt: 2, mb: 2,
           boxShadow: '0 4px 24px rgba(0,0,0,0.10)',
         }}>
@@ -2881,9 +2882,9 @@ const filterApplicableSuspensionsForFaculty = (suspensionByDate, employeeBranch)
 
                 {/* Table */}
                 <Box sx={{ px: 2.5, pb: 2.5 }}>
-                  <Box sx={{ position: 'relative', borderRadius: '8px', border: `1px solid ${T.accentBorder}`, overflow: 'hidden' }}>
+                  <Box sx={{ position: 'relative', borderRadius: '8px', border: `1px solid ${T.accentBorder}`, overflow: 'visible' }}>
                     <Box
-                      sx={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 500, scrollbarWidth: 'thin', '&::-webkit-scrollbar': { height: 6, width: 6 }, '&::-webkit-scrollbar-track': { background: T.accentFaint, borderRadius: 4 }, '&::-webkit-scrollbar-thumb': { background: T.accentMid, borderRadius: 4 } }}>
+                      sx={{ overflowY: 'auto', maxHeight: 500, ...ATTENDANCE_ALWAYS_VISIBLE_X_SCROLL_SX }}>
                       <Table
                         sx={{
                           minWidth: columnSlots.reduce((s, { col }) => s + (col.minWidth || 100), 0),
@@ -3157,6 +3158,7 @@ const filterApplicableSuspensionsForFaculty = (suspensionByDate, employeeBranch)
             activeTab={activeTab}
             startDate={startDate}
             endDate={endDate}
+            showSaveButton
           />
 
           {/* ── No Official Time Modal ── */}

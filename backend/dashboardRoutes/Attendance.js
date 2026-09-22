@@ -3144,12 +3144,17 @@
     }
 
     const query = `
-      SELECT employee_number, year, month, printed_at, printed_by
+      SELECT CAST(employee_number AS CHAR) AS employee_number,
+             year, month, printed_at, printed_by
       FROM dtr_print_history
       WHERE employee_number IN (?) AND year = ? AND month = ?
     `;
 
-    db.query(query, [employeeNumbers, year, month], (err, results) => {
+    const empNums = employeeNumbers.map((n) => String(n).trim()).filter(Boolean);
+    const yearNum = Number(year);
+    const monthNum = Number(month);
+
+    db.query(query, [empNums, yearNum, monthNum], (err, results) => {
       if (err) {
         console.error('Error fetching print status:', err);
         return res.status(500).json({ error: err.message });
@@ -3171,9 +3176,12 @@
     }
 
     const printedBy = req.user.employeeNumber || req.user.username;
+    const yearNum = Number(year);
+    const monthNum = Number(month);
+    const empNums = employeeNumbers.map((n) => String(n).trim()).filter(Boolean);
 
-    const values = employeeNumbers.map((empNum) => [
-      empNum, year, month, startDate, endDate, printedBy,
+    const values = empNums.map((empNum) => [
+      empNum, yearNum, monthNum, startDate, endDate, printedBy,
     ]);
 
     const query = `
@@ -3198,18 +3206,23 @@
         `Printed DTR Records`,
         'Daily Time Record Overall',
         `${startDate} to ${endDate}`,
-        employeeNumbers.join(', '),
+        empNums.join(', '),
       );
 
       notifyAttendanceChanged('dtr-printed', {
         scope: 'dtr_print_history',
-        employeeNumbers, year, month, startDate, endDate, printedBy,
+        employeeNumbers: empNums,
+        year: yearNum,
+        month: monthNum,
+        startDate,
+        endDate,
+        printedBy,
       });
 
       res.json({
         success: true,
         count: result.affectedRows,
-        message: `Successfully marked ${employeeNumbers.length} DTR(s) as printed`,
+        message: `Successfully marked ${empNums.length} DTR(s) as printed`,
       });
     });
   });

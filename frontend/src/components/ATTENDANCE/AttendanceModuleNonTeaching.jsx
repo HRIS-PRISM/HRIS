@@ -11,7 +11,6 @@ import {
   TableHead,
   TableRow,
   Card,
-  InputAdornment,
   Avatar,
   IconButton,
   Fade,
@@ -59,8 +58,6 @@ import {
   SearchOutlined,
   Assignment,
   RestartAlt,
-  UnfoldMore,
-  UnfoldLess,
   Close,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
@@ -69,6 +66,7 @@ import AttendanceWorkflowNav from './AttendanceWorkflowNav';
 import { navigateAttendanceWorkflow } from '../../utils/attendanceWorkflow';
 import {
   ATTENDANCE_EMBEDDED_ROOT_SX,
+  ATTENDANCE_ALWAYS_VISIBLE_X_SCROLL_SX,
   useEmbeddedModuleAutoSearch,
   notifyModuleSaveSuccess,
 } from '../../utils/attendanceModuleEmbedded';
@@ -158,14 +156,21 @@ const T = {
   divider:      'rgba(0,0,0,0.08)',
   recordFont:
     "system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
-  holiday:      { bg: 'rgba(245,124,0,0.10)', color: '#f57c00', border: 'rgba(245,124,0,0.35)' },
+  holiday:      { bg: 'rgba(245,124,0,0.10)', color: '#b85c00', border: 'rgba(245,124,0,0.40)' },
   leave:        { bg: 'rgba(46,125,50,0.10)',  color: '#2e7d32', border: 'rgba(46,125,50,0.35)' },
   suspended:    { bg: 'rgba(211,47,47,0.10)',  color: '#d32f2f', border: 'rgba(211,47,47,0.35)' },
   halfDay:      { bg: 'rgba(106,27,154,0.10)', color: '#6a1b9a', border: 'rgba(106,27,154,0.35)' },
-  absent:       { bg: 'rgba(183,28,28,0.08)',  color: '#b71c1c', border: 'rgba(183,28,28,0.25)' },
+  absent:       { bg: 'rgba(183,28,28,0.08)',  color: '#b71c1c', border: 'rgba(183,28,28,0.40)' },
   rendered:     { bg: 'rgba(27,94,32,0.08)',   color: '#1b5e20', border: 'rgba(27,94,32,0.25)' },
   tardiness:    { bg: 'rgba(183,28,28,0.08)',  color: '#b71c1c', border: 'rgba(183,28,28,0.25)' },
 };
+
+/** Column visibility sets — matches compact attendance-records layout. */
+const COLUMN_SETS = [
+  { key: 'official', label: 'Official schedule' },
+  { key: 'rendered', label: 'Rendered time' },
+];
+const defaultHiddenSets = () => ({ official: true, rendered: true });
 
 const formatTardinessAsDaysHours = (hhmm) => {
   if (!hhmm || hhmm === '00:00' || hhmm === '00:00:00') return '0m';
@@ -209,6 +214,24 @@ const displayDurationHhMm = (v) => {
   }
   return normalizeDurationInput(v) || ZERO_HM;
 };
+
+/** Clock punch / official time display — HH:MM [AM|PM], seconds hidden. */
+const displayClockHhMm = (raw) => {
+  if (raw == null || raw === '' || raw === '—' || raw === 'N/A') return raw ?? '—';
+  const trimmed = String(raw).trim();
+  const m = trimmed.match(/^(\d{1,2}):(\d{2})(?::\d{2})?(?:\s*(AM|PM))?$/i);
+  if (!m) return trimmed;
+  const mer = m[3] ? ` ${m[3].toUpperCase()}` : '';
+  return `${String(Number(m[1])).padStart(2, '0')}:${m[2]}${mer}`;
+};
+
+const CLOCK_DISPLAY_KEYS = new Set([
+  'timeIN', 'timeOUT', 'breaktimeIN', 'breaktimeOUT',
+  'officialTimeIN', 'officialTimeOUT', 'officialBreaktimeIN', 'officialBreaktimeOUT',
+  'officialHonorariumTimeIN', 'officialHonorariumTimeOUT',
+  'officialServiceCreditTimeIN', 'officialServiceCreditTimeOUT',
+  'officialOverTimeIN', 'officialOverTimeOUT',
+]);
 
 /** Clock punch → seconds at minute precision (seconds ignored). */
 const parseClockToMinuteSec = (timeStr) => {
@@ -278,20 +301,75 @@ const computeEarlyLeaveUndertimeMinuteSec = (row) => {
 };
 
 const getAmPmSlotLateMinuteSec = (row) =>
-  (computeArrivalLateMinuteSec(row) ?? 0) + (computeEarlyLeaveUndertimeMinuteSec(row) ?? 0);
+  (computeArrivalLateMinuteSec(row) ?? 0)
+  + (computeEarlyLeaveUndertimeMinuteSec(row) ?? 0)
+  + (computeMissingBreakDeductionMinuteSec(row) ?? 0);
 
 const getOfficialSchedWorkMinuteSec = (row) => {
   const offInSec = parseClockToMinuteSec(row?.officialTimeIN);
   const offOutSec = parseClockToMinuteSec(row?.officialTimeOUT);
   if (offInSec == null || offOutSec == null) return null;
   const schedTotal = Math.max(0, offOutSec - offInSec);
-  const offBreakInSec = parseClockToMinuteSec(row?.officialBreaktimeIN);
-  const offBreakOutSec = parseClockToMinuteSec(row?.officialBreaktimeOUT);
-  const breakSec =
-    offBreakInSec != null && offBreakOutSec != null
-      ? Math.max(0, offBreakOutSec - offBreakInSec)
-      : 0;
-  return Math.max(0, schedTotal - breakSec);
+  return Math.max(0, schedTotal - getOfficialBreakDurationMinuteSec(row));
+};
+
+/** Empty device / schedule clock (same sentinels as NA checks elsewhere). */
+const isEmptyPunchClock = (t) => {
+  if (t == null) return true;
+  const s = String(t).trim();
+  return (
+    !s
+    || s === '—'
+    || s === 'N/A'
+    || s === '00:00:00 AM'
+    || s === '00:00:00 PM'
+    || s === '00:00:00'
+  );
+};
+
+/** Official lunch window length (minute precision). */
+const getOfficialBreakDurationMinuteSec = (row) => {
+  const breakIn = parseClockToMinuteSec(row?.officialBreaktimeIN);
+  const breakOut = parseClockToMinuteSec(row?.officialBreaktimeOUT);
+  if (breakIn == null || breakOut == null) return 0;
+  let end = breakOut;
+  while (end <= breakIn) end += 12 * 3600;
+  return Math.max(0, end - breakIn);
+};
+
+/**
+ * Break IN and Break OUT are required on a full day (Time IN + Time OUT).
+ * If either punch is missing, deduct the official break duration.
+ * Half-day patterns (Time IN only / Time OUT only) are excluded.
+ */
+const computeMissingBreakDeductionMinuteSec = (row) => {
+  if (isEmptyPunchClock(row?.officialBreaktimeIN) || isEmptyPunchClock(row?.officialBreaktimeOUT)) {
+    return 0;
+  }
+  if (isEmptyPunchClock(row?.timeIN) || isEmptyPunchClock(row?.timeOUT)) {
+    return 0;
+  }
+  const missingBreakIn = isEmptyPunchClock(row?.breaktimeIN);
+  const missingBreakOut = isEmptyPunchClock(row?.breaktimeOUT);
+  if (!missingBreakIn && !missingBreakOut) return 0;
+  return getOfficialBreakDurationMinuteSec(row);
+};
+
+/**
+ * For rendered AM/PM only: when a full-day employee skipped break punches,
+ * use official break times as segment boundaries so work hours still credit,
+ * while the missing-break deduction is charged separately as tardiness.
+ */
+const resolveBreakPunchForSegment = (actualBreak, officialBreak, row) => {
+  if (!isEmptyPunchClock(actualBreak)) return actualBreak;
+  if (
+    !isEmptyPunchClock(row?.timeIN)
+    && !isEmptyPunchClock(row?.timeOUT)
+    && !isEmptyPunchClock(officialBreak)
+  ) {
+    return officialBreak;
+  }
+  return actualBreak;
 };
 
 const getRejectedHalfDayLateMinuteSec = (entry) => {
@@ -383,6 +461,7 @@ const applyNonTeachingWholeDayOverrides = (rows, holidayByDate, suspensionByDate
     const zeroed = {
       lateTotal: ZERO_HM,
       undertimeTotal: ZERO_HM,
+      missingBreakDeduction: ZERO_HM,
       formattedfinalcalcFacultyAM: ZERO_HM,
       formattedfinalcalcFacultyPM: ZERO_HM,
     };
@@ -497,7 +576,7 @@ const getRowTotalRenderedMinuteDisplay = (row, reviewByDate, isFurlough, calenda
     return ZERO_HM;
   }
   const am =
-    !row?.officialTimeIN || !row?.breaktimeIN || row?.formattedFacultyRenderedTimeAM === 'NaN:NaN:NaN'
+    !row?.officialTimeIN || row?.formattedFacultyRenderedTimeAM === 'NaN:NaN:NaN'
       ? ZERO_HM
       : displayDurationHhMm(row.formattedFacultyRenderedTimeAM);
   const pm =
@@ -684,85 +763,92 @@ const VIEW_TABS = [
 ];
 
 // ─── Column definitions ───────────────────────────────────────────────────
-// colGroup: collapse together; isGroupLeader on first column of each group.
+// set: 'official' | 'rendered' — toggleable column groups (compact layout).
 const TAB_COLUMNS = {
   regular: [
-    { label: 'Date',                   key: 'date',                 minWidth: 130, group: 'meta',     colGroup: null },
-    { label: 'Day',                    key: 'day',                  minWidth: 80,  group: 'meta',     colGroup: null },
-    { label: 'Time IN',                key: 'timeIN',               minWidth: 110, group: 'actual',   colGroup: 'morningDevice',        isGroupLeader: true },
-    { label: 'Official Time IN',       key: 'officialTimeIN',       minWidth: 130, group: 'official', colGroup: 'morningOfficial',      isGroupLeader: true },
-    { label: 'Breaktime IN',           key: 'breaktimeIN',          minWidth: 110, group: 'actual',   colGroup: 'breaktimeDevice',      isGroupLeader: true },
-    { label: 'Official Breaktime IN',  key: 'officialBreaktimeIN',  minWidth: 130, group: 'official', colGroup: 'breaktimeOfficial',    isGroupLeader: true },
-    { label: 'Breaktime OUT',          key: 'breaktimeOUT',         minWidth: 110, group: 'actual',   colGroup: 'afternoonBreakDevice', isGroupLeader: true },
-    { label: 'Time OUT',               key: 'timeOUT',              minWidth: 110, group: 'actual',   colGroup: 'timeOutDevice',        isGroupLeader: true },
-    { label: 'Official Breaktime OUT', key: 'officialBreaktimeOUT', minWidth: 130, group: 'official', colGroup: 'afternoonOfficial',    isGroupLeader: true },
-    { label: 'Official Time OUT',      key: 'officialTimeOUT',      minWidth: 130, group: 'official', colGroup: 'afternoonOfficial' },
-    { label: 'AM Rendered',            key: '_morningRendered',     minWidth: 110, group: 'calc',     colGroup: 'amRendered',           isGroupLeader: true },
-    { label: 'AM Tardiness',           key: '_morningTardiness',    minWidth: 110, group: 'tard',     colGroup: 'amTard',               isGroupLeader: true },
-    { label: 'PM Rendered',            key: '_afternoonRendered',   minWidth: 110, group: 'calc',     colGroup: 'pmRendered',           isGroupLeader: true },
-    { label: 'PM Tardiness',           key: '_afternoonTardiness',  minWidth: 110, group: 'tard',     colGroup: 'pmTard',               isGroupLeader: true },
-    { label: 'Total Rendered',         key: '_totalRendered',       minWidth: 110, group: 'calc',     colGroup: 'totalRendered',        isGroupLeader: true },
-    { label: 'Total Tardiness',        key: '_totalTardiness',      minWidth: 110, group: 'tard',     colGroup: 'totalTard',            isGroupLeader: true },
+    { label: 'Date',                   key: 'date',                 minWidth: 170, group: 'meta', sticky: true },
+    { label: 'Day',                    key: 'day',                  minWidth: 80,  group: 'meta' },
+    { label: 'Time IN',                key: 'timeIN',               minWidth: 110, group: 'actual' },
+    { label: 'Official Time IN',       key: 'officialTimeIN',       minWidth: 130, group: 'official', set: 'official' },
+    { label: 'Breaktime IN',           key: 'breaktimeIN',          minWidth: 110, group: 'actual' },
+    { label: 'Official Breaktime IN',  key: 'officialBreaktimeIN',  minWidth: 130, group: 'official', set: 'official' },
+    { label: 'Breaktime OUT',          key: 'breaktimeOUT',         minWidth: 110, group: 'actual' },
+    { label: 'Time OUT',               key: 'timeOUT',              minWidth: 110, group: 'actual' },
+    { label: 'Official Breaktime OUT', key: 'officialBreaktimeOUT', minWidth: 130, group: 'official', set: 'official' },
+    { label: 'Official Time OUT',      key: 'officialTimeOUT',      minWidth: 130, group: 'official', set: 'official' },
+    { label: 'AM Rendered',            key: '_morningRendered',     minWidth: 110, group: 'calc', set: 'rendered' },
+    { label: 'AM Tardiness',           key: '_morningTardiness',    minWidth: 110, group: 'tard' },
+    { label: 'PM Rendered',            key: '_afternoonRendered',   minWidth: 110, group: 'calc', set: 'rendered' },
+    { label: 'PM Tardiness',           key: '_afternoonTardiness',  minWidth: 110, group: 'tard' },
+    { label: 'Total Rendered',         key: '_totalRendered',       minWidth: 110, group: 'calc', set: 'rendered' },
+    { label: 'Total Tardiness',        key: '_totalTardiness',      minWidth: 110, group: 'tard' },
   ],
   honorarium: [
-    { label: 'Date',                 key: 'date',                      minWidth: 130, group: 'meta',     colGroup: null },
-    { label: 'Day',                  key: 'day',                       minWidth: 80,  group: 'meta',     colGroup: null },
-    { label: 'Time IN',              key: '_hnTimeIN',                 minWidth: 110, group: 'actual',   colGroup: 'hnTimes',    isGroupLeader: true },
-    { label: 'Time OUT',             key: '_hnTimeOUT',                minWidth: 110, group: 'actual',   colGroup: 'hnTimes' },
-    { label: 'Official HN Time IN',  key: 'officialHonorariumTimeIN',  minWidth: 140, group: 'official', colGroup: 'hnOfficial', isGroupLeader: true },
-    { label: 'Official HN Time OUT', key: 'officialHonorariumTimeOUT', minWidth: 140, group: 'official', colGroup: 'hnOfficial' },
-    { label: 'HN Rendered',          key: '_hnRendered',               minWidth: 110, group: 'calc',     colGroup: 'hnRendered', isGroupLeader: true },
-    { label: 'HN Tardiness',         key: '_hnTardiness',              minWidth: 110, group: 'tard',     colGroup: 'hnTard',     isGroupLeader: true },
+    { label: 'Date',                 key: 'date',                      minWidth: 170, group: 'meta', sticky: true },
+    { label: 'Day',                  key: 'day',                       minWidth: 80,  group: 'meta' },
+    { label: 'Time IN',              key: '_hnTimeIN',                 minWidth: 110, group: 'actual' },
+    { label: 'Time OUT',             key: '_hnTimeOUT',                minWidth: 110, group: 'actual' },
+    { label: 'Official HN Time IN',  key: 'officialHonorariumTimeIN',  minWidth: 140, group: 'official', set: 'official' },
+    { label: 'Official HN Time OUT', key: 'officialHonorariumTimeOUT', minWidth: 140, group: 'official', set: 'official' },
+    { label: 'HN Rendered',          key: '_hnRendered',               minWidth: 110, group: 'calc', set: 'rendered' },
+    { label: 'HN Tardiness',         key: '_hnTardiness',              minWidth: 110, group: 'tard' },
   ],
   serviceCredit: [
-    { label: 'Date',                 key: 'date',                         minWidth: 130, group: 'meta',     colGroup: null },
-    { label: 'Day',                  key: 'day',                          minWidth: 80,  group: 'meta',     colGroup: null },
-    { label: 'Time IN',              key: '_scTimeIN',                    minWidth: 110, group: 'actual',   colGroup: 'scTimes',    isGroupLeader: true },
-    { label: 'Time OUT',             key: '_scTimeOUT',                   minWidth: 110, group: 'actual',   colGroup: 'scTimes' },
-    { label: 'Official SC Time IN',  key: 'officialServiceCreditTimeIN',  minWidth: 140, group: 'official', colGroup: 'scOfficial', isGroupLeader: true },
-    { label: 'Official SC Time OUT', key: 'officialServiceCreditTimeOUT', minWidth: 140, group: 'official', colGroup: 'scOfficial' },
-    { label: 'SC Rendered',          key: '_scRendered',                  minWidth: 110, group: 'calc',     colGroup: 'scRendered', isGroupLeader: true },
-    { label: 'SC Tardiness',         key: '_scTardiness',                 minWidth: 110, group: 'tard',     colGroup: 'scTard',     isGroupLeader: true },
+    { label: 'Date',                 key: 'date',                         minWidth: 170, group: 'meta', sticky: true },
+    { label: 'Day',                  key: 'day',                          minWidth: 80,  group: 'meta' },
+    { label: 'Time IN',              key: '_scTimeIN',                    minWidth: 110, group: 'actual' },
+    { label: 'Time OUT',             key: '_scTimeOUT',                   minWidth: 110, group: 'actual' },
+    { label: 'Official SC Time IN',  key: 'officialServiceCreditTimeIN',  minWidth: 140, group: 'official', set: 'official' },
+    { label: 'Official SC Time OUT', key: 'officialServiceCreditTimeOUT', minWidth: 140, group: 'official', set: 'official' },
+    { label: 'SC Rendered',          key: '_scRendered',                  minWidth: 110, group: 'calc', set: 'rendered' },
+    { label: 'SC Tardiness',         key: '_scTardiness',                 minWidth: 110, group: 'tard' },
   ],
   overtime: [
-    { label: 'Date',                key: 'date',              minWidth: 130, group: 'meta',     colGroup: null },
-    { label: 'Day',                 key: 'day',               minWidth: 80,  group: 'meta',     colGroup: null },
-    { label: 'Time IN',             key: '_otTimeIN',         minWidth: 110, group: 'actual',   colGroup: 'otTimes',    isGroupLeader: true },
-    { label: 'Time OUT',            key: '_otTimeOUT',        minWidth: 110, group: 'actual',   colGroup: 'otTimes' },
-    { label: 'Official OT Time IN', key: 'officialOverTimeIN',  minWidth: 140, group: 'official', colGroup: 'otOfficial', isGroupLeader: true },
-    { label: 'Official OT Time OUT',key: 'officialOverTimeOUT', minWidth: 140, group: 'official', colGroup: 'otOfficial' },
-    { label: 'OT Rendered',         key: '_otRendered',       minWidth: 110, group: 'calc',     colGroup: 'otRendered', isGroupLeader: true },
-    { label: 'OT Tardiness',        key: '_otTardiness',      minWidth: 110, group: 'tard',     colGroup: 'otTard',     isGroupLeader: true },
+    { label: 'Date',                key: 'date',                minWidth: 170, group: 'meta', sticky: true },
+    { label: 'Day',                 key: 'day',                 minWidth: 80,  group: 'meta' },
+    { label: 'Time IN',             key: '_otTimeIN',           minWidth: 110, group: 'actual' },
+    { label: 'Time OUT',            key: '_otTimeOUT',          minWidth: 110, group: 'actual' },
+    { label: 'Official OT Time IN', key: 'officialOverTimeIN',  minWidth: 140, group: 'official', set: 'official' },
+    { label: 'Official OT Time OUT',key: 'officialOverTimeOUT', minWidth: 140, group: 'official', set: 'official' },
+    { label: 'OT Rendered',         key: '_otRendered',         minWidth: 110, group: 'calc', set: 'rendered' },
+    { label: 'OT Tardiness',        key: '_otTardiness',        minWidth: 110, group: 'tard' },
   ],
 };
 
-const COL_GROUP_META = {
-  morningDevice:        { label: 'Time IN · device' },
-  morningOfficial:      { label: 'Time IN · official' },
-  breaktimeDevice:      { label: 'Break IN · device' },
-  breaktimeOfficial:    { label: 'Break IN · official' },
-  afternoonBreakDevice: { label: 'Break OUT · device' },
-  timeOutDevice:        { label: 'Time OUT · device' },
-  afternoonOfficial:    { label: 'PM · official' },
-  amRendered:           { label: 'AM rendered' },
-  amTard:               { label: 'AM tardiness' },
-  pmRendered:           { label: 'PM rendered' },
-  pmTard:               { label: 'PM tardiness' },
-  totalRendered:        { label: 'Total rendered' },
-  totalTard:            { label: 'Total tardiness' },
-  hnTimes:              { label: 'Device times' },
-  hnOfficial:           { label: 'Official schedule' },
-  hnRendered:           { label: 'HN rendered' },
-  hnTard:               { label: 'HN tardiness' },
-  scTimes:              { label: 'Device times' },
-  scOfficial:           { label: 'Official schedule' },
-  scRendered:           { label: 'SC rendered' },
-  scTard:               { label: 'SC tardiness' },
-  otTimes:              { label: 'Device times' },
-  otOfficial:           { label: 'Official schedule' },
-  otRendered:           { label: 'OT rendered' },
-  otTard:               { label: 'OT tardiness' },
-};
+const SegBtn = ({ label, pressed, onClick }) => (
+  <button
+    type="button"
+    aria-pressed={pressed}
+    data-label={label}
+    onClick={onClick}
+    style={{
+      display: 'inline-grid',
+      alignItems: 'center',
+      justifyItems: 'center',
+      height: 28,
+      padding: '0 14px',
+      border: 0,
+      borderRadius: 7,
+      background: pressed ? T.accentDark : 'transparent',
+      color: pressed ? '#fff' : T.accent,
+      font: 'inherit',
+      fontSize: '0.78rem',
+      fontWeight: pressed ? 600 : 500,
+      fontFamily: 'inherit',
+      cursor: 'pointer',
+      transition: 'background-color .12s, color .12s',
+    }}
+    onMouseEnter={(e) => {
+      if (!pressed) e.currentTarget.style.backgroundColor = T.accentBorder;
+    }}
+    onMouseLeave={(e) => {
+      if (!pressed) e.currentTarget.style.backgroundColor = 'transparent';
+    }}
+  >
+    <span style={{ gridArea: '1 / 1' }}>{label}</span>
+    <span aria-hidden style={{ gridArea: '1 / 1', fontWeight: 600, visibility: 'hidden', height: 0 }}>{label}</span>
+  </button>
+);
 
 // ─── getCellValue ─────────────────────────────────────────────────────────
 /** @param {Record<string, { morning?: string, afternoon?: string }> | null} [tardOverrides] HR edits for Regular Time AM/PM tardiness. */
@@ -794,7 +880,7 @@ const getCellValue = (row, colKey, isFurlough = false, tardOverrides = null, rev
     case '_morningRendered':
       if (zeroAmPmHalfDay) return ZERO_HM;
       if (isFurlough) return !row.formattedFacultyMaxRenderedTimeAM || row.formattedFacultyMaxRenderedTimeAM === 'NaN:NaN:NaN' ? ZERO_HM : displayDurationHhMm(row.formattedFacultyMaxRenderedTimeAM);
-      return !row.officialTimeIN || !row.breaktimeIN || row.formattedFacultyRenderedTimeAM === 'NaN:NaN:NaN' ? ZERO_HM : displayDurationHhMm(row.formattedFacultyRenderedTimeAM);
+      return !row.officialTimeIN || row.formattedFacultyRenderedTimeAM === 'NaN:NaN:NaN' ? ZERO_HM : displayDurationHhMm(row.formattedFacultyRenderedTimeAM);
     case '_morningTardiness': {
       if (zeroAmPmHalfDay || isFurlough) return ZERO_HM;
       const d = normalizeReviewDate(row?.date);
@@ -853,8 +939,8 @@ const getCellValue = (row, colKey, isFurlough = false, tardOverrides = null, rev
         null,
       );
     }
-    case '_hnTimeIN':  return isNA(row.officialHonorariumTimeIN)  ? NA : row.timeIN;
-    case '_hnTimeOUT': return isNA(row.officialHonorariumTimeOUT) ? NA : row.timeOUT;
+    case '_hnTimeIN':  return isNA(row.officialHonorariumTimeIN)  ? NA : displayClockHhMm(row.timeIN);
+    case '_hnTimeOUT': return isNA(row.officialHonorariumTimeOUT) ? NA : displayClockHhMm(row.timeOUT);
     case '_hnRendered':
       if (isFurlough) return !row.formattedFacultyMaxRenderedTimeHN || row.formattedFacultyMaxRenderedTimeHN === 'NaN:NaN:NaN' ? ZERO_HM : displayDurationHhMm(row.formattedFacultyMaxRenderedTimeHN);
       return !row.officialTimeIN || !row.timeOUT || row.formattedFacultyRenderedTimeHN === 'NaN:NaN:NaN' ? ZERO_HM : displayDurationHhMm(row.formattedFacultyRenderedTimeHN);
@@ -865,8 +951,8 @@ const getCellValue = (row, colKey, isFurlough = false, tardOverrides = null, rev
           ? row.formattedFacultyMaxRenderedTimeHN
           : row.formattedfinalcalcFacultyHN,
       );
-    case '_scTimeIN':  return isNA(row.officialServiceCreditTimeIN)  ? NA : row.timeIN;
-    case '_scTimeOUT': return isNA(row.officialServiceCreditTimeOUT) ? NA : row.timeOUT;
+    case '_scTimeIN':  return isNA(row.officialServiceCreditTimeIN)  ? NA : displayClockHhMm(row.timeIN);
+    case '_scTimeOUT': return isNA(row.officialServiceCreditTimeOUT) ? NA : displayClockHhMm(row.timeOUT);
     case '_scRendered':
       if (isFurlough) return !row.formattedFacultyMaxRenderedTimeSC || row.formattedFacultyMaxRenderedTimeSC === 'NaN:NaN:NaN' ? ZERO_HM : displayDurationHhMm(row.formattedFacultyMaxRenderedTimeSC);
       return !row.officialTimeSC || !row.timeOUT || row.formattedFacultyRenderedTimeSC === 'NaN:NaN:NaN' ? ZERO_HM : displayDurationHhMm(row.formattedFacultyRenderedTimeSC);
@@ -877,8 +963,8 @@ const getCellValue = (row, colKey, isFurlough = false, tardOverrides = null, rev
           ? row.formattedFacultyMaxRenderedTimeSC
           : row.formattedfinalcalcFacultySC,
       );
-    case '_otTimeIN':  return isNA(row.officialOverTimeIN)  ? NA : row.timeIN;
-    case '_otTimeOUT': return isNA(row.officialOverTimeOUT) ? NA : row.timeOUT;
+    case '_otTimeIN':  return isNA(row.officialOverTimeIN)  ? NA : displayClockHhMm(row.timeIN);
+    case '_otTimeOUT': return isNA(row.officialOverTimeOUT) ? NA : displayClockHhMm(row.timeOUT);
     case '_otRendered':
       if (isFurlough) return !row.formattedFacultyMaxRenderedTimeOT || row.formattedFacultyMaxRenderedTimeOT === 'NaN:NaN:NaN' ? ZERO_HM : displayDurationHhMm(row.formattedFacultyMaxRenderedTimeOT);
       return !row.officialTimeIN || !row.timeOUT || row.formattedFacultyRenderedTimeOT === 'NaN:NaN:NaN' ? ZERO_HM : displayDurationHhMm(row.formattedFacultyRenderedTimeOT);
@@ -895,9 +981,11 @@ const getCellValue = (row, colKey, isFurlough = false, tardOverrides = null, rev
     case 'officialServiceCreditTimeOUT':
     case 'officialOverTimeIN':
     case 'officialOverTimeOUT':
-      return isNA(row[colKey]) ? NA : row[colKey];
-    default:
-      return row[colKey] ?? '—';
+      return isNA(row[colKey]) ? NA : displayClockHhMm(row[colKey]);
+    default: {
+      const v = row[colKey] ?? '—';
+      return CLOCK_DISPLAY_KEYS.has(colKey) ? displayClockHhMm(v) : v;
+    }
   }
 };
 
@@ -960,46 +1048,80 @@ const EditableTardinessCell = ({
         py: 0.5,
         verticalAlign: 'middle',
         bgcolor: cellBg,
+        fontVariantNumeric: 'tabular-nums',
         transition: 'background-color 0.12s',
         'tr:hover &': { bgcolor: `${T.rowHover} !important` },
       }}
     >
-      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 0.35, minWidth: 96 }}>
+      <Box
+        sx={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '2px',
+          flexWrap: 'wrap',
+          justifyContent: 'center',
+          maxWidth: 120,
+          width: '100%',
+          '&:hover .tard-reset': { opacity: 1 },
+        }}
+      >
         <TextField
           size="small"
-          fullWidth
           value={local}
           onChange={(e) => setLocal(e.target.value)}
           onBlur={applyBlur}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.target.blur(); } }}
           placeholder={systemVal}
           inputProps={{
+            inputMode: 'numeric',
             'aria-label': part === 'morning' ? 'AM tardiness' : 'PM tardiness',
-            sx: { fontFamily: T.recordFont, fontSize: '0.78rem', textAlign: 'center', py: 0.65 },
-          }}
-          InputProps={{
-            endAdornment: (
-              <InputAdornment position="end" sx={{ ml: 0 }}>
-                <Tooltip title="Use system calculation" placement="top" arrow>
-                  <IconButton
-                    size="small"
-                    aria-label="Use system calculation"
-                    onClick={() => { onCommit(null); setLocal(systemVal); }}
-                    sx={{ p: 0.35, color: T.accentMid }}
-                  >
-                    <RestartAlt sx={{ fontSize: 17 }} />
-                  </IconButton>
-                </Tooltip>
-              </InputAdornment>
-            ),
+            style: { textAlign: 'center', fontVariantNumeric: 'tabular-nums', padding: '5px 4px', fontSize: '0.78rem', fontFamily: T.recordFont },
           }}
           sx={{
-            '& .MuiOutlinedInput-root': { borderRadius: 1, bgcolor: '#fff', fontSize: '0.78rem' },
-            '& .MuiOutlinedInput-notchedOutline': { borderColor: T.accentBorder },
+            width: 64,
+            '& .MuiOutlinedInput-root': {
+              borderRadius: '6px',
+              bgcolor: hasAdjusted ? T.tardiness.bg : 'transparent',
+              fontSize: '0.78rem',
+              '& fieldset': { borderColor: hasAdjusted ? T.tardiness.border : 'transparent' },
+              '&:hover fieldset': { borderColor: T.accentBorder },
+              '&.Mui-focused fieldset': { borderColor: T.accentBorder },
+              '&:hover, &.Mui-focused': { bgcolor: hasAdjusted ? T.tardiness.bg : '#fff' },
+            },
           }}
         />
+        <Tooltip title="Use system calculation" placement="top" arrow>
+          <IconButton
+            className="tard-reset"
+            size="small"
+            aria-label="Use system calculation"
+            onClick={() => { onCommit(null); setLocal(systemVal); }}
+            sx={{
+              p: '3px',
+              borderRadius: '5px',
+              color: T.accentMid,
+              opacity: hasAdjusted ? 1 : 0.35,
+              transition: 'opacity .12s',
+              '&:hover': { bgcolor: T.accentFaint, opacity: 1 },
+            }}
+          >
+            <RestartAlt sx={{ fontSize: 15 }} />
+          </IconButton>
+        </Tooltip>
         {hasAdjusted && (
-          <Typography sx={{ fontSize: '0.58rem', color: T.muted, textAlign: 'center', lineHeight: 1.2 }}>
+          <Typography
+            component="span"
+            sx={{
+              flexBasis: '100%',
+              display: 'block',
+              fontSize: '0.58rem',
+              fontWeight: 500,
+              color: T.muted,
+              lineHeight: 1.2,
+              mt: '2px',
+              textAlign: 'center',
+            }}
+          >
             System: {systemVal}
           </Typography>
         )}
@@ -1056,7 +1178,7 @@ const FloatingTotalsBar = ({ totals, visible, onSave, saving, startDate, endDate
   return (
     <Box sx={{ width: '100%', maxWidth: '100%', minWidth: 0 }}>
       <Paper elevation={8} sx={{
-        borderRadius: '12px', overflow: 'hidden', width: '100%', maxWidth: '100%',
+        borderRadius: '12px', overflow: 'visible', width: '100%', maxWidth: '100%',
         border: `1px solid ${T.accentBorder}`, bgcolor: '#fff', mt: 2, mb: 2,
         boxShadow: '0 4px 24px rgba(0,0,0,0.10)',
       }}>
@@ -1114,11 +1236,12 @@ const FloatingTotalsBar = ({ totals, visible, onSave, saving, startDate, endDate
           sx={{
             width: '100%',
             maxWidth: '100%',
-            '& .MuiCollapse-wrapper': { width: '100%' },
-            '& .MuiCollapse-wrapperInner': { width: '100%', maxWidth: '100%' },
+            overflow: 'visible',
+            '& .MuiCollapse-wrapper': { width: '100%', overflow: 'visible' },
+            '& .MuiCollapse-wrapperInner': { width: '100%', maxWidth: '100%', overflow: 'visible' },
           }}
         >
-          {/* Outer: fixed viewport width + horizontal scroll. Inner: single intrinsic-width row (never wraps). */}
+          {/* Outer: reserved horizontal scrollbar so zoom cannot clip it. */}
           <Box
             sx={{
               px: 1.5, py: 1.25,
@@ -1126,9 +1249,9 @@ const FloatingTotalsBar = ({ totals, visible, onSave, saving, startDate, endDate
               maxWidth: '100%',
               minWidth: 0,
               boxSizing: 'border-box',
-              overflowX: 'auto',
               overflowY: 'hidden',
               WebkitOverflowScrolling: 'touch',
+              ...ATTENDANCE_ALWAYS_VISIBLE_X_SCROLL_SX,
             }}
           >
             <Box
@@ -1292,27 +1415,26 @@ const AttendanceModuleNonTeachingStaff = ({
   const [halfDayReviewDialog, setHalfDayReviewDialog] = useState(null);
   const [unresolvedDatesModal, setUnresolvedDatesModal] = useState(null);
 
-  const [collapsedGroups, setCollapsedGroups] = useState({
-    regular: {
-      morningDevice: false,
-      morningOfficial: true,
-      breaktimeDevice: false,
-      breaktimeOfficial: true,
-      afternoonBreakDevice: false,
-      timeOutDevice: false,
-      afternoonOfficial: true,
-      amRendered: false,
-      amTard: false,
-      pmRendered: false,
-      pmTard: false,
-      totalTard: false,
-    },
-    honorarium:    { hnTimes: false, hnOfficial: true, hnRendered: false, hnTard: false },
-    serviceCredit: { scTimes: false, scOfficial: true, scRendered: false, scTard: false },
-    overtime:      { otTimes: false, otOfficial: true, otRendered: false, otTard: false },
+  /** Per-tab: hide official / rendered column sets (compact layout default). */
+  const [hiddenColumnSets, setHiddenColumnSets] = useState({
+    regular: defaultHiddenSets(),
+    honorarium: defaultHiddenSets(),
+    serviceCredit: defaultHiddenSets(),
+    overtime: defaultHiddenSets(),
   });
-  const toggleColGroup = (tab, groupKey) =>
-    setCollapsedGroups((prev) => ({ ...prev, [tab]: { ...prev[tab], [groupKey]: !prev[tab][groupKey] } }));
+  const toggleColumnSet = (tab, setKey) =>
+    setHiddenColumnSets((prev) => ({
+      ...prev,
+      [tab]: { ...prev[tab], [setKey]: !prev[tab][setKey] },
+    }));
+  const applyColumnPreset = (tab, preset) =>
+    setHiddenColumnSets((prev) => ({
+      ...prev,
+      [tab]: {
+        official: preset === 'compact',
+        rendered: preset === 'compact',
+      },
+    }));
 
   const [suspensionByDate, setSuspensionByDate] = useState({});
   const [leaveByDate, setLeaveByDate]           = useState({});
@@ -1524,19 +1646,24 @@ const suspensionAdjustedRawRows = clampNonTeachingRowsForPartialSuspension(
 
 const processedDataPreOverrides = suspensionAdjustedRawRows.map((row) => {
   const { timeIN, timeOUT, breaktimeIN, breaktimeOUT, officialBreaktimeIN, officialBreaktimeOUT, officialTimeIN, officialTimeOUT, officialHonorariumTimeIN, officialHonorariumTimeOUT, officialServiceCreditTimeIN, officialServiceCreditTimeOUT, officialOverTimeIN, officialOverTimeOUT } = row;
-  const am = calcSegment(timeIN, breaktimeIN, officialTimeIN, officialBreaktimeIN);
-  const pm = calcSegment(breaktimeOUT, timeOUT, officialBreaktimeOUT, officialTimeOUT);
+  const effBreakIn = resolveBreakPunchForSegment(breaktimeIN, officialBreaktimeIN, row);
+  const effBreakOut = resolveBreakPunchForSegment(breaktimeOUT, officialBreaktimeOUT, row);
+  const am = calcSegment(timeIN, effBreakIn, officialTimeIN, officialBreaktimeIN);
+  const pm = calcSegment(effBreakOut, timeOUT, officialBreaktimeOUT, officialTimeOUT);
   const hn = calcSegment(timeIN, timeOUT, officialHonorariumTimeIN, officialHonorariumTimeOUT);
   const sc = calcSegment(timeIN, timeOUT, officialServiceCreditTimeIN, officialServiceCreditTimeOUT);
   const ot = calcSegment(timeIN, timeOUT, officialOverTimeIN, officialOverTimeOUT);
   const arrivalLateSec = computeArrivalLateMinuteSec(row) ?? 0;
   const earlyLeaveSec = computeEarlyLeaveUndertimeMinuteSec(row) ?? 0;
+  const missingBreakSec = computeMissingBreakDeductionMinuteSec(row) ?? 0;
+  // Missing Break IN/OUT → deduct official break length (charged on PM / undertime).
   const amTardiness = formatDurationHhMm(arrivalLateSec);
-  const pmTardiness = formatDurationHhMm(earlyLeaveSec);
+  const pmTardiness = formatDurationHhMm(earlyLeaveSec + missingBreakSec);
   return normalizeNonTeachingRowDurations({
     ...row,
     lateTotal: amTardiness,
     undertimeTotal: pmTardiness,
+    missingBreakDeduction: formatDurationHhMm(missingBreakSec),
     formattedFacultyRenderedTimeAM: am.rendered,  formattedFacultyMaxRenderedTimeAM: am.maxRendered, formattedfinalcalcFacultyAM: amTardiness,
     formattedFacultyRenderedTimePM: pm.rendered,  formattedFacultyMaxRenderedTimePM: pm.maxRendered, formattedfinalcalcFacultyPM: pmTardiness,
     formattedFacultyRenderedTimeHN: hn.rendered,  formattedFacultyMaxRenderedTimeHN: hn.maxRendered, formattedfinalcalcFacultyHN: hn.tardiness,
@@ -2078,102 +2205,42 @@ setSuspensionByDate(scopedSuspensionByDate);
     <AccessDenied title="Access Denied" message="You do not have permission to access Attendance Module for Non-Teaching Staff. Contact your administrator to request access." returnPath="/admin-home" returnButtonText="Return to Home" />
   );
 
-  const allColumns   = TAB_COLUMNS[activeTab];
-  const curCollapsed = collapsedGroups[activeTab] || {};
-  const columnSlots = allColumns.reduce((acc, col) => {
-    const g = col.colGroup;
-    if (!g) { acc.push({ col, isCollapsedPlaceholder: false }); return acc; }
-    const collapsed = !!curCollapsed[g];
-    if (collapsed) {
-      if (col.isGroupLeader) acc.push({ col, isCollapsedPlaceholder: true });
-    } else {
-      acc.push({ col, isCollapsedPlaceholder: false });
-    }
-    return acc;
-  }, []);
+  const allColumns = TAB_COLUMNS[activeTab];
+  const hid = hiddenColumnSets[activeTab] || defaultHiddenSets();
+  const visibleColumns = allColumns.filter((col) => !(col.set && hid[col.set]));
+  const allHidden = COLUMN_SETS.every((x) => hid[x.key]);
+  const allShown = COLUMN_SETS.every((x) => !hid[x.key]);
 
   // ── Single-row table head ─────────────────────────────────────────────
   const buildTableHead = () => (
     <TableHead>
       <TableRow>
-        {columnSlots.map(({ col, isCollapsedPlaceholder }) => {
-          const g = col.colGroup;
-          const groupLabel = g ? COL_GROUP_META[g]?.label || g : null;
-
-          if (isCollapsedPlaceholder) {
-            return (
-              <TableCell
-                key={col.key + '_ph'}
-                onClick={() => toggleColGroup(activeTab, g)}
-                sx={{
-                  position: 'sticky', top: 0, zIndex: 3,
-                  bgcolor: '#b07070',
-                  px: 0.75, py: 1,
-                  minWidth: 36, width: 36, maxWidth: 36,
-                  cursor: 'pointer', textAlign: 'center',
-                  borderBottom: `2px solid ${T.accentBorder}`,
-                  borderRight: `1px solid rgba(255,255,255,0.2)`,
-                  verticalAlign: 'middle',
-                  '&:hover': { bgcolor: T.accentMid },
-                  transition: 'background-color 0.15s',
-                }}
-              >
-                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.3 }}>
-                  <UnfoldMore sx={{ fontSize: 13, color: '#fff' }} />
-                  <Typography sx={{
-                    fontSize: '0.52rem', fontWeight: 700, color: 'rgba(255,255,255,0.9)',
-                    writingMode: 'vertical-rl', textOrientation: 'mixed',
-                    transform: 'rotate(180deg)',
-                    letterSpacing: '0.04em', textTransform: 'uppercase',
-                    maxHeight: 80, overflow: 'hidden',
-                  }}>
-                    {groupLabel}
-                  </Typography>
-                </Box>
-              </TableCell>
-            );
-          }
-
-          const isLeader = col.isGroupLeader && g && !curCollapsed[g];
+        {visibleColumns.map((col) => {
           const halfDayTotalCol = halfDayTotalColumnVariant(col.key);
           return (
             <TableCell
               key={col.key + '_h'}
               sx={{
-                position: 'sticky', top: 0, zIndex: 3,
+                position: 'sticky',
+                top: 0,
+                left: col.sticky ? 0 : 'auto',
+                zIndex: col.sticky ? 4 : 3,
                 bgcolor: T.accent,
-                fontWeight: 700, fontSize: '0.65rem',
-                letterSpacing: '0.05em', textTransform: 'uppercase',
-                color: '#fff', textAlign: 'center',
-                px: 1.5,
-                pt: isLeader ? 0.5 : 1,
-                pb: 1,
+                fontWeight: 700,
+                fontSize: '0.65rem',
+                letterSpacing: '0.05em',
+                textTransform: 'uppercase',
+                color: '#fff',
+                textAlign: col.sticky ? 'left' : 'center',
+                px: 1.75,
+                py: 1.35,
                 minWidth: col.minWidth || 80,
                 borderBottom: `2px solid ${T.accentBorder}`,
                 borderRight: `1px solid rgba(255,255,255,0.15)`,
                 whiteSpace: halfDayTotalCol ? 'normal' : 'nowrap',
-                verticalAlign: 'bottom',
+                verticalAlign: 'middle',
               }}
             >
-              {isLeader && (
-                <Box
-                  onClick={() => toggleColGroup(activeTab, g)}
-                  sx={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.4,
-                    mb: 0.6, cursor: 'pointer',
-                    px: 0.75, py: 0.2, borderRadius: '4px',
-                    bgcolor: 'rgba(255,255,255,0.14)',
-                    border: '1px solid rgba(255,255,255,0.25)',
-                    transition: 'background-color 0.15s',
-                    '&:hover': { bgcolor: 'rgba(255,255,255,0.24)' },
-                  }}
-                >
-                  <UnfoldLess sx={{ fontSize: 10, color: 'rgba(255,255,255,0.85)' }} />
-                  <Typography sx={{ fontSize: '0.57rem', fontWeight: 700, color: 'rgba(255,255,255,0.9)', letterSpacing: '0.04em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
-                    {groupLabel} · hide
-                  </Typography>
-                </Box>
-              )}
               <HalfDayTotalColumnHeader label={col.label} colKey={col.key} />
             </TableCell>
           );
@@ -2183,66 +2250,99 @@ setSuspensionByDate(scopedSuspensionByDate);
   );
 
   // ── Cell builder ──────────────────────────────────────────────────────
-  const buildCell = (content, group, isEven) => (
+  const buildCell = (content, group, isEven, opts = {}) => (
     <TableCell sx={{
       borderBottom: `1px solid ${T.divider}`,
       borderRight: `1px solid ${T.divider}`,
-      px: 1.5, py: 0.9, whiteSpace: 'nowrap', textAlign: 'center',
+      px: 1.75, py: 1, whiteSpace: 'nowrap', textAlign: 'center',
       color: group === 'official' ? T.faint : T.text,
       fontWeight: group === 'official' ? 400 : 500,
       fontSize: group === 'official' ? '0.75rem' : '0.8rem',
       fontFamily: T.recordFont,
+      fontVariantNumeric: 'tabular-nums',
       bgcolor: isEven ? '#fff' : T.rowOdd,
       transition: 'background-color 0.12s',
       'tr:hover &': { bgcolor: `${T.rowHover} !important` },
-    }}>{group === 'calc' || group === 'tard' ? displayDurationHhMm(content) : content}</TableCell>
-  );
-
-  const buildCollapsedCell = (isEven) => (
-    <TableCell sx={{
-      minWidth: 36, width: 36, maxWidth: 36,
-      bgcolor: isEven ? 'rgba(109,35,35,0.03)' : 'rgba(109,35,35,0.06)',
-      borderBottom: `1px solid ${T.divider}`,
-      borderRight: `1px solid ${T.divider}`,
-      p: 0,
-    }} />
+      ...opts.sx,
+    }}>{group === 'calc' || group === 'tard' ? displayDurationHhMm(content) : (content === '—' || content === 'N/A'
+      ? <Box component="span" sx={{ color: T.faint, fontWeight: 400 }}>{content}</Box>
+      : content)}</TableCell>
   );
 
   // ── Totals row ────────────────────────────────────────────────────────
-  /** @param {{ renderedColKey?: string, tardColKey?: string }} [opts] — when set, values show in those columns (e.g. morning vs afternoon partial totals). */
+  /** @param {{ renderedColKey?: string, tardColKey?: string }} [opts] */
   const renderTotalsRow = (label, renderedVal, tardinessVal, opts = {}) => {
-    const { renderedColKey, tardColKey } = opts;
-    const renderedKeys  = columnSlots.filter(s => !s.isCollapsedPlaceholder && s.col.group === 'calc').map(s => s.col.key);
-    const tardinessKeys = columnSlots.filter(s => !s.isCollapsedPlaceholder && s.col.group === 'tard').map(s => s.col.key);
-    const nonCalcCount  = columnSlots.filter(s => s.isCollapsedPlaceholder || (s.col.group !== 'calc' && s.col.group !== 'tard')).length;
+    const { renderedColKey, tardColKey, overall = false } = opts;
+    const renderedKeys  = visibleColumns.filter(c => c.group === 'calc').map(c => c.key);
+    const tardinessKeys = visibleColumns.filter(c => c.group === 'tard').map(c => c.key);
+    const firstMetricIdx = visibleColumns.findIndex(c => c.group === 'calc' || c.group === 'tard');
+    const labelSpan = firstMetricIdx < 1 ? Math.max(visibleColumns.length, 1) : firstMetricIdx;
 
     const targetRenderedKey = renderedColKey || renderedKeys[renderedKeys.length - 1];
     const targetTardKey     = tardColKey     || tardinessKeys[tardinessKeys.length - 1];
+    const renderedVisible = targetRenderedKey && visibleColumns.some(c => c.key === targetRenderedKey);
+    const tardVisible = targetTardKey && visibleColumns.some(c => c.key === targetTardKey);
 
     return (
-      <TableRow sx={{ bgcolor: '#fafafa', borderTop: `2px solid ${T.accentBorder}` }}>
-        {columnSlots.map(({ col, isCollapsedPlaceholder: isCp }, ci) => {
-          if (ci === 0) return (
-            <TableCell key={col.key + '_tl'} colSpan={nonCalcCount}
-              sx={{ fontSize: '0.7rem', fontWeight: 700, color: T.faint, textAlign: 'right', pr: 2.5, py: 1.25, borderBottom: 'none', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-              {label}
-            </TableCell>
-          );
-          if (ci < nonCalcCount) return null;
-          if (isCp) return null;
+      <TableRow sx={{
+        bgcolor: overall ? '#fff' : '#fafafa',
+        borderTop: overall ? `2px solid ${T.accent}` : `2px solid ${T.accentBorder}`,
+      }}>
+        {visibleColumns.map((col, ci) => {
+          if (ci === 0) {
+            return (
+              <TableCell
+                key={col.key + '_tl'}
+                colSpan={labelSpan}
+                sx={{
+                  fontSize: overall ? '0.72rem' : '0.7rem',
+                  fontWeight: overall ? 800 : 700,
+                  color: overall ? T.accent : T.faint,
+                  textAlign: 'right',
+                  pr: 2.5,
+                  py: overall ? 1.5 : 1.25,
+                  borderBottom: 'none',
+                  letterSpacing: '0.04em',
+                  textTransform: 'uppercase',
+                  position: col.sticky ? 'sticky' : 'static',
+                  left: col.sticky ? 0 : 'auto',
+                  zIndex: col.sticky ? 1 : 'auto',
+                  bgcolor: overall ? '#fff' : '#fafafa',
+                }}
+              >
+                {label}
+                {!renderedVisible && renderedVal != null && (
+                  <Box component="span" sx={{ ml: 1, color: T.rendered.color, textTransform: 'none', letterSpacing: 0, fontSize: '0.78rem', fontWeight: 700 }}>
+                    {displayDurationHhMm(renderedVal)} rendered
+                  </Box>
+                )}
+                {overall && !tardVisible && tardinessVal != null && (
+                  <Box component="span" sx={{ ml: 1, color: T.tardiness.color, textTransform: 'none', letterSpacing: 0, fontSize: '0.78rem', fontWeight: 700 }}>
+                    {formatTardinessAsDaysHours(tardinessVal)} ({displayDurationHhMm(tardinessVal)})
+                  </Box>
+                )}
+              </TableCell>
+            );
+          }
+          if (ci < labelSpan) return null;
           const showRendered  = col.group === 'calc' && targetRenderedKey && col.key === targetRenderedKey;
           const showTardiness = col.group === 'tard' && targetTardKey && col.key === targetTardKey;
           if (showRendered) return (
-            <TableCell key={col.key + '_tr'} sx={{ fontFamily: T.recordFont, fontWeight: 800, fontSize: '0.88rem', textAlign: 'center', py: 1.25, borderBottom: 'none', color: T.rendered.color, bgcolor: T.rendered.bg }}>
+            <TableCell key={col.key + '_tr'} sx={{ fontFamily: T.recordFont, fontWeight: 800, fontSize: '0.88rem', textAlign: 'center', py: 1.25, borderBottom: 'none', color: T.rendered.color, bgcolor: T.rendered.bg, fontVariantNumeric: 'tabular-nums' }}>
               {displayDurationHhMm(renderedVal)}
             </TableCell>
           );
           if (showTardiness) return (
-            <TableCell key={col.key + '_tt'} sx={{ fontFamily: T.recordFont, fontWeight: 800, fontSize: '0.88rem', textAlign: 'center', py: 1.25, borderBottom: 'none', color: T.tardiness.color, bgcolor: T.tardiness.bg }}>
-              {displayDurationHhMm(tardinessVal)}
+            <TableCell key={col.key + '_tt'} sx={{ fontFamily: T.recordFont, fontWeight: 800, fontSize: '0.88rem', textAlign: 'center', py: 1.25, borderBottom: 'none', color: T.tardiness.color, bgcolor: T.tardiness.bg, fontVariantNumeric: 'tabular-nums' }}>
+              {overall ? (
+                <>
+                  <Typography sx={{ fontFamily: T.recordFont, fontWeight: 900, fontSize: '0.95rem' }}>{formatTardinessAsDaysHours(tardinessVal || ZERO_HM)}</Typography>
+                  <Typography sx={{ fontFamily: T.recordFont, fontWeight: 600, fontSize: '0.68rem', opacity: 0.6 }}>{displayDurationHhMm(tardinessVal)}</Typography>
+                </>
+              ) : displayDurationHhMm(tardinessVal)}
             </TableCell>
           );
-          return <TableCell key={col.key + '_td'} sx={{ borderBottom: 'none', bgcolor: '#fafafa', textAlign: 'center', color: T.faint, fontSize: '0.75rem' }}>—</TableCell>;
+          return <TableCell key={col.key + '_td'} sx={{ borderBottom: 'none', bgcolor: overall ? '#fff' : '#fafafa', textAlign: 'center', color: T.faint, fontSize: '0.75rem' }} />;
         })}
       </TableRow>
     );
@@ -2436,25 +2536,55 @@ setSuspensionByDate(scopedSuspensionByDate);
               />
 
               {/* Tab switcher */}
-              <Box sx={{ px: 2.5, pt: 2, pb: 1.5 }}>
-                <Box sx={{ display: 'flex', border: `1px solid ${T.accentBorder}`, borderRadius: '8px', overflow: 'hidden' }}>
-                  {VIEW_TABS.map(({ key, label, icon }, i, arr) => (
-                    <button key={key} onClick={() => setActiveTab(key)}
-                      style={{ flex: 1, border: 'none', borderRight: i < arr.length - 1 ? `1px solid ${T.accentBorder}` : 'none', borderRadius: 0, padding: '8px 12px', cursor: 'pointer', background: activeTab === key ? T.accent : 'transparent', color: activeTab === key ? '#fff' : T.accent, fontSize: '0.78rem', fontWeight: 700, fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', transition: 'all 0.15s ease' }}
-                      onMouseEnter={e => { if (activeTab !== key) e.currentTarget.style.backgroundColor = T.accentFaint; }}
-                      onMouseLeave={e => { if (activeTab !== key) e.currentTarget.style.backgroundColor = 'transparent'; }}>
-                      {icon}{label}
-                    </button>
-                  ))}
-                </Box>
+              <Box sx={{ display: 'flex', mx: 2.25, mt: 2, border: `1px solid ${T.accentBorder}`, borderRadius: '8px', overflow: 'hidden' }}>
+                {VIEW_TABS.map(({ key, label, icon }, i, arr) => (
+                  <button key={key} onClick={() => setActiveTab(key)}
+                    style={{ flex: 1, border: 'none', borderRight: i < arr.length - 1 ? `1px solid ${T.accentBorder}` : 'none', borderRadius: 0, padding: '10px 8px', cursor: 'pointer', background: activeTab === key ? T.accentDark : 'transparent', color: activeTab === key ? '#fff' : T.accent, fontSize: '0.78rem', fontWeight: 700, fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px', transition: 'all 0.15s ease' }}
+                    onMouseEnter={e => { if (activeTab !== key) e.currentTarget.style.backgroundColor = T.accentFaint; }}
+                    onMouseLeave={e => { if (activeTab !== key) e.currentTarget.style.backgroundColor = 'transparent'; }}>
+                    {icon}{label}
+                  </button>
+                ))}
               </Box>
 
               {/* Table */}
-              <Box sx={{ px: 2.5, pb: 2.5 }}>
-                <Box sx={{ position: 'relative', borderRadius: '8px', border: `1px solid ${T.accentBorder}`, overflow: 'hidden' }}>
+              <Box sx={{ px: 2.25, pt: 1.75, pb: 2.25 }}>
+                {/* Columns toolbar */}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 1.25 }}>
+                  <Typography sx={{ fontSize: '0.68rem', fontWeight: 700, color: T.muted, letterSpacing: '0.06em', textTransform: 'uppercase', mr: 0.25 }}>
+                    Columns
+                  </Typography>
                   <Box
-                    sx={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 500, scrollbarWidth: 'thin', '&::-webkit-scrollbar': { height: 6, width: 6 }, '&::-webkit-scrollbar-track': { background: T.accentFaint, borderRadius: 4 }, '&::-webkit-scrollbar-thumb': { background: T.accentMid, borderRadius: 4 } }}>
-                    <Table sx={{ minWidth: columnSlots.reduce((s, { col, isCollapsedPlaceholder: cp }) => s + (cp ? 36 : (col.minWidth || 100)), 0), borderCollapse: 'collapse' }}>
+                    role="group"
+                    aria-label="Column preset"
+                    sx={{ display: 'inline-flex', gap: '2px', p: '3px', bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, borderRadius: '10px' }}
+                  >
+                    <SegBtn label="Compact view" pressed={allHidden} onClick={() => applyColumnPreset(activeTab, 'compact')} />
+                    <SegBtn label="Show all" pressed={allShown} onClick={() => applyColumnPreset(activeTab, 'all')} />
+                  </Box>
+                  <Box
+                    role="group"
+                    aria-label="Show or hide columns"
+                    sx={{ display: 'inline-flex', gap: '2px', p: '3px', bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, borderRadius: '10px' }}
+                  >
+                    {COLUMN_SETS.map((x) => (
+                      <SegBtn
+                        key={x.key}
+                        label={x.label}
+                        pressed={!hid[x.key]}
+                        onClick={() => toggleColumnSet(activeTab, x.key)}
+                      />
+                    ))}
+                  </Box>
+                  <Typography sx={{ ml: 'auto', fontSize: '0.72rem', color: T.faint }}>
+                    Showing {visibleColumns.length} of {allColumns.length} columns
+                  </Typography>
+                </Box>
+
+                <Box sx={{ position: 'relative', borderRadius: '8px', border: `1px solid ${T.accentBorder}`, overflow: 'visible', bgcolor: '#fff' }}>
+                  <Box
+                    sx={{ overflowY: 'auto', maxHeight: 560, ...ATTENDANCE_ALWAYS_VISIBLE_X_SCROLL_SX }}>
+                    <Table sx={{ minWidth: visibleColumns.reduce((s, col) => s + (col.minWidth || 100), 0), borderCollapse: 'separate', borderSpacing: 0 }}>
                       {buildTableHead()}
                       <TableBody>
                         {attendanceData.map((row, index) => {
@@ -2462,6 +2592,7 @@ setSuspensionByDate(scopedSuspensionByDate);
                           const isFurlough  = isFurloughForDate(row.date);
                           const isEven      = index % 2 === 0;
                           const rowIsAbsent = isAbsentAttendanceRow(row);
+                          const isHoliday = statusLabel === 'HOLIDAY';
                           const halfUi =
                             !rowIsAbsent && !isFurlough
                               ? getHalfDayUiStatus(row)
@@ -2470,39 +2601,48 @@ setSuspensionByDate(scopedSuspensionByDate);
                             ? getHalfDayReviewRowChrome(halfUi, T)
                             : null;
                           const rowBg = rowIsAbsent
-                            ? alpha('#b71c1c', 0.08)
-                            : halfDayChrome?.rowBg;
+                            ? alpha('#c62828', 0.08)
+                            : isHoliday
+                              ? alpha('#f57c00', 0.08)
+                              : halfDayChrome?.rowBg;
                           const rowBorder = rowIsAbsent
-                            ? `3px solid ${alpha('#b71c1c', 0.55)}`
-                            : halfDayChrome?.rowBorder ?? '3px solid transparent';
+                            ? `3px solid ${T.absent.border}`
+                            : isHoliday
+                              ? `3px solid ${T.holiday.border}`
+                              : halfDayChrome?.rowBorder ?? '3px solid transparent';
+                          const faintRest = isFurlough && !rowIsAbsent && !isHoliday && !halfUi;
 
                           return (
                             <TableRow
                               key={row.date || index}
                               sx={{
+                                color: faintRest ? T.faint : 'inherit',
                                 '&:hover td': { bgcolor: `${T.rowHover} !important` },
                                 ...(rowBg ? { '& td': { bgcolor: `${rowBg} !important` } } : {}),
                               }}
                             >
-                              {columnSlots.map(({ col, isCollapsedPlaceholder: isCp }) => {
-                                if (isCp) return <React.Fragment key={col.key + '_cp'}>{buildCollapsedCell(isEven)}</React.Fragment>;
-
+                              {visibleColumns.map((col) => {
                                 if (col.key === 'date') return (
                                   <TableCell
                                     key={col.key}
                                     sx={{
+                                      position: 'sticky',
+                                      left: 0,
+                                      zIndex: 1,
                                       fontSize: '0.8rem',
                                       fontWeight: 600,
-                                      color: T.text,
-                                      bgcolor: isEven ? '#fff' : T.rowOdd,
+                                      color: faintRest ? T.faint : T.text,
+                                      bgcolor: rowBg || (isEven ? '#fff' : T.rowOdd),
                                       borderBottom: `1px solid ${T.divider}`,
                                       borderLeft: rowBorder,
                                       borderRight: `1px solid ${T.divider}`,
-                                      px: 1.5,
-                                      py: 0.9,
+                                      px: 1.75,
+                                      py: 1,
                                       whiteSpace: 'nowrap',
                                       textAlign: 'left',
+                                      minWidth: 170,
                                       transition: 'background-color 0.12s',
+                                      boxShadow: rowBorder !== '3px solid transparent' ? `inset 3px 0 0 ${rowIsAbsent ? T.absent.border : isHoliday ? T.holiday.border : T.halfDay.border}` : 'none',
                                     }}
                                   >
                                     <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 0.25 }}>
@@ -2582,6 +2722,94 @@ setSuspensionByDate(scopedSuspensionByDate);
                                   </TableCell>
                                 );
 
+                                if (activeTab === 'regular' && (col.key === 'breaktimeIN' || col.key === 'breaktimeOUT')) {
+                                  const showMissingBreak =
+                                    !rowIsAbsent && !isFurlough && computeMissingBreakDeductionMinuteSec(row) > 0;
+                                  const breakInIdx = visibleColumns.findIndex((c) => c.key === 'breaktimeIN');
+                                  const breakOutIdx = visibleColumns.findIndex((c) => c.key === 'breaktimeOUT');
+                                  const breaksAdjacent =
+                                    breakInIdx >= 0 && breakOutIdx === breakInIdx + 1;
+
+                                  // One centered label spanning Break IN + Break OUT when both are adjacent.
+                                  if (showMissingBreak && breaksAdjacent) {
+                                    if (col.key === 'breaktimeOUT') return null;
+                                    return (
+                                      <TableCell
+                                        key="breaktime-missing"
+                                        colSpan={2}
+                                        sx={{
+                                          borderBottom: `1px solid ${T.divider}`,
+                                          borderRight: `1px solid ${T.divider}`,
+                                          px: 1.5,
+                                          py: 0.9,
+                                          textAlign: 'center',
+                                          verticalAlign: 'middle',
+                                          fontFamily: T.recordFont,
+                                          bgcolor: T.tardiness.bg,
+                                          transition: 'background-color 0.12s',
+                                          'tr:hover &': { bgcolor: `${T.rowHover} !important` },
+                                        }}
+                                      >
+                                        <Typography
+                                          component="span"
+                                          sx={{
+                                            fontSize: '0.58rem',
+                                            fontWeight: 700,
+                                            color: T.tardiness.color,
+                                            lineHeight: 1.2,
+                                            whiteSpace: 'nowrap',
+                                          }}
+                                        >
+                                          No break punch — deducted
+                                        </Typography>
+                                      </TableCell>
+                                    );
+                                  }
+
+                                  // Fallback: show the note once under Break IN only.
+                                  const punchVal = getCellValue(row, col.key, isFurlough, null, halfDayReviewByDate);
+                                  const noteHere = showMissingBreak && col.key === 'breaktimeIN';
+                                  return (
+                                    <TableCell
+                                      key={col.key}
+                                      sx={{
+                                        borderBottom: `1px solid ${T.divider}`,
+                                        borderRight: `1px solid ${T.divider}`,
+                                        px: 1.5,
+                                        py: 0.9,
+                                        textAlign: 'center',
+                                        verticalAlign: 'middle',
+                                        fontWeight: 500,
+                                        fontSize: '0.8rem',
+                                        fontFamily: T.recordFont,
+                                        fontVariantNumeric: 'tabular-nums',
+                                        bgcolor: noteHere ? T.tardiness.bg : (isEven ? '#fff' : T.rowOdd),
+                                        transition: 'background-color 0.12s',
+                                        'tr:hover &': { bgcolor: `${T.rowHover} !important` },
+                                      }}
+                                    >
+                                      {noteHere ? (
+                                        <Typography
+                                          component="span"
+                                          sx={{
+                                            fontSize: '0.58rem',
+                                            fontWeight: 700,
+                                            color: T.tardiness.color,
+                                            lineHeight: 1.2,
+                                            whiteSpace: 'nowrap',
+                                          }}
+                                        >
+                                          No break punch — deducted
+                                        </Typography>
+                                      ) : (
+                                        <Box component="span" sx={{ color: (punchVal === '—' || punchVal === 'N/A') ? T.faint : T.text, fontWeight: (punchVal === '—' || punchVal === 'N/A') ? 400 : 500 }}>
+                                          {punchVal}
+                                        </Box>
+                                      )}
+                                    </TableCell>
+                                  );
+                                }
+
                                 if (activeTab === 'regular' && (col.key === '_morningTardiness' || col.key === '_afternoonTardiness')) {
                                   const part = col.key === '_morningTardiness' ? 'morning' : 'afternoon';
                                   return (
@@ -2651,72 +2879,21 @@ setSuspensionByDate(scopedSuspensionByDate);
                         {activeTab === 'regular' && <>
                           {renderTotalsRow(`Morning total (${startDate} – ${endDate})`, totals.morningRendered, totals.morningTardiness, { renderedColKey: '_morningRendered', tardColKey: '_morningTardiness' })}
                           {renderTotalsRow(`Afternoon total (${startDate} – ${endDate})`, totals.afternoonRendered, totals.afternoonTardiness, { renderedColKey: '_afternoonRendered', tardColKey: '_afternoonTardiness' })}
-                          {/* Overall row */}
-                          {(() => {
-                            const calcSlots  = columnSlots.filter(s => !s.isCollapsedPlaceholder && (s.col.group === 'calc' || s.col.group === 'tard'));
-                            const nonCalcCnt = columnSlots.filter((s) => !s.isCollapsedPlaceholder && s.col.group !== 'calc' && s.col.group !== 'tard').length;
-                            const visCalcKeys = calcSlots.filter((x) => x.col.group === 'calc').map((x) => x.col.key);
-                            const visTardKeys = calcSlots.filter((x) => x.col.group === 'tard').map((x) => x.col.key);
-                            const overallRenderedKey = visCalcKeys.includes('_totalRendered')
-                              ? '_totalRendered'
-                              : visCalcKeys.includes('_afternoonRendered')
-                                ? '_afternoonRendered'
-                                : visCalcKeys.includes('_morningRendered')
-                                  ? '_morningRendered'
-                                  : visCalcKeys[visCalcKeys.length - 1] ?? null;
-                            const overallTardKey = visTardKeys.includes('_totalTardiness') ? '_totalTardiness'
-                              : visTardKeys[visTardKeys.length - 1] ?? null;
-                            const showRenderedInLabel = !overallRenderedKey;
-                            const showTardInLabel = !overallTardKey;
-                            return (
-                              <TableRow sx={{ bgcolor: '#fafafa', borderTop: `2px solid ${T.accent}` }}>
-                                <TableCell colSpan={nonCalcCnt} sx={{ fontSize: '0.72rem', fontWeight: 800, color: T.accent, textAlign: 'right', pr: 2.5, py: 1.5, borderBottom: 'none', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-                                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 0.5 }}>
-                                    <span>Overall rendered time ({startDate} – {endDate})</span>
-                                    {(showRenderedInLabel || showTardInLabel) && (
-                                      <Box sx={{ textAlign: 'right' }}>
-                                        {showRenderedInLabel && (
-                                          <Typography sx={{ fontFamily: T.recordFont, fontWeight: 900, fontSize: '0.88rem', color: T.rendered.color }}>
-                                            {displayDurationHhMm(overallRenderedKey === '_totalRendered' ? totals.totalRendered : totals.overallRendered)} <Typography component="span" sx={{ color: T.faint, fontWeight: 600, fontSize: '0.65rem', textTransform: 'none' }}>rendered</Typography>
-                                          </Typography>
-                                        )}
-                                        {showTardInLabel && (
-                                          <Typography sx={{ fontFamily: T.recordFont, fontWeight: 800, fontSize: '0.8rem', color: T.tardiness.color }}>
-                                            {formatTardinessAsDaysHours(totals.overallTardiness || ZERO_HM)} <Typography component="span" sx={{ color: T.faint, fontWeight: 600, fontSize: '0.65rem', textTransform: 'none' }}>({displayDurationHhMm(totals.overallTardiness)})</Typography>
-                                          </Typography>
-                                        )}
-                                      </Box>
-                                    )}
-                                  </Box>
-                                </TableCell>
-                                {calcSlots.map((s) => {
-                                  const isOverallRendered = overallRenderedKey && s.col.group === 'calc' && s.col.key === overallRenderedKey;
-                                  const isOverallTardiness = overallTardKey && s.col.group === 'tard' && s.col.key === overallTardKey;
-                                  if (isOverallRendered) return (
-                                    <TableCell key={s.col.key} sx={{ fontFamily: T.recordFont, fontWeight: 900, fontSize: '0.95rem', textAlign: 'center', py: 1.5, borderBottom: 'none', color: T.rendered.color, bgcolor: T.rendered.bg }}>
-                                      {displayDurationHhMm(overallRenderedKey === '_totalRendered' ? totals.totalRendered : totals.overallRendered)}
-                                    </TableCell>
-                                  );
-                                  if (isOverallTardiness) return (
-                                    <TableCell key={s.col.key} sx={{ textAlign: 'center', py: 1.5, borderBottom: 'none', color: T.tardiness.color, bgcolor: T.tardiness.bg }}>
-                                      <Typography sx={{ fontFamily: T.recordFont, fontWeight: 900, fontSize: '0.95rem' }}>{formatTardinessAsDaysHours((totals.rowTardinessSum || totals.overallTardiness) || ZERO_HM)}</Typography>
-                                      <Typography sx={{ fontFamily: T.recordFont, fontWeight: 600, fontSize: '0.7rem', opacity: 0.55 }}>{displayDurationHhMm(totals.rowTardinessSum || totals.overallTardiness)}</Typography>
-                                    </TableCell>
-                                  );
-                                  return <TableCell key={s.col.key} sx={{ borderBottom: 'none', bgcolor: '#fafafa', textAlign: 'center', color: T.faint }}>—</TableCell>;
-                                })}
-                              </TableRow>
-                            );
-                          })()}
+                          {renderTotalsRow(
+                            `Overall rendered time (${startDate} – ${endDate})`,
+                            totals.totalRendered || totals.overallRendered,
+                            totals.rowTardinessSum || totals.overallTardiness,
+                            { renderedColKey: '_totalRendered', tardColKey: '_totalTardiness', overall: true },
+                          )}
                         </>}
 
                         {activeTab !== 'regular' && (() => {
                           const rendMap = { honorarium: totals.hnRendered,  serviceCredit: totals.scRendered,  overtime: totals.otRendered  };
                           const tardMap = { honorarium: totals.hnTardiness, serviceCredit: totals.scTardiness, overtime: totals.otTardiness };
                           const keyMap = {
-                            honorarium:    { renderedColKey: '_hnRendered', tardColKey: '_hnTardiness' },
-                            serviceCredit: { renderedColKey: '_scRendered', tardColKey: '_scTardiness' },
-                            overtime:      { renderedColKey: '_otRendered', tardColKey: '_otTardiness' },
+                            honorarium:    { renderedColKey: '_hnRendered', tardColKey: '_hnTardiness', overall: true },
+                            serviceCredit: { renderedColKey: '_scRendered', tardColKey: '_scTardiness', overall: true },
+                            overtime:      { renderedColKey: '_otRendered', tardColKey: '_otTardiness', overall: true },
                           };
                           return renderTotalsRow(`Overall rendered time (${startDate} – ${endDate})`, rendMap[activeTab], tardMap[activeTab], keyMap[activeTab]);
                         })()}
@@ -2726,31 +2903,32 @@ setSuspensionByDate(scopedSuspensionByDate);
                 </Box>
 
                 {/* Legend */}
-                <Box sx={{ pt: 1.5, display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+                <Box sx={{ pt: 1.25, display: 'flex', gap: '6px 16px', flexWrap: 'wrap', alignItems: 'center' }}>
                   {[
-                    { swatch: { bgcolor: T.holiday.bg,  border: `1px solid ${T.holiday.border}` },   label: 'Holiday' },
-                    { swatch: { bgcolor: T.leave.bg,    border: `1px solid ${T.leave.border}` },     label: 'On leave' },
-                    { swatch: { bgcolor: T.suspended.bg,border: `1px solid ${T.suspended.border}` }, label: 'Work suspended' },
-                    { swatch: { bgcolor: alpha('#b71c1c', 0.08), border: `1px solid ${alpha('#b71c1c', 0.55)}` }, label: 'Absent highlight' },
-                    { swatch: { bgcolor: T.halfDay.bg, border: `1px solid ${T.halfDay.border}` }, label: 'Half day highlight' },
-                    { swatch: { bgcolor: T.halfDay.bg,  border: `1px solid ${T.halfDay.border}` },   label: 'Half day' },
-                    { swatch: { bgcolor: T.rendered.bg, border: `1px solid ${T.rendered.border}` },  label: 'Rendered totals' },
-                    { swatch: { bgcolor: T.tardiness.bg,border: `1px solid ${T.tardiness.border}` }, label: 'Tardiness totals' },
-                    { swatch: { bgcolor: 'rgba(109,35,35,0.08)', border: `1px solid ${T.accentBorder}` }, label: 'Regular Time: AM/PM tardiness is system-calculated and editable (↻ restores system)' },
-                    { swatch: { bgcolor: '#b07070', border: `1px solid ${T.accentBorder}` }, label: 'Group headers: hide collapses columns; narrow strip expands' },
+                    { swatch: { bgcolor: T.halfDay.bg, border: `1px solid ${T.halfDay.border}` }, label: 'Half day' },
+                    { swatch: { bgcolor: T.absent.bg, border: `1px solid ${T.absent.border}` }, label: 'Absent' },
+                    { swatch: { bgcolor: T.holiday.bg, border: `1px solid ${T.holiday.border}` }, label: 'Holiday' },
+                    { swatch: { bgcolor: T.rendered.bg, border: `1px solid ${T.rendered.border}` }, label: 'Rendered totals' },
+                    { swatch: { bgcolor: T.tardiness.bg, border: `1px solid ${T.tardiness.border}` }, label: 'Tardiness totals' },
                   ].map((item, i) => (
-                    <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 0.6 }}>
-                      <Box sx={{ width: 10, height: 10, borderRadius: '2px', ...item.swatch }} />
+                    <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                      <Box sx={{ width: 10, height: 10, borderRadius: '2px', border: '1px solid', ...item.swatch }} />
                       <Typography sx={{ fontSize: '0.7rem', color: T.faint }}>{item.label}</Typography>
                     </Box>
                   ))}
+                  <Typography sx={{ fontSize: '0.7rem', color: T.faint }}>
+                    AM/PM tardiness is system-calculated and editable. The circular arrow restores the system value.
+                  </Typography>
+                  <Typography sx={{ fontSize: '0.7rem', color: T.faint }}>
+                    Break IN and Break OUT are required on a full day. Missing either deducts the official break duration (PM tardiness / Late Total).
+                  </Typography>
                 </Box>
               </Box>
             </SectionCard>
           </Fade>
         )}
 
-        <FloatingTotalsBar totals={totals} visible={attendanceData.length > 0} onSave={saveOverallAttendance} saving={saving} startDate={startDate} endDate={endDate} />
+        <FloatingTotalsBar totals={totals} visible={attendanceData.length > 0} onSave={saveOverallAttendance} saving={saving} startDate={startDate} endDate={endDate} showSaveButton />
 
         <UnresolvedHalfDaysDialog
           dates={unresolvedDatesModal}

@@ -68,8 +68,32 @@ export const HUB_COMPUTATION_BUTTONS = [
   },
 ];
 
+export const LATE_TYPE_TO_DRAWER = {
+  [MODULE_TYPES.NON_TEACHING]: 'nonTeaching',
+  [MODULE_TYPES.FACULTY_30HRS]: 'faculty30',
+  [MODULE_TYPES.DESIGNATED_40HRS]: 'facultyDesignated',
+};
+
 export const resolveDrawerFromComputationModule = (moduleId) =>
   COMPUTATION_MODULE_TO_DRAWER[moduleId] || null;
 
 export const resolveComputationModuleFromDrawer = (drawerKey) =>
   DRAWER_TO_COMPUTATION_MODULE[drawerKey] || null;
+
+export const resolveDrawerFromLateType = (moduleType) =>
+  LATE_TYPE_TO_DRAWER[moduleType] || null;
+
+export const hubButtonForModuleType = (moduleType) =>
+  HUB_COMPUTATION_BUTTONS.find((b) => b.moduleType === moduleType) || null;
+
+export const hubButtonLabelForModuleType = (moduleType) =>
+  hubButtonForModuleType(moduleType)?.label || null;
+
+/** Warning copy when opening a compute module that does not match Employment Category. */
+export function mismatchComputationSnackbar({ expectedModuleType, clickedLabel }) {
+  const expectedLabel = hubButtonLabelForModuleType(expectedModuleType);
+  if (!expectedLabel) {
+    return 'No employment category assigned. Set it in Employment Category, or pick a computation type.';
+  }
+  return `This employee is classified as ${expectedLabel}. Opening ${clickedLabel} will use a different late/U-time formula.`;
+}

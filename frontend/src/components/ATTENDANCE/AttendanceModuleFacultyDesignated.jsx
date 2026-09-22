@@ -58,15 +58,13 @@ import {
   Search,
   SearchOutlined,
   Assignment,
-  UnfoldMore,
-  UnfoldLess,
   RestartAlt,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import useAttendanceWorkflow from '../../hooks/useAttendanceWorkflow';
 import AttendanceWorkflowNav from './AttendanceWorkflowNav';
 import { navigateAttendanceWorkflow } from '../../utils/attendanceWorkflow';
-import { useEmbeddedModuleAutoSearch, ATTENDANCE_EMBEDDED_ROOT_SX, notifyModuleSaveSuccess } from '../../utils/attendanceModuleEmbedded';
+import { useEmbeddedModuleAutoSearch, ATTENDANCE_EMBEDDED_ROOT_SX, ATTENDANCE_ALWAYS_VISIBLE_X_SCROLL_SX, notifyModuleSaveSuccess } from '../../utils/attendanceModuleEmbedded';
 import { ATTENDANCE_PAGE_BOTTOM_PAD, ATTENDANCE_PAGE_SCROLL_CSS, useAttendancePageScroll } from './attendanceFilterLayout';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
@@ -920,327 +918,99 @@ const VIEW_TABS = [
 
 
 
+/** Column visibility sets — matches Non-Teaching compact attendance layout. */
+const COLUMN_SETS = [
+  { key: 'official', label: 'Official schedule' },
+  { key: 'rendered', label: 'Rendered time' },
+];
+const defaultHiddenSets = () => ({ official: true, rendered: true });
+
+const SegBtn = ({ label, pressed, onClick }) => (
+  <button
+    type="button"
+    aria-pressed={pressed}
+    data-label={label}
+    onClick={onClick}
+    style={{
+      display: 'inline-grid',
+      alignItems: 'center',
+      justifyItems: 'center',
+      height: 28,
+      padding: '0 14px',
+      border: 0,
+      borderRadius: 7,
+      background: pressed ? T.accentDark : 'transparent',
+      color: pressed ? '#fff' : T.accent,
+      font: 'inherit',
+      fontSize: '0.78rem',
+      fontWeight: pressed ? 600 : 500,
+      fontFamily: 'inherit',
+      cursor: 'pointer',
+      transition: 'background-color .12s, color .12s',
+    }}
+    onMouseEnter={(e) => {
+      if (!pressed) e.currentTarget.style.backgroundColor = T.accentBorder;
+    }}
+    onMouseLeave={(e) => {
+      if (!pressed) e.currentTarget.style.backgroundColor = 'transparent';
+    }}
+  >
+    <span style={{ gridArea: '1 / 1' }}>{label}</span>
+    <span aria-hidden style={{ gridArea: '1 / 1', fontWeight: 600, visibility: 'hidden', height: 0 }}>{label}</span>
+  </button>
+);
+
+// set: 'official' | 'rendered' — toggleable column groups (compact layout).
 const TAB_COLUMNS = {
   regular: [
-    {
-      label: 'Date',
-      key: 'date',
-      minWidth: 130,
-      group: 'meta',
-      colGroup: null,
-    },
-    { label: 'Day', key: 'day', minWidth: 118, group: 'meta', colGroup: null },
-    {
-      label: 'Time IN',
-      key: 'timeIN',
-      minWidth: 140,
-      group: 'actual',
-      colGroup: 'morningDevice',
-      isGroupLeader: true,
-    },
-    {
-      label: 'Official Time IN',
-      key: 'officialTimeIN',
-      minWidth: 130,
-      group: 'official',
-      colGroup: 'morningOfficial',
-      isGroupLeader: true,
-    },
-    {
-      label: 'Breaktime IN',
-      key: 'breaktimeIN',
-      minWidth: 140,
-      group: 'actual',
-      colGroup: 'breaktimeDevice',
-      isGroupLeader: true,
-    },
-    {
-      label: 'Official Breaktime IN',
-      key: 'officialBreaktimeIN',
-      minWidth: 140,
-      group: 'official',
-      colGroup: 'breaktimeOfficial',
-      isGroupLeader: true,
-    },
-    {
-      label: 'Breaktime OUT',
-      key: 'breaktimeOUT',
-      minWidth: 130,
-      group: 'actual',
-      colGroup: 'afternoonBreakDevice',
-      isGroupLeader: true,
-    },
-    {
-      label: 'Time OUT',
-      key: 'timeOUT',
-      minWidth: 120,
-      group: 'actual',
-      colGroup: 'timeOutDevice',
-      isGroupLeader: true,
-    },
-    {
-      label: 'Official Breaktime OUT',
-      key: 'officialBreaktimeOUT',
-      minWidth: 140,
-      group: 'official',
-      colGroup: 'afternoonOfficial',
-      isGroupLeader: true,
-    },
-    {
-      label: 'Official Time OUT',
-      key: 'officialTimeOUT',
-      minWidth: 130,
-      group: 'official',
-      colGroup: 'afternoonOfficial',
-    },
-    {
-      label: 'AM Rendered',
-      key: '_morningRendered',
-      minWidth: 130,
-      group: 'calc',
-      colGroup: 'amRendered',
-      isGroupLeader: true,
-    },
-    {
-      label: 'AM Tardiness',
-      key: '_morningTardiness',
-      minWidth: 130,
-      group: 'tard',
-      colGroup: 'amTard',
-      isGroupLeader: true,
-    },
-    {
-      label: 'PM Rendered',
-      key: '_afternoonRendered',
-      minWidth: 130,
-      group: 'calc',
-      colGroup: 'pmRendered',
-      isGroupLeader: true,
-    },
-    {
-      label: 'PM Tardiness',
-      key: '_afternoonTardiness',
-      minWidth: 130,
-      group: 'tard',
-      colGroup: 'pmTard',
-      isGroupLeader: true,
-    },
-    {
-      label: 'Total Rendered',
-      key: '_totalRendered',
-      minWidth: 130,
-      group: 'calc',
-      colGroup: 'totalRendered',
-      isGroupLeader: true,
-    },
-    {
-      label: 'Total Tardiness',
-      key: '_totalTardiness',
-      minWidth: 130,
-      group: 'tard',
-      colGroup: 'totalTard',
-      isGroupLeader: true,
-    },
+    { label: 'Date', key: 'date', minWidth: 170, group: 'meta', sticky: true },
+    { label: 'Day', key: 'day', minWidth: 118, group: 'meta' },
+    { label: 'Time IN', key: 'timeIN', minWidth: 140, group: 'actual' },
+    { label: 'Official Time IN', key: 'officialTimeIN', minWidth: 130, group: 'official', set: 'official' },
+    { label: 'Breaktime IN', key: 'breaktimeIN', minWidth: 140, group: 'actual' },
+    { label: 'Official Breaktime IN', key: 'officialBreaktimeIN', minWidth: 140, group: 'official', set: 'official' },
+    { label: 'Breaktime OUT', key: 'breaktimeOUT', minWidth: 130, group: 'actual' },
+    { label: 'Time OUT', key: 'timeOUT', minWidth: 120, group: 'actual' },
+    { label: 'Official Breaktime OUT', key: 'officialBreaktimeOUT', minWidth: 140, group: 'official', set: 'official' },
+    { label: 'Official Time OUT', key: 'officialTimeOUT', minWidth: 130, group: 'official', set: 'official' },
+    { label: 'AM Rendered', key: '_morningRendered', minWidth: 130, group: 'calc', set: 'rendered' },
+    { label: 'AM Tardiness', key: '_morningTardiness', minWidth: 130, group: 'tard' },
+    { label: 'PM Rendered', key: '_afternoonRendered', minWidth: 130, group: 'calc', set: 'rendered' },
+    { label: 'PM Tardiness', key: '_afternoonTardiness', minWidth: 130, group: 'tard' },
+    { label: 'Total Rendered', key: '_totalRendered', minWidth: 130, group: 'calc', set: 'rendered' },
+    { label: 'Total Tardiness', key: '_totalTardiness', minWidth: 130, group: 'tard' },
   ],
   honorarium: [
-    {
-      label: 'Date',
-      key: 'date',
-      minWidth: 130,
-      group: 'meta',
-      colGroup: null,
-    },
-    { label: 'Day', key: 'day', minWidth: 118, group: 'meta', colGroup: null },
-    {
-      label: 'Time IN',
-      key: '_hnTimeIN',
-      minWidth: 140,
-      group: 'actual',
-      colGroup: 'hnTimes',
-      isGroupLeader: true,
-    },
-    {
-      label: 'Time OUT',
-      key: '_hnTimeOUT',
-      minWidth: 140,
-      group: 'actual',
-      colGroup: 'hnTimes',
-    },
-    {
-      label: 'Official Honorarium Time IN',
-      key: 'officialHonorariumTimeIN',
-      minWidth: 180,
-      group: 'official',
-      colGroup: 'hnOfficial',
-      isGroupLeader: true,
-    },
-    {
-      label: 'Official Honorarium Time OUT',
-      key: 'officialHonorariumTimeOUT',
-      minWidth: 180,
-      group: 'official',
-      colGroup: 'hnOfficial',
-    },
-    {
-      label: 'Honorarium Rendered',
-      key: '_hnRendered',
-      minWidth: 140,
-      group: 'calc',
-      colGroup: 'hnRendered',
-      isGroupLeader: true,
-    },
-    {
-      label: 'Honorarium Tardiness',
-      key: '_hnTardiness',
-      minWidth: 140,
-      group: 'tard',
-      colGroup: 'hnTard',
-      isGroupLeader: true,
-    },
+    { label: 'Date', key: 'date', minWidth: 170, group: 'meta', sticky: true },
+    { label: 'Day', key: 'day', minWidth: 118, group: 'meta' },
+    { label: 'Time IN', key: '_hnTimeIN', minWidth: 140, group: 'actual' },
+    { label: 'Time OUT', key: '_hnTimeOUT', minWidth: 140, group: 'actual' },
+    { label: 'Official Honorarium Time IN', key: 'officialHonorariumTimeIN', minWidth: 180, group: 'official', set: 'official' },
+    { label: 'Official Honorarium Time OUT', key: 'officialHonorariumTimeOUT', minWidth: 180, group: 'official', set: 'official' },
+    { label: 'Honorarium Rendered', key: '_hnRendered', minWidth: 140, group: 'calc', set: 'rendered' },
+    { label: 'Honorarium Tardiness', key: '_hnTardiness', minWidth: 140, group: 'tard' },
   ],
   serviceCredit: [
-    {
-      label: 'Date',
-      key: 'date',
-      minWidth: 130,
-      group: 'meta',
-      colGroup: null,
-    },
-    { label: 'Day', key: 'day', minWidth: 118, group: 'meta', colGroup: null },
-    {
-      label: 'Time IN',
-      key: '_scTimeIN',
-      minWidth: 140,
-      group: 'actual',
-      colGroup: 'scTimes',
-      isGroupLeader: true,
-    },
-    {
-      label: 'Time OUT',
-      key: '_scTimeOUT',
-      minWidth: 140,
-      group: 'actual',
-      colGroup: 'scTimes',
-    },
-    {
-      label: 'Official Service Credit Time IN',
-      key: 'officialServiceCreditTimeIN',
-      minWidth: 200,
-      group: 'official',
-      colGroup: 'scOfficial',
-      isGroupLeader: true,
-    },
-    {
-      label: 'Official Service Credit Time OUT',
-      key: 'officialServiceCreditTimeOUT',
-      minWidth: 200,
-      group: 'official',
-      colGroup: 'scOfficial',
-    },
-    {
-      label: 'Service Credit Rendered',
-      key: '_scRendered',
-      minWidth: 150,
-      group: 'calc',
-      colGroup: 'scRendered',
-      isGroupLeader: true,
-    },
-    {
-      label: 'Service Credit Tardiness',
-      key: '_scTardiness',
-      minWidth: 150,
-      group: 'tard',
-      colGroup: 'scTard',
-      isGroupLeader: true,
-    },
+    { label: 'Date', key: 'date', minWidth: 170, group: 'meta', sticky: true },
+    { label: 'Day', key: 'day', minWidth: 118, group: 'meta' },
+    { label: 'Time IN', key: '_scTimeIN', minWidth: 140, group: 'actual' },
+    { label: 'Time OUT', key: '_scTimeOUT', minWidth: 140, group: 'actual' },
+    { label: 'Official Service Credit Time IN', key: 'officialServiceCreditTimeIN', minWidth: 200, group: 'official', set: 'official' },
+    { label: 'Official Service Credit Time OUT', key: 'officialServiceCreditTimeOUT', minWidth: 200, group: 'official', set: 'official' },
+    { label: 'Service Credit Rendered', key: '_scRendered', minWidth: 150, group: 'calc', set: 'rendered' },
+    { label: 'Service Credit Tardiness', key: '_scTardiness', minWidth: 150, group: 'tard' },
   ],
   overtime: [
-    {
-      label: 'Date',
-      key: 'date',
-      minWidth: 130,
-      group: 'meta',
-      colGroup: null,
-    },
-    { label: 'Day', key: 'day', minWidth: 118, group: 'meta', colGroup: null },
-    {
-      label: 'Time IN',
-      key: '_otTimeIN',
-      minWidth: 140,
-      group: 'actual',
-      colGroup: 'otTimes',
-      isGroupLeader: true,
-    },
-    {
-      label: 'Time OUT',
-      key: '_otTimeOUT',
-      minWidth: 140,
-      group: 'actual',
-      colGroup: 'otTimes',
-    },
-    {
-      label: 'Official Overtime Time IN',
-      key: 'officialOverTimeIN',
-      minWidth: 170,
-      group: 'official',
-      colGroup: 'otOfficial',
-      isGroupLeader: true,
-    },
-    {
-      label: 'Official Overtime Time OUT',
-      key: 'officialOverTimeOUT',
-      minWidth: 170,
-      group: 'official',
-      colGroup: 'otOfficial',
-    },
-    {
-      label: 'Overtime Rendered',
-      key: '_otRendered',
-      minWidth: 140,
-      group: 'calc',
-      colGroup: 'otRendered',
-      isGroupLeader: true,
-    },
-    {
-      label: 'Overtime Tardiness',
-      key: '_otTardiness',
-      minWidth: 140,
-      group: 'tard',
-      colGroup: 'otTard',
-      isGroupLeader: true,
-    },
+    { label: 'Date', key: 'date', minWidth: 170, group: 'meta', sticky: true },
+    { label: 'Day', key: 'day', minWidth: 118, group: 'meta' },
+    { label: 'Time IN', key: '_otTimeIN', minWidth: 140, group: 'actual' },
+    { label: 'Time OUT', key: '_otTimeOUT', minWidth: 140, group: 'actual' },
+    { label: 'Official Overtime Time IN', key: 'officialOverTimeIN', minWidth: 170, group: 'official', set: 'official' },
+    { label: 'Official Overtime Time OUT', key: 'officialOverTimeOUT', minWidth: 170, group: 'official', set: 'official' },
+    { label: 'Overtime Rendered', key: '_otRendered', minWidth: 140, group: 'calc', set: 'rendered' },
+    { label: 'Overtime Tardiness', key: '_otTardiness', minWidth: 140, group: 'tard' },
   ],
 };
-
-const COL_GROUP_META = {
-  morningDevice: { label: 'Time IN · device' },
-  morningOfficial: { label: 'Time IN · official' },
-  breaktimeDevice: { label: 'Break IN · device' },
-  breaktimeOfficial: { label: 'Break IN · official' },
-  afternoonBreakDevice: { label: 'Break OUT · device' },
-  timeOutDevice: { label: 'Time OUT · device' },
-  afternoonOfficial: { label: 'PM · official' },
-  amRendered: { label: 'AM rendered' },
-  amTard: { label: 'AM tardiness' },
-  pmRendered: { label: 'PM rendered' },
-  pmTard: { label: 'PM tardiness' },
-  totalRendered: { label: 'Total rendered' },
-  totalTard: { label: 'Total tardiness' },
-  hnTimes: { label: 'Device times' },
-  hnOfficial: { label: 'Official schedule' },
-  hnRendered: { label: 'HN rendered' },
-  hnTard: { label: 'HN tardiness' },
-  scTimes: { label: 'Device times' },
-  scOfficial: { label: 'Official schedule' },
-  scRendered: { label: 'SC rendered' },
-  scTard: { label: 'SC tardiness' },
-  otTimes: { label: 'Device times' },
-  otOfficial: { label: 'Official schedule' },
-  otRendered: { label: 'OT rendered' },
-  otTard: { label: 'OT tardiness' },
-};
-
-
 
 const getDisplayedCellValue = (
   row,
@@ -1890,7 +1660,7 @@ const FloatingTotalsBar = ({
         elevation={8}
         sx={{
           borderRadius: '12px',
-          overflow: 'hidden',
+          overflow: 'visible',
           width: '100%',
           maxWidth: '100%',
           border: `1px solid ${T.accentBorder}`,
@@ -1989,8 +1759,9 @@ const FloatingTotalsBar = ({
           sx={{
             width: '100%',
             maxWidth: '100%',
-            '& .MuiCollapse-wrapper': { width: '100%' },
-            '& .MuiCollapse-wrapperInner': { width: '100%', maxWidth: '100%' },
+            overflow: 'visible',
+            '& .MuiCollapse-wrapper': { width: '100%', overflow: 'visible' },
+            '& .MuiCollapse-wrapperInner': { width: '100%', maxWidth: '100%', overflow: 'visible' },
           }}
         >
           <Box
@@ -2001,9 +1772,9 @@ const FloatingTotalsBar = ({
               maxWidth: '100%',
               minWidth: 0,
               boxSizing: 'border-box',
-              overflowX: 'auto',
               overflowY: 'hidden',
               WebkitOverflowScrolling: 'touch',
+              ...ATTENDANCE_ALWAYS_VISIBLE_X_SCROLL_SX,
             }}
           >
             <Box
@@ -2098,73 +1869,6 @@ const FloatingTotalsBar = ({
           </Box>
         </Collapse>
       </Paper>
-    </Box>
-  );
-};
-
-
-const StickyScrollbar = ({ innerRef }) => {
-  const proxyRef = useRef(null);
-  const ghostRef = useRef(null);
-  const syncingRef = useRef(false);
-  useEffect(() => {
-    const inner = innerRef.current,
-      proxy = proxyRef.current,
-      ghost = ghostRef.current;
-    if (!inner || !proxy || !ghost) return;
-    const updateWidth = () => {
-      ghost.style.width = inner.scrollWidth + 'px';
-    };
-    const ro = new ResizeObserver(updateWidth);
-    ro.observe(inner);
-    updateWidth();
-    const onInnerScroll = () => {
-      if (syncingRef.current) return;
-      syncingRef.current = true;
-      proxy.scrollLeft = inner.scrollLeft;
-      syncingRef.current = false;
-    };
-    const onProxyScroll = () => {
-      if (syncingRef.current) return;
-      syncingRef.current = true;
-      inner.scrollLeft = proxy.scrollLeft;
-      syncingRef.current = false;
-    };
-    inner.addEventListener('scroll', onInnerScroll);
-    proxy.addEventListener('scroll', onProxyScroll);
-    return () => {
-      inner.removeEventListener('scroll', onInnerScroll);
-      proxy.removeEventListener('scroll', onProxyScroll);
-      ro.disconnect();
-    };
-  }, [innerRef]);
-  return (
-    <Box
-      ref={proxyRef}
-      sx={{
-        position: 'sticky',
-        bottom: 0,
-        left: 0,
-        width: '100%',
-        zIndex: 10,
-        overflowX: 'auto',
-        overflowY: 'hidden',
-        height: 16,
-        bgcolor: '#fff',
-        borderTop: `1px solid ${T.divider}`,
-        '&::-webkit-scrollbar': { height: 12 },
-        '&::-webkit-scrollbar-track': {
-          background: T.accentFaint,
-          borderRadius: 4,
-        },
-        '&::-webkit-scrollbar-thumb': {
-          background: T.accentMid,
-          borderRadius: 4,
-          '&:hover': { background: T.accent },
-        },
-      }}
-    >
-      <Box ref={ghostRef} sx={{ height: 1 }} />
     </Box>
   );
 };
@@ -2532,44 +2236,25 @@ const AttendanceModuleFacultyDesignated = ({
   const [showScrollTop, setShowScrollTop] = useState(false);
 
   
-  const [collapsedGroups, setCollapsedGroups] = useState({
-    regular: {
-      morningDevice: false,
-      morningOfficial: true,
-      breaktimeDevice: false,
-      breaktimeOfficial: true,
-      afternoonBreakDevice: false,
-      timeOutDevice: false,
-      afternoonOfficial: true,
-      amRendered: false,
-      amTard: false,
-      pmRendered: false,
-      pmTard: false,
-      totalTard: false,
-    },
-    honorarium: {
-      hnTimes: false,
-      hnOfficial: true,
-      hnRendered: false,
-      hnTard: false,
-    },
-    serviceCredit: {
-      scTimes: false,
-      scOfficial: true,
-      scRendered: false,
-      scTard: false,
-    },
-    overtime: {
-      otTimes: false,
-      otOfficial: true,
-      otRendered: false,
-      otTard: false,
-    },
+  /** Per-tab: hide official / rendered column sets (compact layout default). */
+  const [hiddenColumnSets, setHiddenColumnSets] = useState({
+    regular: defaultHiddenSets(),
+    honorarium: defaultHiddenSets(),
+    serviceCredit: defaultHiddenSets(),
+    overtime: defaultHiddenSets(),
   });
-  const toggleColGroup = (tab, groupKey) =>
-    setCollapsedGroups((prev) => ({
+  const toggleColumnSet = (tab, setKey) =>
+    setHiddenColumnSets((prev) => ({
       ...prev,
-      [tab]: { ...prev[tab], [groupKey]: !prev[tab][groupKey] },
+      [tab]: { ...prev[tab], [setKey]: !prev[tab][setKey] },
+    }));
+  const applyColumnPreset = (tab, preset) =>
+    setHiddenColumnSets((prev) => ({
+      ...prev,
+      [tab]: {
+        official: preset === 'compact',
+        rendered: preset === 'compact',
+      },
     }));
 
   const [suspensionByDate, setSuspensionByDate] = useState({});
@@ -3930,86 +3615,16 @@ const AttendanceModuleFacultyDesignated = ({
   
   
   const allColumns = TAB_COLUMNS[activeTab];
-  const curCollapsed = collapsedGroups[activeTab] || {};
+  const hid = hiddenColumnSets[activeTab] || defaultHiddenSets();
+  const visibleColumns = allColumns.filter((col) => !(col.set && hid[col.set]));
+  const columnSlots = visibleColumns.map((col) => ({ col, isCollapsedPlaceholder: false }));
+  const allHidden = COLUMN_SETS.every((x) => hid[x.key]);
+  const allShown = COLUMN_SETS.every((x) => !hid[x.key]);
 
-  const columnSlots = allColumns.reduce((acc, col) => {
-    const g = col.colGroup;
-    if (!g) {
-      acc.push({ col, isCollapsedPlaceholder: false });
-      return acc;
-    }
-    const collapsed = !!curCollapsed[g];
-    if (collapsed) {
-      if (col.isGroupLeader) acc.push({ col, isCollapsedPlaceholder: true });
-    } else {
-      acc.push({ col, isCollapsedPlaceholder: false });
-    }
-    return acc;
-  }, []);
-
-  
   const buildTableHead = () => (
     <TableHead>
       <TableRow>
-        {columnSlots.map(({ col, isCollapsedPlaceholder }) => {
-          const g = col.colGroup;
-          const groupLabel = g ? COL_GROUP_META[g]?.label || g : null;
-
-          if (isCollapsedPlaceholder) {
-            return (
-              <TableCell
-                key={col.key + '_ph'}
-                onClick={() => toggleColGroup(activeTab, g)}
-                sx={{
-                  position: 'sticky',
-                  top: 0,
-                  zIndex: 3,
-                  bgcolor: '#b07070',
-                  px: 0.75,
-                  py: 1,
-                  minWidth: 36,
-                  width: 36,
-                  maxWidth: 36,
-                  cursor: 'pointer',
-                  textAlign: 'center',
-                  borderBottom: `2px solid ${T.accentBorder}`,
-                  borderRight: `1px solid rgba(255,255,255,0.2)`,
-                  verticalAlign: 'middle',
-                  '&:hover': { bgcolor: T.accentMid },
-                  transition: 'background-color 0.15s',
-                }}
-              >
-                <Box
-                  sx={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    gap: 0.3,
-                  }}
-                >
-                  <UnfoldMore sx={{ fontSize: 13, color: '#fff' }} />
-                  <Typography
-                    sx={{
-                      fontSize: '0.52rem',
-                      fontWeight: 700,
-                      color: 'rgba(255,255,255,0.9)',
-                      writingMode: 'vertical-rl',
-                      textOrientation: 'mixed',
-                      transform: 'rotate(180deg)',
-                      letterSpacing: '0.04em',
-                      textTransform: 'uppercase',
-                      maxHeight: 80,
-                      overflow: 'hidden',
-                    }}
-                  >
-                    {groupLabel}
-                  </Typography>
-                </Box>
-              </TableCell>
-            );
-          }
-
-          const isLeader = col.isGroupLeader && g && !curCollapsed[g];
+        {visibleColumns.map((col) => {
           const halfDayTotalCol = halfDayTotalColumnVariant(col.key);
           return (
             <TableCell
@@ -4017,60 +3632,24 @@ const AttendanceModuleFacultyDesignated = ({
               sx={{
                 position: 'sticky',
                 top: 0,
-                zIndex: 3,
+                left: col.sticky ? 0 : 'auto',
+                zIndex: col.sticky ? 4 : 3,
                 bgcolor: T.accent,
                 fontWeight: 700,
                 fontSize: '0.65rem',
                 letterSpacing: '0.05em',
                 textTransform: 'uppercase',
                 color: '#fff',
-                textAlign: 'center',
-                px: 1.5,
-                pt: isLeader ? 0.5 : 1,
-                pb: 1,
+                textAlign: col.sticky ? 'left' : 'center',
+                px: 1.75,
+                py: 1.35,
                 minWidth: col.minWidth || 80,
                 borderBottom: `2px solid ${T.accentBorder}`,
-                borderRight: `1px solid rgba(255,255,255,0.15)`,
+                borderRight: '1px solid rgba(255,255,255,0.15)',
                 whiteSpace: halfDayTotalCol ? 'normal' : 'nowrap',
-                verticalAlign: 'bottom',
+                verticalAlign: 'middle',
               }}
             >
-              {isLeader && (
-                <Box
-                  onClick={() => toggleColGroup(activeTab, g)}
-                  sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 0.4,
-                    mb: 0.6,
-                    cursor: 'pointer',
-                    px: 0.75,
-                    py: 0.2,
-                    borderRadius: '4px',
-                    bgcolor: 'rgba(255,255,255,0.14)',
-                    border: '1px solid rgba(255,255,255,0.25)',
-                    transition: 'background-color 0.15s',
-                    '&:hover': { bgcolor: 'rgba(255,255,255,0.24)' },
-                  }}
-                >
-                  <UnfoldLess
-                    sx={{ fontSize: 10, color: 'rgba(255,255,255,0.85)' }}
-                  />
-                  <Typography
-                    sx={{
-                      fontSize: '0.57rem',
-                      fontWeight: 700,
-                      color: 'rgba(255,255,255,0.9)',
-                      letterSpacing: '0.04em',
-                      textTransform: 'uppercase',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {groupLabel} · hide
-                  </Typography>
-                </Box>
-              )}
               <HalfDayTotalColumnHeader label={col.label} colKey={col.key} />
             </TableCell>
           );
@@ -4079,7 +3658,6 @@ const AttendanceModuleFacultyDesignated = ({
     </TableHead>
   );
 
-  
   const buildCell = (content, group, isEven) => (
     <TableCell
       sx={{
@@ -4929,40 +4507,60 @@ const AttendanceModuleFacultyDesignated = ({
               </Box>
 
               {}
+              <Box sx={{ px: 2.25, pt: 1.75, pb: 0 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 1.25 }}>
+                  <Typography sx={{ fontSize: '0.68rem', fontWeight: 700, color: T.muted, letterSpacing: '0.06em', textTransform: 'uppercase', mr: 0.25 }}>
+                    Columns
+                  </Typography>
+                  <Box
+                    role="group"
+                    aria-label="Column preset"
+                    sx={{ display: 'inline-flex', gap: '2px', p: '3px', bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, borderRadius: '10px' }}
+                  >
+                    <SegBtn label="Compact view" pressed={allHidden} onClick={() => applyColumnPreset(activeTab, 'compact')} />
+                    <SegBtn label="Show all" pressed={allShown} onClick={() => applyColumnPreset(activeTab, 'all')} />
+                  </Box>
+                  <Box
+                    role="group"
+                    aria-label="Show or hide columns"
+                    sx={{ display: 'inline-flex', gap: '2px', p: '3px', bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, borderRadius: '10px' }}
+                  >
+                    {COLUMN_SETS.map((x) => (
+                      <SegBtn
+                        key={x.key}
+                        label={x.label}
+                        pressed={!hid[x.key]}
+                        onClick={() => toggleColumnSet(activeTab, x.key)}
+                      />
+                    ))}
+                  </Box>
+                  <Typography sx={{ ml: 'auto', fontSize: '0.72rem', color: T.faint }}>
+                    Showing {visibleColumns.length} of {allColumns.length} columns
+                  </Typography>
+                </Box>
+              </Box>
+
               <Box sx={{ px: 2.5, pb: 2.5 }}>
                 <Box
                   sx={{
                     position: 'relative',
                     borderRadius: '8px',
                     border: `1px solid ${T.accentBorder}`,
-                    overflow: 'hidden',
+                    overflow: 'visible',
                   }}
                 >
                   <Box
                     sx={{
-                      overflowX: 'auto',
                       overflowY: 'auto',
                       maxHeight: 500,
-                      scrollbarWidth: 'thin',
-                      '&::-webkit-scrollbar': { height: 6, width: 6 },
-                      '&::-webkit-scrollbar-track': {
-                        background: T.accentFaint,
-                        borderRadius: 4,
-                      },
-                      '&::-webkit-scrollbar-thumb': {
-                        background: T.accentMid,
-                        borderRadius: 4,
-                      },
+                      ...ATTENDANCE_ALWAYS_VISIBLE_X_SCROLL_SX,
                     }}
                   >
                     <Table
                       sx={{
-                        minWidth: columnSlots.reduce(
-                          (s, { col, isCollapsedPlaceholder: cp }) =>
-                            s + (cp ? 36 : col.minWidth || 100),
-                          0,
-                        ),
-                        borderCollapse: 'collapse',
+                        minWidth: visibleColumns.reduce((sum, col) => sum + (col.minWidth || 100), 0),
+                        borderCollapse: 'separate',
+                        borderSpacing: 0,
                       }}
                     >
                       {buildTableHead()}
@@ -5036,6 +4634,9 @@ const AttendanceModuleFacultyDesignated = ({
                                       <TableCell
                                         key={col.key}
                                         sx={{
+                                          position: 'sticky',
+                                          left: 0,
+                                          zIndex: 1,
                                           fontSize: '0.8rem',
                                           fontWeight: 600,
                                           color: T.text,
@@ -5043,10 +4644,11 @@ const AttendanceModuleFacultyDesignated = ({
                                           borderBottom: `1px solid ${T.divider}`,
                                           borderLeft: rowBorder,
                                           borderRight: `1px solid ${T.divider}`,
-                                          px: 1.5,
+                                          px: 1.75,
                                           py: 0.9,
                                           whiteSpace: 'nowrap',
                                           textAlign: 'left',
+                                          minWidth: 170,
                                           transition: 'background-color 0.12s',
                                         }}
                                       >
@@ -5579,7 +5181,6 @@ const AttendanceModuleFacultyDesignated = ({
                   </Box>
                 </Box>
 
-                {}
                 <Box
                   sx={{
                     pt: 1.5,
@@ -5654,14 +5255,6 @@ const AttendanceModuleFacultyDesignated = ({
                       label:
                         'Regular Time: AM/PM tardiness is system-calculated and editable (↻ restores system)',
                     },
-                    {
-                      swatch: {
-                        bgcolor: '#b07070',
-                        border: `1px solid ${T.accentBorder}`,
-                      },
-                      label:
-                        'Group headers: click hide to collapse a column group, or the narrow strip to expand',
-                    },
                   ].map((item, i) => (
                     <Box
                       key={i}
@@ -5694,6 +5287,7 @@ const AttendanceModuleFacultyDesignated = ({
           startDate={startDate}
           endDate={endDate}
           officialHoursPerDay={officialHoursPerDay}
+          showSaveButton
         />
 
         <UnresolvedHalfDaysDialog

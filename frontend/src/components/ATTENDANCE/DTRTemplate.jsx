@@ -23,12 +23,12 @@ import {
   DTR_NON_WORKING_DAY_LABEL,
   DTR_ABSENT_LABEL,
   isDtrNonWorkingDayRow,
-  getDtrUnscheduledWeekdayBanner,
   isDtrIndicatorEnabled,
   visibleDtrDateIndicator,
   formatDtrLeaveLabel,
   findApprovedLeaveForDate,
   isDtrCalendarBannerRow,
+  hasDtrPunches,
   toPhCalendarYmd,
   recordMatchesDay,
   formatTime as defaultFormatTime,
@@ -285,7 +285,12 @@ const pickSuspensionForEmployee = (list, employeeScope) => {
   return matches[0];
 };
 
-const expectedYmdForDay = (dayPadded, startDate, selectedYear, selectedMonth) => {
+const expectedYmdForDay = (
+  dayPadded,
+  startDate,
+  selectedYear,
+  selectedMonth,
+) => {
   if (startDate && /^\d{4}-\d{2}/.test(String(startDate))) {
     const [y, m] = String(startDate).split('-');
     if (y && m) return `${y}-${m}-${dayPadded}`;
@@ -436,25 +441,27 @@ export default function DTRTemplate({
     return null;
   };
 
-  const needsWideDayCol = isDtrIndicatorEnabled(indicatorVisibility, 'suspension') && (() => {
-    for (let i = 0; i < daysInSelectedMonth; i++) {
-      const day = String(i + 1).padStart(2, '0');
-      const ymd = expectedYmdForDay(
-        day,
-        startDate,
-        selectedYear,
-        selectedMonth,
-      );
-      const ind = getDateIndicator(ymd);
-      if (
-        ind?.type === 'suspension' &&
-        ind?.suspensionType === 'partial_day'
-      ) {
-        return true;
+  const needsWideDayCol =
+    isDtrIndicatorEnabled(indicatorVisibility, 'suspension') &&
+    (() => {
+      for (let i = 0; i < daysInSelectedMonth; i++) {
+        const day = String(i + 1).padStart(2, '0');
+        const ymd = expectedYmdForDay(
+          day,
+          startDate,
+          selectedYear,
+          selectedMonth,
+        );
+        const ind = getDateIndicator(ymd);
+        if (
+          ind?.type === 'suspension' &&
+          ind?.suspensionType === 'partial_day'
+        ) {
+          return true;
+        }
       }
-    }
-    return false;
-  })();
+      return false;
+    })();
 
   const getDtrHeaderData = () => {
     const regularDaysLines = showOfficialTimeOnDtr
@@ -475,11 +482,8 @@ export default function DTRTemplate({
   };
 
   const renderHeader = () => {
-    const {
-      regularDaysLines,
-      saturdayOfficialText,
-      regularBlockMinH,
-    } = getDtrHeaderData();
+    const { regularDaysLines, saturdayOfficialText, regularBlockMinH } =
+      getDtrHeaderData();
     return (
       <thead style={{ textAlign: 'center' }}>
         <tr>
@@ -938,7 +942,11 @@ export default function DTRTemplate({
         indicator.type === 'holiday' ||
         (indicator.type === 'suspension' &&
           indicator.suspensionType !== 'partial_day'));
-    const showWm = Boolean(calendarWm || (indicator && dtrRawEmpty(rawVal)));
+    const hasPunch = !dtrRawEmpty(rawVal);
+    // Indicator is a note behind the punch; only fill empty cells with the label.
+    const showWm = Boolean(
+      (calendarWm && indicator?.label) || (indicator?.label && !hasPunch),
+    );
     return (
       <td
         key={colKey}
@@ -967,6 +975,8 @@ export default function DTRTemplate({
               justifyContent: 'center',
               pointerEvents: 'none',
               zIndex: 0,
+              // Keep the note readable under punches without covering them.
+              opacity: hasPunch ? 0.45 : 1,
             }}
           >
             <span style={dtrWmSpanStyle}>{indicator.label}</span>
@@ -977,10 +987,10 @@ export default function DTRTemplate({
           style={{
             position: 'relative',
             zIndex: 1,
-            visibility: calendarWm ? 'hidden' : 'visible',
+            visibility: 'visible',
           }}
         >
-          {calendarWm ? '' : displayText}
+          {hasPunch ? displayText : ''}
         </span>
       </td>
     );
@@ -1132,9 +1142,9 @@ export default function DTRTemplate({
         : null;
       const displayHalf = (() => {
         if (!halfDayIndicator) return null;
-        const key =
-          halfDayIndicator.type === 'halfDayRejected' ? 'notHalfDay' : 'halfDay';
-        return isDtrIndicatorEnabled(indicatorVisibility, key)
+        // "Not half day" was removed from the indicators panel — never paint it.
+        if (halfDayIndicator.type === 'halfDayRejected') return null;
+        return isDtrIndicatorEnabled(indicatorVisibility, 'halfDay')
           ? halfDayIndicator
           : null;
       })();
@@ -1169,27 +1179,21 @@ export default function DTRTemplate({
           fullDate,
           dayName,
         });
-      const unscheduledWeekdayLabel =
-        !isDtrIndicatorEnabled(indicatorVisibility, 'weekdayBanner') ||
-        isPartialSuspensionRow ||
-        suppressScheduleBanners
-          ? ''
-          : getDtrUnscheduledWeekdayBanner({
-              isNotScheduledDay,
-              indicator: dateIndicator,
-              timeFields,
-              hasPeriodRecords,
-              fullDate,
-              dayName,
-            });
+      // Unscheduled weekday banners removed from indicators — never show them.
+      const unscheduledWeekdayLabel = '';
       const nonWorkingRowTint =
         isNonWorkingDayRow || unscheduledWeekdayLabel
           ? 'rgba(128, 128, 128, 0.06)'
           : rowTint;
 
-      // Shared by regular + honorarium / service-credit / overtime:
-      // HOLIDAY, ON LEAVE / leave type, SUSPENSION, NON-WORKING DAY, weekday banners.
-      if (isDtrCalendarBannerRow(displayDateIndicator) && !isPartialSuspensionRow) {
+      // HOLIDAY / ON LEAVE / SUSPENSION banner only when the day has no punches.
+      // If the employee punched that day, keep the time grid and note the mark
+      // as a watermark — toggling indicators must never hide punch times.
+      if (
+        isDtrCalendarBannerRow(displayDateIndicator) &&
+        !isPartialSuspensionRow &&
+        !hasDtrPunches(timeFields)
+      ) {
         return (
           <tr key={`${rowKeyPrefix}-${i}`} className="dtr-day-row">
             <td
@@ -1326,12 +1330,7 @@ export default function DTRTemplate({
           : null;
         return (
           <tr key={`${rowKeyPrefix}-${i}`} className="dtr-day-row">
-            {renderDayNumberCell(
-              dayLabel,
-              styleObj,
-              rowTint,
-              partialSuspLabel,
-            )}
+            {renderDayNumberCell(dayLabel, styleObj, rowTint, partialSuspLabel)}
             {renderDtrAmPmWatermarkCell(
               record?.specialTimeIN,
               formatTime(record?.specialTimeIN || ''),
@@ -1419,12 +1418,7 @@ export default function DTRTemplate({
       });
       return (
         <tr key={`${rowKeyPrefix}-${i}`} className="dtr-day-row">
-          {renderDayNumberCell(
-            dayLabel,
-            styleObj,
-            rowTint,
-            partialSuspLabel,
-          )}
+          {renderDayNumberCell(dayLabel, styleObj, rowTint, partialSuspLabel)}
           {renderDtrAmPmWatermarkCell(
             record?.timeIN,
             formatTime(record?.timeIN || ''),
@@ -1484,7 +1478,9 @@ export default function DTRTemplate({
   const renderTableFooter = () => (
     <tr className="dtr-footer-row">
       <td colSpan="7" style={{ padding: '10px 6px 8px 6px' }}>
-        <hr style={{ borderTop: '2px solid black', width: '100%', margin: 0 }} />
+        <hr
+          style={{ borderTop: '2px solid black', width: '100%', margin: 0 }}
+        />
         <p
           style={{
             textAlign: 'justify',
