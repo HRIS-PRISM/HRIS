@@ -20,7 +20,6 @@ import {
   TextField,
   IconButton,
 } from '@mui/material';
-import { toLocalYmd } from '../../utils/dateYmd';
 import {
   EventNote,
   Person,
@@ -49,7 +48,6 @@ import {
 } from './attendanceFilterLayout';
 import LoadingOverlay from '../LoadingOverlay';
 import SuccessfulOverlay from '../SuccessfulOverlay';
-import { shiftYmdDays } from '../../utils/dateYmd';
 
 const T = {
   accent: '#6d2323',
@@ -487,15 +485,17 @@ const AttendanceUserState = () => {
     requestControllerRef.current = controller;
 
     try {
-      const adjustedStart = shiftYmdDays(startDate, -1);
-      const adjustedEnd = shiftYmdDays(endDate, 1);
+      const adjustedStart = new Date(startDate);
+      adjustedStart.setDate(adjustedStart.getDate() - 1);
+      const adjustedEnd = new Date(endDate);
+      adjustedEnd.setDate(adjustedEnd.getDate() + 1);
 
       const response = await axios.post(
         `${API_BASE_URL}/attendance/api/attendance`,
         {
           personID,
-          startDate: adjustedStart,
-          endDate: adjustedEnd,
+          startDate: adjustedStart.toISOString().substring(0, 10),
+          endDate: adjustedEnd.toISOString().substring(0, 10),
         },
         { ...getAuthHeaders(), signal: controller.signal },
       );
@@ -581,10 +581,10 @@ const AttendanceUserState = () => {
   }, []);
 
   const handleMonthClick = (monthIndex) => {
-    const start = new Date(selectedYear, monthIndex, 1);
-    const end = new Date(selectedYear, monthIndex + 1, 0);
-    setStartDate(toLocalYmd(start));
-    setEndDate(toLocalYmd(end));
+    const start = new Date(Date.UTC(selectedYear, monthIndex, 1));
+    const end = new Date(Date.UTC(selectedYear, monthIndex + 1, 0));
+    setStartDate(start.toISOString().substring(0, 10));
+    setEndDate(end.toISOString().substring(0, 10));
     setSelectedMonth(monthIndex);
     setRecordDateFilter('');
     setHasSearched(false);
@@ -609,26 +609,26 @@ const AttendanceUserState = () => {
     if (value === 'yesterday') {
       const y = new Date(today);
       y.setDate(y.getDate() - 1);
-      const s = toLocalYmd(y);
+      const s = y.toISOString().substring(0, 10);
       setQuickDate(s, s);
       return;
     }
     if (value === 'last7') {
       const d = new Date(today);
       d.setDate(d.getDate() - 7);
-      setQuickDate(toLocalYmd(d), formattedToday);
+      setQuickDate(d.toISOString().substring(0, 10), formattedToday);
       return;
     }
     if (value === 'last15') {
       const d = new Date(today);
       d.setDate(d.getDate() - 15);
-      setQuickDate(toLocalYmd(d), formattedToday);
+      setQuickDate(d.toISOString().substring(0, 10), formattedToday);
       return;
     }
     if (value === 'last30') {
       const d = new Date(today);
       d.setMonth(d.getMonth() - 1);
-      setQuickDate(toLocalYmd(d), formattedToday);
+      setQuickDate(d.toISOString().substring(0, 10), formattedToday);
     }
   };
 

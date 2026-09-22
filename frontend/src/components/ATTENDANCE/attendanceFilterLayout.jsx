@@ -1,5 +1,4 @@
 import React, { useEffect } from 'react';
-import { toLocalYmd } from '../../utils/dateYmd';
 import {
   Box,
   Typography,
@@ -514,7 +513,7 @@ export const AttendanceFilterCardBody = ({ children, scroll = false }) => (
 export const applyQuickDateRange = (value, setStartDate, setEndDate, setSelectedMonth) => {
   if (!value) return;
   const today = new Date();
-  const formattedToday = toLocalYmd(today);
+  const formattedToday = today.toISOString().substring(0, 10);
   const setRange = (s, e) => {
     setStartDate(s);
     setEndDate(e);
@@ -527,26 +526,26 @@ export const applyQuickDateRange = (value, setStartDate, setEndDate, setSelected
     case 'yesterday': {
       const y = new Date(today);
       y.setDate(y.getDate() - 1);
-      const s = toLocalYmd(y);
+      const s = y.toISOString().substring(0, 10);
       setRange(s, s);
       break;
     }
     case 'last7': {
       const d = new Date(today);
       d.setDate(d.getDate() - 7);
-      setRange(toLocalYmd(d), formattedToday);
+      setRange(d.toISOString().substring(0, 10), formattedToday);
       break;
     }
     case 'last15': {
       const d = new Date(today);
       d.setDate(d.getDate() - 15);
-      setRange(toLocalYmd(d), formattedToday);
+      setRange(d.toISOString().substring(0, 10), formattedToday);
       break;
     }
     case 'last30': {
       const d = new Date(today);
       d.setMonth(d.getMonth() - 1);
-      setRange(toLocalYmd(d), formattedToday);
+      setRange(d.toISOString().substring(0, 10), formattedToday);
       break;
     }
     default:
