@@ -35,6 +35,7 @@ import {
   detectUnmountedPunches,
   indexUnmountedIssues,
 } from '../../utils/unmountedPunchIssues';
+import { shiftYmdDays } from '../../utils/dateYmd';
 
 const T = {
   accent: '#6d2323',
@@ -284,17 +285,15 @@ const AttendancePunchStatusSidebar = ({
       setError('');
 
       try {
-        const adjustedStart = new Date(startDate);
-        adjustedStart.setDate(adjustedStart.getDate() - 1);
-        const adjustedEnd = new Date(endDate);
-        adjustedEnd.setDate(adjustedEnd.getDate() + 1);
+        const adjustedStart = shiftYmdDays(startDate, -1);
+        const adjustedEnd = shiftYmdDays(endDate, 1);
 
         const response = await axios.post(
           `${API_BASE_URL}/attendance/api/attendance`,
           {
             personID: String(personID).trim(),
-            startDate: adjustedStart.toISOString().substring(0, 10),
-            endDate: adjustedEnd.toISOString().substring(0, 10),
+            startDate: adjustedStart,
+            endDate: adjustedEnd,
           },
           { ...getAuthHeaders(), signal: controller.signal },
         );
