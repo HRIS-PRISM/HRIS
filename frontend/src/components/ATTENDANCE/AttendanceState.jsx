@@ -88,7 +88,6 @@ import {
   Tooltip,
 } from "@mui/material";
 import { List as VirtualList } from "react-window";
-import { shiftYmdDays } from '../../utils/dateYmd';
 
 // ─── Theme tokens ──────────────────────────────────────────────────────────
 const T = {
@@ -1127,15 +1126,17 @@ const AllAttendanceRecord = () => {
     requestControllerRef.current = controller;
 
     try {
-      const adjustedStart = shiftYmdDays(startDate, -1);
-      const adjustedEnd = shiftYmdDays(endDate, 1);
+      const adjustedStart = new Date(startDate);
+      adjustedStart.setDate(adjustedStart.getDate() - 1);
+      const adjustedEnd = new Date(endDate);
+      adjustedEnd.setDate(adjustedEnd.getDate() + 1);
 
       const response = await axios.post(
         `${API_BASE_URL}/attendance/api/attendance`,
         {
           personID: normalizedID,
-          startDate: adjustedStart,
-          endDate: adjustedEnd,
+          startDate: adjustedStart.toISOString().substring(0, 10),
+          endDate: adjustedEnd.toISOString().substring(0, 10),
         },
         { ...getAuthHeaders(), signal: controller.signal },
       );
