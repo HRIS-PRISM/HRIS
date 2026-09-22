@@ -152,7 +152,7 @@ router.post(
                     () => {},
                   );
                 }
-                completed++;
+              completed++;
                 if (completed === employeeNumbers.length) {
                   notifyMultipleUsers(
                     employeeNumbers,
