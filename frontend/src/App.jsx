@@ -1752,105 +1752,94 @@ function App() {
           PaperProps={{
             sx: {
               borderRadius: "20px",
-              overflow: "hidden",
-              background: "rgba(255,248,231,0.98)",
-              border: "1px solid rgba(128,0,32,0.15)",
-              boxShadow: "0 24px 64px rgba(0,0,0,0.4)",
-              backdropFilter: "blur(24px)",
-              WebkitBackdropFilter: "blur(24px)",
-              maxWidth: 400,
+              overflow: "visible",
+              background: "#FFFDF8",
+              border: "1px solid rgba(128,0,32,0.1)",
+              boxShadow:
+                "0 30px 70px rgba(128,0,32,0.22), 0 4px 14px rgba(0,0,0,0.12)",
+              maxWidth: 380,
               width: "100%",
             },
           }}
         >
-          {/* Crimson header */}
+          {/* Floating badge, half in / half out of the card */}
           <Box
             sx={{
-              background: "#800020",
-              px: 3,
-              py: 2.5,
+              position: "absolute",
+              top: -30,
+              left: "50%",
+              transform: "translateX(-50%)",
+              width: 60,
+              height: 60,
+              borderRadius: "50%",
+              background: "linear-gradient(145deg, #a3132f, #6d001c)",
+              border: "4px solid #FFFDF8",
               display: "flex",
               alignItems: "center",
-              gap: 1.5,
+              justifyContent: "center",
+              boxShadow: "0 10px 22px rgba(128,0,32,0.4)",
+              zIndex: 2,
             }}
           >
-            <Box
-              sx={{
-                width: 40,
-                height: 40,
-                borderRadius: "50%",
-                bgcolor: "rgba(255,255,255,0.15)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                flexShrink: 0,
-              }}
-            >
-              <AccessTime sx={{ color: "#fff", fontSize: 20 }} />
-            </Box>
-            <Box>
-              <Typography
-                sx={{
-                  fontSize: "0.62rem",
-                  fontWeight: 700,
-                  letterSpacing: "0.2em",
-                  color: "rgba(255,255,255,0.65)",
-                  textTransform: "uppercase",
-                  mb: 0.25,
-                }}
-              >
-                Security Notice
-              </Typography>
-              <Typography
-                sx={{
-                  fontSize: "1.05rem",
-                  fontWeight: 800,
-                  color: "#fff",
-                  lineHeight: 1.2,
-                }}
-              >
-                Session Expiring Soon
-              </Typography>
-            </Box>
+            <AccessTime sx={{ color: "#fff", fontSize: 26 }} />
           </Box>
-
-          {/* Gradient accent bar */}
-          <Box
-            sx={{
-              height: 3,
-              background: "linear-gradient(90deg, #800020, #e84a4a)",
-            }}
-          />
 
           <DialogContent
             sx={{
               background: "transparent",
-              pt: 3,
-              pb: 2,
-              px: 3,
+              pt: 6,
+              pb: 1,
+              px: 3.5,
+              textAlign: "center",
+              fontFamily: "Poppins, sans-serif",
             }}
           >
             <Typography
               sx={{
-                color: "rgba(75,0,0,0.65)",
-                fontSize: "0.82rem",
-                textAlign: "center",
-                lineHeight: 1.6,
-                mb: 2,
+                fontSize: "0.62rem",
+                fontWeight: 700,
+                letterSpacing: "0.24em",
+                color: "#a3132f",
+                textTransform: "uppercase",
+                mb: 0.6,
               }}
             >
-              You have been inactive. For security purposes, you will be logged
-              out in:
+              Security Notice
+            </Typography>
+            <Typography
+              sx={{
+                fontSize: "1.2rem",
+                fontWeight: 800,
+                color: "#3a0000",
+                lineHeight: 1.25,
+                mb: 1,
+              }}
+            >
+              Still there?
+            </Typography>
+            <Typography
+              sx={{
+                color: "rgba(58,0,0,0.55)",
+                fontSize: "0.82rem",
+                lineHeight: 1.6,
+                mb: 3,
+                maxWidth: 280,
+                mx: "auto",
+              }}
+            >
+              We haven't seen any activity in a while. You'll be signed out
+              automatically when the timer below runs out.
             </Typography>
 
-            <Box sx={{ textAlign: "center", mb: 2 }}>
+            {/* Time remaining */}
+            <Box sx={{ mb: 3.5 }}>
               <Typography
                 sx={{
-                  fontSize: "2.8rem",
+                  fontSize: "2.6rem",
                   fontWeight: 800,
-                  color: "#800020",
+                  color: "#a3132f",
                   fontFamily: "monospace",
-                  letterSpacing: "2px",
+                  letterSpacing: "1px",
                   lineHeight: 1,
                 }}
               >
@@ -1858,69 +1847,30 @@ function App() {
               </Typography>
               <Typography
                 sx={{
-                  fontSize: "0.68rem",
-                  color: "rgba(128,0,32,0.45)",
-                  mt: 0.5,
-                  letterSpacing: "0.1em",
+                  fontSize: "0.62rem",
+                  color: "rgba(58,0,0,0.4)",
+                  letterSpacing: "0.14em",
                   textTransform: "uppercase",
+                  fontWeight: 600,
+                  mt: 0.5,
                 }}
               >
-                minutes remaining
+                Remaining
               </Typography>
-            </Box>
-
-            {/* Progress bar */}
-            <Box
-              sx={{
-                height: 6,
-                bgcolor: "rgba(128,0,32,0.1)",
-                borderRadius: "4px",
-                overflow: "hidden",
-                mb: 0.5,
-              }}
-            >
-              <Box
-                sx={{
-                  height: "100%",
-                  bgcolor: "#800020",
-                  borderRadius: "4px",
-                  width: `${(timeLeft / COUNTDOWN_SECONDS) * 100}%`,
-                  transition: "width 1s linear",
-                }}
-              />
             </Box>
           </DialogContent>
 
           <DialogActions
             sx={{
               background: "transparent",
-              px: 3,
-              pb: 3,
+              px: 3.5,
+              pb: 3.5,
               pt: 0,
-              gap: 1.25,
+              flexDirection: "column",
+              gap: 1,
               borderTop: "none",
             }}
           >
-            <Box
-              component="button"
-              onClick={handleLogout}
-              sx={{
-                flex: 1,
-                height: 46,
-                background: "transparent",
-                border: "1px solid rgba(128,0,32,0.35)",
-                borderRadius: "12px",
-                color: "#800020",
-                fontSize: "0.84rem",
-                fontWeight: 600,
-                cursor: "pointer",
-                fontFamily: "inherit",
-                transition: "background 0.2s",
-                "&:hover": { background: "rgba(128,0,32,0.05)" },
-              }}
-            >
-              Logout Now
-            </Box>
             <Box
               component="button"
               onClick={() => {
@@ -1928,21 +1878,46 @@ function App() {
                 resetIdleTimer();
               }}
               sx={{
-                flex: 1.5,
-                height: 46,
-                background: "#800020",
+                width: "100%",
+                height: 48,
+                background: "#a3132f",
                 border: "none",
                 borderRadius: "12px",
                 color: "#fff",
-                fontSize: "0.84rem",
-                fontWeight: 600,
+                fontSize: "0.86rem",
+                fontWeight: 700,
                 cursor: "pointer",
-                fontFamily: "inherit",
-                transition: "background 0.2s",
-                "&:hover": { background: "#6a001a" },
+                fontFamily: "Poppins, sans-serif",
+                boxShadow: "0 8px 18px rgba(163,19,47,0.35)",
+                transition: "all 0.2s",
+                "&:hover": {
+                  background: "#8a0f27",
+                  boxShadow: "0 10px 22px rgba(163,19,47,0.45)",
+                },
               }}
             >
-              Stay Logged In
+              I'm still here
+            </Box>
+            <Box
+              component="button"
+              onClick={handleLogout}
+              sx={{
+                width: "100%",
+                height: 40,
+                background: "transparent",
+                border: "none",
+                color: "rgba(58,0,0,0.5)",
+                fontSize: "0.78rem",
+                fontWeight: 600,
+                cursor: "pointer",
+                fontFamily: "Poppins, sans-serif",
+                textDecoration: "underline",
+                textUnderlineOffset: "3px",
+                transition: "color 0.2s",
+                "&:hover": { color: "#a3132f" },
+              }}
+            >
+              Log out now instead
             </Box>
           </DialogActions>
         </Dialog>
@@ -1953,113 +1928,92 @@ function App() {
           PaperProps={{
             sx: {
               borderRadius: "20px",
-              overflow: "hidden",
-              background: "rgba(255,248,231,0.98)",
-              border: "1px solid rgba(128,0,32,0.15)",
-              boxShadow: "0 24px 64px rgba(0,0,0,0.4)",
-              backdropFilter: "blur(24px)",
-              WebkitBackdropFilter: "blur(24px)",
-              maxWidth: 480,
+              overflow: "visible",
+              background: "#FFFDF8",
+              border: "1px solid rgba(128,0,32,0.1)",
+              boxShadow:
+                "0 30px 70px rgba(128,0,32,0.22), 0 4px 14px rgba(0,0,0,0.12)",
+              maxWidth: 400,
               width: "100%",
             },
           }}
         >
-          {/* Crimson header */}
+          {/* Floating badge */}
           <Box
             sx={{
-              background: "#800020",
-              px: 3.5,
-              py: 3,
+              position: "absolute",
+              top: -32,
+              left: "50%",
+              transform: "translateX(-50%)",
+              width: 64,
+              height: 64,
+              borderRadius: "50%",
+              background: "linear-gradient(145deg, #a3132f, #6d001c)",
+              border: "4px solid #FFFDF8",
               display: "flex",
               alignItems: "center",
-              gap: 1.5,
+              justifyContent: "center",
+              boxShadow: "0 10px 22px rgba(128,0,32,0.4)",
+              zIndex: 2,
             }}
           >
-            <Box
-              sx={{
-                width: 44,
-                height: 44,
-                borderRadius: "50%",
-                bgcolor: "rgba(255,255,255,0.15)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                flexShrink: 0,
-              }}
-            >
-              <Lock sx={{ color: "#fff", fontSize: 22 }} />
-            </Box>
-            <Box>
-              <Typography
-                sx={{
-                  fontSize: "0.62rem",
-                  fontWeight: 700,
-                  letterSpacing: "0.22em",
-                  color: "rgba(255,255,255,0.65)",
-                  textTransform: "uppercase",
-                  mb: 0.3,
-                  fontFamily: "Poppins, sans-serif",
-                }}
-              >
-                Authentication
-              </Typography>
-              <Typography
-                sx={{
-                  fontSize: "1.15rem",
-                  fontWeight: 800,
-                  color: "#fff",
-                  lineHeight: 1.2,
-                  fontFamily: "Poppins, sans-serif",
-                }}
-              >
-                Session Expired
-              </Typography>
-            </Box>
+            <Lock sx={{ color: "#fff", fontSize: 28 }} />
           </Box>
 
-          {/* Gradient accent bar */}
+          {/* thin accent strip along the top edge of the card */}
           <Box
             sx={{
-              height: 3,
-              background: "linear-gradient(90deg, #800020, #e84a4a)",
+              height: 5,
+              width: "100%",
+              background:
+                "repeating-linear-gradient(90deg, #a3132f 0 10px, transparent 10px 16px)",
+              opacity: 0.5,
             }}
           />
 
           <DialogContent
             sx={{
               background: "transparent",
-              pt: 4,
-              pb: 2,
+              pt: 5,
+              pb: 1,
               px: 4,
               textAlign: "center",
+              fontFamily: "Poppins, sans-serif",
             }}
           >
-            <Box
-              sx={{
-                width: 64,
-                height: 64,
-                borderRadius: "50%",
-                bgcolor: "rgba(128,0,32,0.08)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                mx: "auto",
-                mb: 2.5,
-              }}
-            >
-              <Lock sx={{ color: "#800020", fontSize: 30 }} />
-            </Box>
             <Typography
               sx={{
-                color: "rgba(75,0,0,0.65)",
-                fontSize: "0.88rem",
-                lineHeight: 1.75,
-                fontFamily: "Poppins, sans-serif",
+                fontSize: "0.62rem",
+                fontWeight: 700,
+                letterSpacing: "0.24em",
+                color: "#a3132f",
+                textTransform: "uppercase",
+                mb: 0.6,
               }}
             >
-              You have been inactive for an extended period. For security
-              purposes, your session has expired. Please sign in again to
-              continue.
+              Authentication
+            </Typography>
+            <Typography
+              sx={{
+                fontSize: "1.3rem",
+                fontWeight: 800,
+                color: "#3a0000",
+                lineHeight: 1.25,
+                mb: 1.5,
+              }}
+            >
+              Your session has ended
+            </Typography>
+            <Typography
+              sx={{
+                color: "rgba(58,0,0,0.55)",
+                fontSize: "0.85rem",
+                lineHeight: 1.7,
+                mb: 3,
+              }}
+            >
+              You were signed out after a period of inactivity, to keep your
+              account secure. Sign back in to pick up where you left off.
             </Typography>
           </DialogContent>
 
@@ -2068,7 +2022,7 @@ function App() {
               background: "transparent",
               px: 4,
               pb: 4,
-              pt: 1,
+              pt: 0,
               borderTop: "none",
             }}
           >
@@ -2077,18 +2031,22 @@ function App() {
               onClick={handleSessionExpiredClose}
               sx={{
                 width: "100%",
-                height: 52,
-                background: "#800020",
+                height: 50,
+                background: "#a3132f",
                 border: "none",
                 borderRadius: "12px",
                 color: "#fff",
-                fontSize: "0.92rem",
-                fontWeight: 600,
+                fontSize: "0.88rem",
+                fontWeight: 700,
                 cursor: "pointer",
                 fontFamily: "Poppins, sans-serif",
-                letterSpacing: "0.04em",
-                transition: "background 0.2s",
-                "&:hover": { background: "#6a001a" },
+                letterSpacing: "0.02em",
+                boxShadow: "0 8px 18px rgba(163,19,47,0.35)",
+                transition: "all 0.2s",
+                "&:hover": {
+                  background: "#8a0f27",
+                  boxShadow: "0 10px 22px rgba(163,19,47,0.45)",
+                },
               }}
             >
               Back to Sign In

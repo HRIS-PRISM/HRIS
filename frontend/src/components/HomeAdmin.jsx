@@ -91,6 +91,7 @@ import {
   History,
 } from "@mui/icons-material";
 import logo from "../assets/logo.PNG";
+import earistBg from "../assets/EaristBG.PNG";
 
 // ─── Design tokens (mirroring AttendanceUserState) ───────────────────────────
 const T = {
@@ -98,7 +99,7 @@ const T = {
   accentDark: "#5a1d1d",
   accentMid: "#8B4545",
   accentFaint: "rgba(109,35,35,0.06)",
-  accentBorder: "rgba(109,35,35,0.14)",
+  accentBorder: "rgba(109,35,35,0.12)",
   accentHover: "rgba(109,35,35,0.10)",
   rowOdd: "rgba(109,35,35,0.025)",
   rowHover: "rgba(109,35,35,0.055)",
@@ -106,7 +107,7 @@ const T = {
   muted: "#6b6b6b",
   faint: "#a0a0a0",
   surface: "#ffffff",
-  divider: "rgba(0,0,0,0.08)",
+  divider: "rgba(0,0,0,0.07)",
 };
 
 // ─── Shimmer keyframes ────────────────────────────────────────────────────────
@@ -115,6 +116,16 @@ const shimmerKf = `
 * { font-family: 'Poppins', sans-serif !important; }
 @keyframes shimmer { 0% { background-position: -800px 0; } 100% { background-position: 800px 0; } }
 @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+.hris-home-dash .MuiCard-root {
+  border: none !important;
+  outline: none !important;
+  box-shadow: 0 1px 2px rgba(15,23,42,0.04), 0 4px 12px rgba(15,23,42,0.06), 0 14px 28px rgba(15,23,42,0.07) !important;
+  transition: box-shadow 0.22s ease, transform 0.22s ease !important;
+}
+.hris-home-dash .MuiCard-root:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 0 1.5px rgba(109,35,35,0.22), 0 6px 16px rgba(15,23,42,0.08), 0 20px 40px rgba(15,23,42,0.12) !important;
+}
 `;
 
 // ─── Shimmer bone ─────────────────────────────────────────────────────────────
@@ -135,30 +146,67 @@ const Bone = ({ w = "100%", h = 14, r = 6, sx = {} }) => (
 );
 
 // ─── Styled primitives ────────────────────────────────────────────────────────
+const cardShadowRest = [
+  "0 1px 2px rgba(15,23,42,0.04)",
+  "0 4px 12px rgba(15,23,42,0.06)",
+  "0 14px 28px rgba(15,23,42,0.07)",
+].join(", ");
+const cardShadowHover = [
+  "0 0 0 1.5px rgba(109,35,35,0.22)",
+  "0 6px 16px rgba(15,23,42,0.08)",
+  "0 20px 40px rgba(15,23,42,0.12)",
+].join(", ");
+
 const SectionCard = styled(Card)({
-  borderRadius: 12,
-  boxShadow: "0 1px 4px rgba(0,0,0,0.07), 0 4px 24px rgba(0,0,0,0.04)",
-  border: "0.5px solid rgba(0,0,0,0.09)",
-  overflow: "hidden",
-  background: "#fff",
+  "&&": {
+    borderRadius: 16,
+    border: "0 !important",
+    outline: "none",
+    boxShadow: `${cardShadowRest} !important`,
+    overflow: "hidden",
+    background: "#fff",
+    backgroundImage: "none",
+    transition: "box-shadow 0.22s ease, transform 0.22s ease",
+    willChange: "transform, box-shadow",
+  },
+  "&&:hover": {
+    transform: "translateY(-2px)",
+    boxShadow: `${cardShadowHover} !important`,
+  },
 });
+SectionCard.defaultProps = { elevation: 0, variant: "elevation" };
 
 // ─── Panel header bar ─────────────────────────────────────────────────────────
 const PanelHeader = ({ icon: Icon, title, right }) => (
   <Box
     sx={{
-      px: 2.5,
-      py: 1.25,
+      px: 1.75,
+      py: 1.1,
       borderBottom: `1px solid ${T.divider}`,
       display: "flex",
       alignItems: "center",
-      gap: 1.25,
-      bgcolor: T.accentFaint,
-      minHeight: 42,
+      gap: 1,
+      bgcolor: "#fff",
+      minHeight: 44,
     }}
   >
-    {Icon && <Icon sx={{ fontSize: 14, color: T.accent }} />}
-    <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: T.accent }}>
+    {Icon && (
+      <Box
+        sx={{
+          width: 26,
+          height: 26,
+          borderRadius: "8px",
+          bgcolor: T.accentFaint,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexShrink: 0,
+        }}
+      >
+        <Icon sx={{ fontSize: 14, color: T.accent }} />
+      </Box>
+    )}
+    <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.text, letterSpacing: "-0.01em" }}>
       {title}
     </Typography>
     {right && (
@@ -1321,10 +1369,6 @@ const CompactStatCard = ({
           transition: "all 0.2s ease",
           transform:
             hoveredCard === index ? "translateY(-3px)" : "translateY(0)",
-          boxShadow:
-            hoveredCard === index
-              ? `0 8px 24px ${T.accent}22`
-              : "0 1px 4px rgba(0,0,0,0.07)",
           cursor: "default",
         }}
       >
@@ -2473,12 +2517,8 @@ const QuickActions = ({ settings, userRole }) => {
     return true;
   });
   return (
-    <Card
+    <SectionCard
       sx={{
-        background: settings.accentColor,
-        backdropFilter: "blur(15px)",
-        border: `1px solid ${settings.primaryColor}26`,
-        borderRadius: 4,
         flexShrink: 0,
         minHeight: 180,
         maxHeight: 220,
@@ -2499,7 +2539,7 @@ const QuickActions = ({ settings, userRole }) => {
   sx={{
     fontWeight: 700,
     mb: 1,
-    color: settings.textPrimaryColor,
+    color: T.text,
     fontSize: "0.85rem",
     flexShrink: 0,
     display: "flex",
@@ -2508,7 +2548,7 @@ const QuickActions = ({ settings, userRole }) => {
   }}
 >
   {React.createElement(Build, {
-    sx: { fontSize: 16, color: settings.textPrimaryColor },
+    sx: { fontSize: 16, color: T.accent },
   })}
   Admin Panel
 </Typography>
@@ -2523,21 +2563,21 @@ const QuickActions = ({ settings, userRole }) => {
                         sx={{
                           p: { xs: 0.5, md: 0.5 },
                           borderRadius: 1.5,
-                          background: `${settings.primaryColor}0A`,
-                          border: `1px solid ${settings.primaryColor}26`,
+                          background: T.accentFaint,
+                          border: `1px solid ${T.accentBorder}`,
                           display: "flex",
                           flexDirection: "column",
                           alignItems: "center",
                           transition: "all 0.3s",
                           cursor: "pointer",
                           "&:hover": {
-                            background: `${settings.primaryColor}1A`,
+                            background: T.accentHover,
                             transform: "translateY(-2px)",
-                            boxShadow: `0 4px 12px ${settings.primaryColor}33`,
+                            boxShadow: `0 4px 12px ${T.accent}33`,
                           },
                         }}
                       >
-                        <Box sx={{ color: settings.textPrimaryColor }}>
+                        <Box sx={{ color: T.accent }}>
                           {React.cloneElement(item.icon, {
                             sx: { fontSize: { xs: 16, md: 20 } },
                           })}
@@ -2546,7 +2586,7 @@ const QuickActions = ({ settings, userRole }) => {
                           sx={{
                             fontSize: { xs: "0.5rem", md: "0.6rem" },
                             fontWeight: 600,
-                            color: settings.textPrimaryColor,
+                            color: T.text,
                             textAlign: "center",
                             lineHeight: 1.2,
                           }}
@@ -2562,7 +2602,7 @@ const QuickActions = ({ settings, userRole }) => {
           </Grid>
         </Box>
       </CardContent>
-    </Card>
+    </SectionCard>
   );
 };
 
@@ -3915,6 +3955,7 @@ const AdminHome = () => {
   return (
     <Fade in timeout={500}>
       <Box
+        className="hris-home-dash"
         sx={{
           width: "100vw",
           maxWidth: "100%",
@@ -3926,42 +3967,50 @@ const AdminHome = () => {
         <style>{shimmerKf}</style>
         <Box sx={{ py: -1, px: { xs: -5, sm: -5, md: -5 }, mx: "auto" }}>
           {/* ── HEADER ── */}
-          <SectionCard sx={{ mb: 2 }}>
+          <SectionCard sx={{ mb: 2, "&&": { background: "transparent", backgroundImage: "none" }, borderRadius: "12px", overflow: "hidden" }}>
             <Box
               sx={{
                 px: 4,
                 py: 3,
-                background: "linear-gradient(135deg, #fdf5f5 0%, #f0dede 100%)",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
                 position: "relative",
                 overflow: "hidden",
+                background: "linear-gradient(105deg, #6d2323 0%, #8f3034 48%, #b34a4f 100%)",
+                borderTop: `2.5px solid ${T.accent}`,
+                minHeight: 88,
               }}
             >
-              {/* decorative circles */}
+              {/* Building watermark */}
               <Box
+                component="img"
+                src={earistBg}
+                alt=""
+                aria-hidden
                 sx={{
                   position: "absolute",
-                  top: -50,
-                  right: -50,
-                  width: 200,
-                  height: 200,
-                  borderRadius: "50%",
-                  background:
-                    "radial-gradient(circle,rgba(109,35,35,0.10) 0%,transparent 70%)",
+                  right: { xs: -16, md: 0 },
+                  top: "140%",
+                  transform: "translateY(-50%)",
+                  height: "320%",
+                  width: { xs: "55%", md: "38%" },
+                  objectFit: "cover",
+                  objectPosition: "center right",
+                  opacity: 0.75,
+                  pointerEvents: "none",
+                  maskImage: "linear-gradient(to left, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.45) 55%, transparent 100%)",
+                  WebkitMaskImage: "linear-gradient(to left, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.45) 55%, transparent 100%)",
+                  borderRadius: 2,
+                  clipPath: "inset(0 round 12px)",
                 }}
               />
               <Box
                 sx={{
                   position: "absolute",
-                  bottom: -30,
-                  left: "30%",
-                  width: 150,
-                  height: 150,
-                  borderRadius: "50%",
-                  background:
-                    "radial-gradient(circle,rgba(109,35,35,0.07) 0%,transparent 70%)",
+                  inset: 0,
+                  pointerEvents: "none",
+                  background: "linear-gradient(90deg, rgba(74,17,19,0.48) 0%, rgba(109,35,35,0.18) 55%, rgba(109,35,35,0.04) 100%)",
                 }}
               />
 
@@ -3969,29 +4018,43 @@ const AdminHome = () => {
                 sx={{
                   display: "flex",
                   alignItems: "center",
-                  gap: 2.5,
+                  gap: 1.5,
                   position: "relative",
                   zIndex: 1,
+                  minWidth: 0,
                 }}
               >
-            
+                <Box
+                  sx={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: "10px",
+                    flexShrink: 0,
+                    background: "rgba(255,255,255,0.16)",
+                    border: "1px solid rgba(255,255,255,0.30)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    boxShadow: "0 2px 8px rgba(52,8,10,0.24)",
+                  }}
+                >
+                  <SupervisorAccount sx={{ fontSize: 22, color: "#fff3cf" }} />
+                </Box>
                 <Box>
                   <Typography
                     sx={{
                       fontSize: "1.1rem",
-                      color: T.accent,
+                      color: "#fff",
                       lineHeight: 1.2,
+                      fontWeight: 800,
                     }}
                   >
-                    Hello,{" "}
-                    <span style={{ color: T.text, fontWeight: 700 }}>
-                      {fullName || username} !
-                    </span>
+                    Hello, <span style={{ color: "#fff" }}>{fullName || username}</span>
                   </Typography>
                   <Typography
                     sx={{
                       fontSize: "0.75rem",
-                      color: T.muted,
+                      color: "rgba(255,255,255,0.82)",
                       fontWeight: 500,
                       display: "flex",
                       alignItems: "center",
@@ -4009,7 +4072,7 @@ const AdminHome = () => {
                     <span
                       style={{
                         marginLeft: 6,
-                        color: T.accent,
+                        color: "#ffe0aa",
                         fontWeight: 700,
                       }}
                     >
@@ -4025,7 +4088,7 @@ const AdminHome = () => {
               <Box
                 sx={{
                   display: "flex",
-                  gap: 1,
+                  gap: 1.5,
                   alignItems: "center",
                   position: "relative",
                   zIndex: 1,
@@ -4039,13 +4102,13 @@ const AdminHome = () => {
                       await fetchNotifications();
                     }}
                     sx={{
-                      bgcolor: T.accentFaint,
-                      border: `1px solid ${T.accentBorder}`,
+                      bgcolor: "#ffffff",
+                      border: "1px solid rgba(255,255,255,0.9)",
                       color: T.accent,
                       borderRadius: "8px",
                       width: 36,
                       height: 36,
-                      "&:hover": { bgcolor: T.accentHover },
+                      "&:hover": { bgcolor: "rgba(255,255,255,0.85)" },
                     }}
                   >
                     <Badge
@@ -4058,7 +4121,7 @@ const AdminHome = () => {
                   </IconButton>
                 </Tooltip>
 
-                {/* Profile icon — untouched */}
+                {/* Profile icon */}
                 <Box
                   sx={{
                     position: "relative",
@@ -4068,7 +4131,7 @@ const AdminHome = () => {
                       inset: -2,
                       borderRadius: "50%",
                       padding: "2px",
-                      background: `linear-gradient(135deg, ${settings.primaryColor}, ${settings.secondaryColor})`,
+                      background: "#ffffff",
                       WebkitMask:
                         "linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)",
                       WebkitMaskComposite: "xor",
@@ -4259,8 +4322,21 @@ const AdminHome = () => {
                               sx={{
                                 position: "absolute",
                                 inset: 0,
-                                background:
-                                  "linear-gradient(to top, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.25) 50%, rgba(0,0,0,0) 70%)",
+                                pointerEvents: "none",
+                                background: `
+                                  linear-gradient(115deg,
+                                    rgba(55, 8, 8, 0.94) 0%,
+                                    rgba(90, 20, 20, 0.82) 28%,
+                                    rgba(109, 35, 35, 0.45) 52%,
+                                    rgba(109, 35, 35, 0.12) 72%,
+                                    rgba(0, 0, 0, 0) 88%
+                                  ),
+                                  linear-gradient(to top,
+                                    rgba(40, 5, 5, 0.55) 0%,
+                                    rgba(40, 5, 5, 0.15) 35%,
+                                    transparent 60%
+                                  )
+                                `,
                               }}
                             />
 
@@ -4271,23 +4347,22 @@ const AdminHome = () => {
                               }}
                               sx={{
                                 position: "absolute",
-                                left: 16,
+                                left: 14,
                                 top: "50%",
                                 transform: "translateY(-50%)",
-                                bgcolor: "rgba(0,0,0,0.35)",
-                                backdropFilter: "blur(4px)",
-                                border: "0.5px solid rgba(255,255,255,0.2)",
+                                bgcolor: "rgba(255,255,255,0.92)",
+                                boxShadow: "0 2px 8px rgba(0,0,0,0.18)",
                                 "&:hover": {
-                                  bgcolor: "rgba(0,0,0,0.55)",
+                                  bgcolor: "#fff",
                                   transform: "translateY(-50%) scale(1.05)",
                                 },
-                                color: "#fff",
+                                color: T.accent,
                                 zIndex: 10,
-                                width: 36,
-                                height: 36,
+                                width: 34,
+                                height: 34,
                               }}
                             >
-                              <ArrowBackIosNewIcon sx={{ fontSize: 14 }} />
+                              <ArrowBackIosNewIcon sx={{ fontSize: 13 }} />
                             </IconButton>
                             <IconButton
                               onClick={(e) => {
@@ -4296,23 +4371,22 @@ const AdminHome = () => {
                               }}
                               sx={{
                                 position: "absolute",
-                                right: 16,
+                                right: 14,
                                 top: "50%",
                                 transform: "translateY(-50%)",
-                                bgcolor: "rgba(0,0,0,0.35)",
-                                backdropFilter: "blur(4px)",
-                                border: "0.5px solid rgba(255,255,255,0.2)",
+                                bgcolor: "rgba(255,255,255,0.92)",
+                                boxShadow: "0 2px 8px rgba(0,0,0,0.18)",
                                 "&:hover": {
-                                  bgcolor: "rgba(0,0,0,0.55)",
+                                  bgcolor: "#fff",
                                   transform: "translateY(-50%) scale(1.05)",
                                 },
-                                color: "#fff",
+                                color: T.accent,
                                 zIndex: 10,
-                                width: 36,
-                                height: 36,
+                                width: 34,
+                                height: 34,
                               }}
                             >
-                              <ArrowForwardIosIcon sx={{ fontSize: 14 }} />
+                              <ArrowForwardIosIcon sx={{ fontSize: 13 }} />
                             </IconButton>
                             <IconButton
                               onClick={(e) => {
@@ -4323,11 +4397,10 @@ const AdminHome = () => {
                                 position: "absolute",
                                 top: 14,
                                 right: 14,
-                                bgcolor: "rgba(0,0,0,0.35)",
-                                backdropFilter: "blur(4px)",
-                                border: "0.5px solid rgba(255,255,255,0.2)",
-                                "&:hover": { bgcolor: "rgba(0,0,0,0.55)" },
-                                color: "#fff",
+                                bgcolor: "rgba(255,255,255,0.88)",
+                                boxShadow: "0 2px 8px rgba(0,0,0,0.14)",
+                                "&:hover": { bgcolor: "#fff" },
+                                color: T.accent,
                                 zIndex: 10,
                                 width: 30,
                                 height: 30,
@@ -4361,10 +4434,9 @@ const AdminHome = () => {
                                   alignItems: "center",
                                   px: 1.5,
                                   py: 0.3,
-                                  borderRadius: "20px",
-                                  bgcolor: "rgba(109,35,35,0.75)",
-                                  backdropFilter: "blur(8px)",
-                                  border: "0.5px solid rgba(255,255,255,0.2)",
+                                  borderRadius: "8px",
+                                  bgcolor: "rgba(80,15,15,0.85)",
+                                  border: "0.5px solid rgba(255,255,255,0.18)",
                                   mb: 1.5,
                                 }}
                               >
@@ -4394,14 +4466,14 @@ const AdminHome = () => {
                                   fontWeight: 800,
                                   mb: 0.75,
                                   lineHeight: 1.2,
-                                  textShadow: "0 2px 8px rgba(0,0,0,0.5)",
+                                  textShadow: "0 2px 10px rgba(0,0,0,0.35)",
                                 }}
                               >
                                 {carouselItems[currentSlide]?.title}
                               </Typography>
                               <Typography
                                 sx={{
-                                  opacity: 0.85,
+                                  opacity: 0.9,
                                   fontSize: "0.85rem",
                                   display: "flex",
                                   alignItems: "center",
@@ -4432,7 +4504,7 @@ const AdminHome = () => {
                                 bottom: 16,
                                 right: 16,
                                 display: "flex",
-                                gap: 1,
+                                gap: 0.75,
                                 alignItems: "center",
                                 zIndex: 10,
                               }}
@@ -4445,17 +4517,25 @@ const AdminHome = () => {
                                     handleSlideSelect(idx);
                                   }}
                                   sx={{
-                                    width: currentSlide === idx ? 24 : 8,
+                                    width: currentSlide === idx ? 22 : 8,
                                     height: 8,
                                     borderRadius: 4,
                                     bgcolor:
                                       currentSlide === idx
                                         ? "#fff"
-                                        : "rgba(255,255,255,0.4)",
+                                        : "transparent",
+                                    border:
+                                      currentSlide === idx
+                                        ? "none"
+                                        : "1.5px solid rgba(255,255,255,0.85)",
                                     transition: "all 0.3s ease",
                                     cursor: "pointer",
-                                    border: "0.5px solid rgba(255,255,255,0.3)",
-                                    "&:hover": { bgcolor: "rgba(255,255,255,0.7)" },
+                                    "&:hover": {
+                                      bgcolor:
+                                        currentSlide === idx
+                                          ? "#fff"
+                                          : "rgba(255,255,255,0.35)",
+                                    },
                                   }}
                                 />
                               ))}

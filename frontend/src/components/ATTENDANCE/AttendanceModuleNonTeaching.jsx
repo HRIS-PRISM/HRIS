@@ -501,8 +501,15 @@ const filterApplicableSuspensionsForNonTeaching = (suspensionByDate, employeeBra
   return out;
 };
 
-/** Minute-only absence / half-day / late buckets for Non-Teaching totals. */
-const computeNonTeachingMinuteBuckets = (rows, reviewByDate, calendarMaps) => {
+/** Minute-only absence / half-day / late buckets for Non-Teaching totals.
+ * @param {Record<string, { morning?: string, afternoon?: string }> | null} [tardOverrides]
+ *   HR-entered AM/PM tardiness overrides, keyed by date. When present for a
+ *   day (including an absent day with no punches), the override replaces
+ *   the automatic figure for that slot so every total — Late Total, Overall
+ *   Tardiness, and the saved payroll record — agrees with what the AM/PM
+ *   tardiness cells display.
+ */
+const computeNonTeachingMinuteBuckets = (rows, reviewByDate, calendarMaps, tardOverrides = null) => {
   let absentDays = 0;
   let halfDays = 0;
   let absentSecTotal = 0;
@@ -519,7 +526,29 @@ const computeNonTeachingMinuteBuckets = (rows, reviewByDate, calendarMaps) => {
 
     if (hasNoPunches(row)) {
       absentDays += 1;
-      absentSecTotal += schedWorkSec;
+      const ov = tardOverrides?.[row?.date] || tardOverrides?.[d];
+      const hasOverride = ov && (
+        (ov.morning != null && String(ov.morning).trim() !== '')
+        || (ov.afternoon != null && String(ov.afternoon).trim() !== '')
+      );
+      if (hasOverride) {
+        // A manual override on an absent day reclassifies that portion of
+        // the day from "absent" to "late" instead of being dropped, so
+        // Late Total / Overall Tardiness stay in sync with what the AM/PM
+        // tardiness cells (and Morning/Afternoon Total) already show.
+        const amSec = ov.morning != null && String(ov.morning).trim() !== ''
+          ? parseDurationToMinuteSec(ov.morning)
+          : (computeArrivalLateMinuteSec(row) ?? 0);
+        const pmSec = ov.afternoon != null && String(ov.afternoon).trim() !== ''
+          ? parseDurationToMinuteSec(ov.afternoon)
+          : (computeEarlyLeaveUndertimeMinuteSec(row) ?? 0) + (computeMissingBreakDeductionMinuteSec(row) ?? 0);
+        const overrideSec = Math.min(schedWorkSec, amSec + pmSec);
+        lateShortfallSecTotal += overrideSec;
+        lateTotalDisplaySec += overrideSec;
+        absentSecTotal += Math.max(0, schedWorkSec - overrideSec);
+      } else {
+        absentSecTotal += schedWorkSec;
+      }
       return;
     }
 
@@ -538,7 +567,19 @@ const computeNonTeachingMinuteBuckets = (rows, reviewByDate, calendarMaps) => {
       return;
     }
 
-    const punchLate = getAmPmSlotLateMinuteSec(row);
+    const ov = tardOverrides?.[row?.date] || tardOverrides?.[d];
+    let punchLate;
+    if (ov && ((ov.morning != null && String(ov.morning).trim() !== '') || (ov.afternoon != null && String(ov.afternoon).trim() !== ''))) {
+      const amSec = ov.morning != null && String(ov.morning).trim() !== ''
+        ? parseDurationToMinuteSec(ov.morning)
+        : (computeArrivalLateMinuteSec(row) ?? 0);
+      const pmSec = ov.afternoon != null && String(ov.afternoon).trim() !== ''
+        ? parseDurationToMinuteSec(ov.afternoon)
+        : (computeEarlyLeaveUndertimeMinuteSec(row) ?? 0) + (computeMissingBreakDeductionMinuteSec(row) ?? 0);
+      punchLate = amSec + pmSec;
+    } else {
+      punchLate = getAmPmSlotLateMinuteSec(row);
+    }
     lateShortfallSecTotal += punchLate;
     lateTotalDisplaySec += punchLate;
   });
@@ -598,7 +639,16 @@ const getRowTotalTardinessMinuteDisplay = (
   if (calendarMaps && isExcludedAttendanceCalendarDate(d, calendarMaps)) return ZERO_HM;
   if (isScheduledByOfficialTime(row) && hasNoPunches(row)) {
     const schedWorkSec = getOfficialSchedWorkMinuteSec(row);
-    if (schedWorkSec != null) return formatDurationHhMm(schedWorkSec);
+    if (schedWorkSec != null) {
+      // fallbackTotal is computed by the caller from the AM/PM tardiness
+      // cells, which already honor a manual HR override (see getCellValue).
+      // Without punches the automatic AM/PM formulas always yield 0, so a
+      // positive fallbackTotal here can only mean a real override was
+      // entered — let it win over the default "whole scheduled day" figure.
+      const fallbackSec = parseDurationToMinuteSec(fallbackTotal);
+      if (fallbackSec > 0) return formatDurationHhMm(Math.min(schedWorkSec, fallbackSec));
+      return formatDurationHhMm(schedWorkSec);
+    }
   }
   const entry = reviewByDate?.[d];
   if (entry?.status === HALF_DAY_STATUS.REJECTED) {
@@ -1780,13 +1830,14 @@ setSuspensionByDate(scopedSuspensionByDate);
   const totals = React.useMemo(() => {
     if (!attendanceData.length) return {};
     const calendarMaps = { suspensionByDate, holidayByDate, leaveByDate, employeeBranch };
+    const ov = tardinessOverrides;
+    const rv = halfDayReviewByDate;
     const buckets = computeNonTeachingMinuteBuckets(
       attendanceData,
       halfDayReviewByDate,
       calendarMaps,
+      ov,
     );
-    const ov = tardinessOverrides;
-    const rv = halfDayReviewByDate;
     const morningRendered    = sumTime(attendanceData.map(r => getCellValue(r, '_morningRendered',    isFurloughForDate(r.date), ov, rv)));
     const morningTardiness   = sumTime(attendanceData.map(r => getCellValue(r, '_morningTardiness',   isFurloughForDate(r.date), ov, rv)));
     const afternoonRendered  = sumTime(attendanceData.map(r => getCellValue(r, '_afternoonRendered',  isFurloughForDate(r.date), ov, rv)));
@@ -1965,6 +2016,7 @@ setSuspensionByDate(scopedSuspensionByDate);
         attendanceData,
         halfDayReviewByDate,
         calendarMaps,
+        tardinessOverrides,
       );
       const absentList = listAbsentDatesFromDailyRows(attendanceData, calendarMaps);
       return {
