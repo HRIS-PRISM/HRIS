@@ -34,6 +34,7 @@ const pool = mysql.createPool({
   connectTimeout: 15000,
   enableKeepAlive: true,
   keepAliveInitialDelay: 10000,
+  dateStrings: ['DATE', 'DATETIME', 'TIMESTAMP'], // To avoide timezone issues
 });
 
 module.exports = pool;
