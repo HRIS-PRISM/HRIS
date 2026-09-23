@@ -294,7 +294,7 @@ const AssignFormPanel = ({ children, sx = {} }) => (
 );
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-const PRIORITY_LEAVE_CODES = ["SL", "VL"];
+const PRIORITY_LEAVE_CODES = ["VL", "SL"];
 
 const sortLeaveTypesForAssign = (list) => {
   const rank = (code) => {
