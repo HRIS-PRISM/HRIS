@@ -1,5 +1,6 @@
 const express = require('express');
 const http = require('http');
+const path = require('path');
 const cors = require('cors');
 const bodyparser = require('body-parser');
 require('dotenv').config();
@@ -562,6 +563,25 @@ app.use('/api/leave-salary-shortfall', leaveSalaryShortfallRoutes);
 app.use('/api/attendance-result', attendanceResultRoutes);
 app.use('/api/attendance-computation-view-state', attendanceComputationViewStateRoutes);
 
+// ── Serve the production frontend build (retire the server) ──
+// Registered AFTER all API routes so existing endpoints keep priority; static
+// files only respond when a matching file exists, otherwise fall through.
+const FRONTEND_DIST = path.join(__dirname, '..', 'frontend', 'dist');
+app.use(express.static(FRONTEND_DIST));
+
+// SPA fallback: unmatched GETs that accept HTML return index.html so client-side
+// routes (e.g. /attendance) work when the frontend is served by the backend.
+app.get('*', (req, res, next) => {
+  const p = req.path;
+  if (p === '/api' || p.startsWith('/api/') || p.startsWith('/uploads') || p.startsWith('/socket.io')) {
+    return next();
+  }
+  if (!req.accepts('html')) return next();
+  res.sendFile(path.join(FRONTEND_DIST, 'index.html'), (err) => {
+    if (err) next();
+  });
+});
+
 const ensureAttendanceResultSQL = `
   CREATE TABLE IF NOT EXISTS attendance_result (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -634,6 +654,20 @@ ensureOverallDailyLateColumns.forEach((sql) => {
   db.query(sql, (err) => {
     if (err && err.code !== 'ER_DUP_FIELDNAME') {
       console.error('overall_attendance_record column ensure:', err.message);
+    }
+  });
+});
+
+// Payroll budget department: optional per-employee override used only by the
+// Appendix 33 export so an employee's pay can be charged to another department
+// tab while their real department (department_assignment.code) stays unchanged.
+const ensureDepartmentAssignmentBudgetCode = [
+  `ALTER TABLE department_assignment ADD COLUMN budgetCode VARCHAR(50) NULL COMMENT 'Optional budget department code for payroll export routing' AFTER code`,
+];
+ensureDepartmentAssignmentBudgetCode.forEach((sql) => {
+  db.query(sql, (err) => {
+    if (err && err.code !== 'ER_DUP_FIELDNAME') {
+      console.error('department_assignment column ensure:', err.message);
     }
   });
 });

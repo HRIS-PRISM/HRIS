@@ -6,6 +6,15 @@ const { notifyPayrollChanged } = require('../socket/socketService');
 
 router.use(authenticateToken, requireAdmin);
 
+// Payroll budget department: optional code telling the Appendix 33 export which
+// department tab an employee's pay is charged to. Blank is stored as NULL so the
+// export falls back to the real department.
+const normalizeBudgetCode = (value) => {
+  if (value === undefined || value === null) return null;
+  const trimmed = String(value).trim();
+  return trimmed === '' ? null : trimmed;
+};
+
 // GET all department table records
 router.get('/api/department-table', (req, res) => {
   db.query('SELECT * FROM department_table', (err, results) => {
@@ -120,11 +129,12 @@ router.get('/api/department-assignment/:id', (req, res) => {
 // POST: Add a new department assignment
 router.post('/api/department-assignment', (req, res) => {
   const { code, name, employeeNumber } = req.body;
+  const budgetCode = normalizeBudgetCode(req.body.budgetCode);
   if (!code || !employeeNumber)
     return res.status(400).send('Code and Employee Number are required');
 
-  const sql = `INSERT INTO department_assignment (code, name, employeeNumber) VALUES (?, ?, ?)`;
-  db.query(sql, [code, name, employeeNumber], (err, result) => {
+  const sql = `INSERT INTO department_assignment (code, budgetCode, name, employeeNumber) VALUES (?, ?, ?, ?)`;
+  db.query(sql, [code, budgetCode, name, employeeNumber], (err, result) => {
     if (err) {
       try {
         logAudit(req.user, 'Insert Failed', 'department_assignment', null, employeeNumber);
@@ -161,9 +171,10 @@ router.post('/api/department-assignment', (req, res) => {
 router.put('/api/department-assignment/:id', (req, res) => {
   const { id } = req.params;
   const { code, name, employeeNumber } = req.body;
+  const budgetCode = normalizeBudgetCode(req.body.budgetCode);
 
-  const sql = `UPDATE department_assignment SET code = ?, name = ?, employeeNumber = ? WHERE id = ?`;
-  db.query(sql, [code, name, employeeNumber, id], (err, result) => {
+  const sql = `UPDATE department_assignment SET code = ?, budgetCode = ?, name = ?, employeeNumber = ? WHERE id = ?`;
+  db.query(sql, [code, budgetCode, name, employeeNumber, id], (err, result) => {
     if (err) {
       try {
         logAudit(req.user, 'Update Failed', 'department_assignment', id, employeeNumber);

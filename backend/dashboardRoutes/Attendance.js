@@ -874,29 +874,38 @@
     }
 
     try {
-      const results = [];
+      // Single grouped query instead of one COUNT per selected user (N+1 loop).
+      const placeholders = userIDs.map(() => '?').join(',');
+      const countSql = `
+        SELECT personID, COUNT(*) AS count
+        FROM attendancerecord
+        WHERE personID IN (${placeholders}) AND date BETWEEN ? AND ?
+        GROUP BY personID
+      `;
 
-      for (const personID of userIDs) {
-        const checkQuery = `
-          SELECT COUNT(*) as count
-          FROM attendancerecord
-          WHERE personID = ? AND date BETWEEN ? AND ?
-        `;
-
-        const recordCount = await new Promise((resolve, reject) => {
-          db.query(checkQuery, [personID, startDate, endDate], (err, result) => {
+      const countRows = await new Promise((resolve, reject) => {
+        db.query(
+          countSql,
+          [...userIDs, startDate, endDate],
+          (err, rows) => {
             if (err) reject(err);
-            else resolve(result[0].count);
-          });
-        });
+            else resolve(rows || []);
+          },
+        );
+      });
 
-        results.push({
+      const countMap = new Map(
+        countRows.map((r) => [String(r.personID).trim(), Number(r.count) || 0]),
+      );
+
+      const results = userIDs.map((personID) => {
+        const recordCount = countMap.get(String(personID).trim()) || 0;
+        return {
           personID,
           recordCount,
           success: recordCount > 0,
-        });
-
-      }
+        };
+      });
 
       const successCount = results.filter((r) => r.success).length;
       const totalRecords = results.reduce((sum, r) => sum + r.recordCount, 0);
@@ -925,61 +934,83 @@
   });
 
   // Endpoint to save attendance records
+  // Batched: one SELECT to find existing rows, then one INSERT for the missing
+  // ones (was 2 queries per record — an N+1 loop).
   router.post('/api/save-attendance', authenticateToken, (req, res) => {
     const { records } = req.body;
 
-    const promises = records.map((record) => {
-      return new Promise((resolve, reject) => {
-        const checkSql = `SELECT EXISTS(SELECT * FROM attendancerecord WHERE personID = ? AND date = ?) AS recordExists`;
-        db.query(checkSql, [record.personID, record.date], (err, checkResult) => {
-          if (err) return reject(err);
+    if (!Array.isArray(records) || records.length === 0) {
+      return res.json([]);
+    }
 
-          const exists = checkResult[0].recordExists;
-          if (exists) {
-            resolve({
-              status: 'exists',
-              personID: record.personID,
-              date: record.date,
-            });
-          } else {
-            const insertSql = `INSERT INTO attendancerecord (personID, date, day, timeIN, breaktimeIN, breaktimeOUT, timeOUT) VALUES (?, ?, ?, ?, ?, ?, ?)`;
-            db.query(
-              insertSql,
-              [
-                record.personID,
-                record.date,
-                record.Day,
-                record.timeIN,
-                record.breaktimeIN,
-                record.breaktimeOUT,
-                record.timeOUT,
-              ],
-              (err) => {
-                if (err) return reject(err);
-                logAudit(
-                  req.user,
-                  'create',
-                  'Attendance Management',
-                  record.date,
-                  record.personID,
-                );
-                resolve({
-                  status: 'saved',
-                  personID: record.personID,
-                  date: record.date,
-                });
-              },
-            );
-          }
-        });
+    const runQuery = (sql, params) =>
+      new Promise((resolve, reject) => {
+        db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows || [])));
       });
-    });
 
-    Promise.all(promises)
-      .then((results) => {
-        const saved = Array.isArray(results)
-          ? results.filter((r) => r && r.status === 'saved')
-          : [];
+    // 1) Find which (personID, date) pairs already exist — one query.
+    const tuplePlaceholders = records.map(() => '(?, ?)').join(', ');
+    const checkParams = records.flatMap((r) => [r.personID, r.date]);
+
+    runQuery(
+      `SELECT personID, date FROM attendancerecord WHERE (personID, date) IN (${tuplePlaceholders})`,
+      checkParams,
+    )
+      .then((existingRows) => {
+        const existingKeys = new Set(
+          existingRows.map((r) => `${r.personID}|${r.date}`),
+        );
+
+        const results = records.map((record) => ({
+          status: existingKeys.has(`${record.personID}|${record.date}`)
+            ? 'exists'
+            : 'pending',
+          personID: record.personID,
+          date: record.date,
+        }));
+
+        const toInsert = records.filter(
+          (record, idx) => results[idx].status === 'pending',
+        );
+
+        if (toInsert.length === 0) {
+          return { results, saved: [] };
+        }
+
+        // 2) Insert all missing rows in a single statement.
+        const values = toInsert.map((record) => [
+          record.personID,
+          record.date,
+          record.Day,
+          record.timeIN,
+          record.breaktimeIN,
+          record.breaktimeOUT,
+          record.timeOUT,
+        ]);
+
+        return runQuery(
+          `INSERT INTO attendancerecord (personID, date, day, timeIN, breaktimeIN, breaktimeOUT, timeOUT) VALUES ?`,
+          [values],
+        ).then(() => {
+          toInsert.forEach((record) => {
+            results.find(
+              (r) => r.personID === record.personID && r.date === record.date,
+            ).status = 'saved';
+            logAudit(
+              req.user,
+              'create',
+              'Attendance Management',
+              record.date,
+              record.personID,
+            );
+          });
+          return { results, saved: toInsert };
+        });
+      })
+      .then((outcome) => {
+        if (!outcome) return;
+
+        const { results, saved } = outcome;
 
         if (saved.length > 0) {
           notifyAttendanceChanged('created', {

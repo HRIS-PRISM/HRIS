@@ -3979,7 +3979,7 @@ const AdminHome = () => {
                 overflow: "hidden",
                 background: "linear-gradient(105deg, #6d2323 0%, #8f3034 48%, #b34a4f 100%)",
                 borderTop: `2.5px solid ${T.accent}`,
-                minHeight: 88,
+                minHeight: 40,
               }}
             >
               {/* Building watermark */}

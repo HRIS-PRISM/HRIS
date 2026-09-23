@@ -21,7 +21,12 @@ const { getResolved, resolveScopeTemplate } = require('./positionOverrides');
  * @returns {{key:string, blueprintKey:string|null}|null}
  */
 function resolveRowScope(row, maps) {
-  const code = row.department == null ? '' : String(row.department).trim();
+  // Budget department (payroll charge) wins over the real department so an
+  // employee can be paid from another department's budget without changing
+  // their actual department assignment.
+  const budget = row.budgetDepartment == null ? '' : String(row.budgetDepartment).trim();
+  const realCode = row.department == null ? '' : String(row.department).trim();
+  const code = budget || realCode;
   if (code && maps.departments?.[code]) {
     const resolved = resolveScopeTemplate(maps.departments[code], code);
     if (resolved) return resolved;

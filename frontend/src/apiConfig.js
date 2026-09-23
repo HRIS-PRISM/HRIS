@@ -3,18 +3,27 @@
 const PUBLIC_URL = import.meta.env.VITE_API_BASE_URL_PUBLIC;
 const LOCAL_URL = import.meta.env.VITE_API_BASE_URL_LOCAL;
 
+// server runs on port 5137 (Vite's default is 5173)
+const DEV_PORTS = ['5137', '5173'];
+const isViteDevServer =
+  typeof window !== 'undefined' && DEV_PORTS.includes(String(window.location.port));
+
 let API_BASE_URL;
 
-// Current hostname
-if (
-  window.location.hostname === "localhost" ||
-  window.location.hostname.startsWith("192.168.")
-) {
-  // LAN / localhost
-  API_BASE_URL = LOCAL_URL;
+if (isViteDevServer) {
+  if (
+    window.location.hostname === 'localhost' ||
+    window.location.hostname.startsWith('192.168.')
+  ) {
+    // LAN / localhost
+    API_BASE_URL = LOCAL_URL;
+  } else {
+    // public
+    API_BASE_URL = PUBLIC_URL;
+  }
 } else {
-  // public
-  API_BASE_URL = PUBLIC_URL;
+  // Production (backend) → same-origin works for every host.
+  API_BASE_URL = window.location.origin;
 }
 
 // Fallback so requests never use literal "undefined" (e.g. missing .env)

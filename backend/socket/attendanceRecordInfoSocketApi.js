@@ -1,7 +1,7 @@
 const db = require('../db');
 const { notifyAttendanceChanged } = require('./socketService');
 
-const DEFAULT_POLL_INTERVAL_MS = 2000;
+const DEFAULT_POLL_INTERVAL_MS = 10000;
 const DEFAULT_BATCH_LIMIT = 100;
 const MAX_BATCH_LIMIT = 500;
 

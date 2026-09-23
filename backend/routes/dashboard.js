@@ -431,25 +431,33 @@ router.get(
       const endDate = new Date(year, month, 0);
       const daysInMonth = endDate.getDate();
 
-      const data = [];
+      // Single grouped query for the whole month instead of one round-trip per day.
+      const rangeStart = startDate.getTime();
+      const rangeEnd = new Date(year, month, 1).getTime();
 
+      const [rows] = await db
+        .promise()
+        .query(
+          `SELECT FLOOR((AttendanceDateTime - ?) / 86400000) AS dayIdx,
+                  COUNT(DISTINCT PersonID) AS count
+           FROM attendancerecordinfo
+           WHERE AttendanceState = 1
+             AND AttendanceDateTime >= ? AND AttendanceDateTime < ?
+           GROUP BY dayIdx`,
+          [rangeStart, rangeStart, rangeEnd]
+        );
+
+      const countByIndex = new Map(
+        (rows || []).map((r) => [Number(r.dayIdx), Number(r.count) || 0]),
+      );
+
+      const data = [];
       for (let day = 1; day <= daysInMonth; day++) {
         const currentDate = new Date(year, month - 1, day);
-        const dateStr = currentDate.toISOString().split('T')[0];
-        const dayStart = currentDate.getTime();
-        const dayEnd = dayStart + 24 * 60 * 60 * 1000;
-
-        const [result] = await db
-          .promise()
-          .query(
-            'SELECT COUNT(DISTINCT PersonID) as count FROM attendancerecordinfo WHERE AttendanceState = 1 AND AttendanceDateTime BETWEEN ? AND ?',
-            [dayStart, dayEnd]
-          );
-
         data.push({
           day: day,
-          date: dateStr,
-          present: result[0].count,
+          date: currentDate.toISOString().split('T')[0],
+          present: countByIndex.get(day - 1) || 0,
         });
       }
 
@@ -467,30 +475,36 @@ router.get(
   authenticateToken,
   async (req, res) => {
     try {
-      const data = [];
-
+      // Build the 6 month cutoffs once, then count them all in a single query
+      const cutoffs = [];
       for (let i = 5; i >= 0; i--) {
         const date = new Date();
         date.setMonth(date.getMonth() - i);
         date.setDate(1); // First day of month
 
-        const monthStr = date.toLocaleDateString('en-US', {
-          year: 'numeric',
-          month: 'short',
-        });
-
-        // Count employees registered up to this month
-        const [result] = await db
-          .promise()
-          .query('SELECT COUNT(*) as count FROM users WHERE created_at <= ?', [
-            date.toISOString(),
-          ]);
-
-        data.push({
-          month: monthStr,
-          total: result[0].count,
+        cutoffs.push({
+          month: date.toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'short',
+          }),
+          cutoff: date.toISOString(),
         });
       }
+
+      const sums = cutoffs
+        .map((_, idx) => `SUM(CASE WHEN created_at <= ? THEN 1 ELSE 0 END) AS c${idx}`)
+        .join(', ');
+      const params = cutoffs.map((c) => c.cutoff);
+
+      const [result] = await db
+        .promise()
+        .query(`SELECT ${sums} FROM users`, params);
+      const counts = result[0] || {};
+
+      const data = cutoffs.map((c, idx) => ({
+        month: c.month,
+        total: Number(counts[`c${idx}`]) || 0,
+      }));
 
       res.json(data);
     } catch (error) {

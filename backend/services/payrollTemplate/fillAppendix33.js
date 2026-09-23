@@ -14,8 +14,49 @@ const M = require('./appendix33Map');
 const { getResolved } = require('./positionOverrides');
 const { getActiveTemplatePath } = require('./templateStore');
 
+const LAYOUT_PATH = path.join(__dirname, 'layout.json');
+
 function loadLayout() {
-  return JSON.parse(fs.readFileSync(path.join(__dirname, 'layout.json'), 'utf8'));
+  try {
+    return JSON.parse(fs.readFileSync(LAYOUT_PATH, 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * layout.json records each block's capacity and subtotal rows, so it has to describe
+ * the template that is actually in use. Uploading / activating a template rewrites it,
+ * but a crash or a manual file swap can leave it describing a different workbook — which
+ * would make the export read geometry that does not exist (undefined capacity).
+ *
+ * When the stored layout disagrees with the active workbook's shape (or is missing a
+ * department block the multi shape needs), rebuild it from the active template before
+ * continuing, so a stale layout can never break a download.
+ */
+function loadLayoutForTemplate(templatePath, blueprint) {
+  const layout = loadLayout();
+  if (!blueprint) return layout;
+
+  const shapeMatches = layout.shape === blueprint.shape;
+  const multiComplete = blueprint.shape !== M.TEMPLATE_SHAPE_MULTI
+    || M.DEPARTMENT_KEYS.every((key) => layout.departments && layout.departments[key]);
+
+  if (shapeMatches && multiComplete) return layout;
+
+  try {
+    // Lazy require avoids a load-time cycle with scripts/inspectAppendix33.
+    const { inspectAndWriteLayout } = require('../../scripts/inspectAppendix33');
+    const rebuilt = inspectAndWriteLayout(templatePath);
+    console.warn(
+      `Appendix 33 layout.json described "${layout.shape}" but the active template is `
+      + `"${blueprint.shape}"; rebuilt it from ${path.basename(templatePath)}`,
+    );
+    return rebuilt;
+  } catch (err) {
+    console.error('Appendix 33 layout self-heal failed:', err.message);
+    return layout;
+  }
 }
 
 const TEMPLATE_PATH = path.join(__dirname, '..', '..', 'templates', 'EARIST_Appendix33.xlsm');
@@ -367,10 +408,10 @@ function fillAppendix33(run, options = {}) {
     ? String(options.onlyDepartmentKey).trim()
     : '';
   const departments = run.departments || {};
-  const layout = loadLayout();
   const map = getResolved();
   const pkg = XlsmPackage.load(fs.readFileSync(templatePath));
   const blueprint = M.resolveBlueprintSheets(pkg.sheetNames());
+  const layout = loadLayoutForTemplate(templatePath, blueprint);
   const shape = blueprint?.shape
     || (layout.shape === M.TEMPLATE_SHAPE_GENERIC ? M.TEMPLATE_SHAPE_GENERIC : M.TEMPLATE_SHAPE_MULTI);
 

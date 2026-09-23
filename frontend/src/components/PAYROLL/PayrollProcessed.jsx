@@ -1729,20 +1729,19 @@ const PayrollProcessed = () => {
                 <Typography sx={{ fontSize: '0.68rem', fontWeight: 700, color: T.accent, fontFamily: T.font }}>{selectedRows.length} selected</Typography>
               </Box>
             )}
-            <AccentButton variant="outlined" size="small" startIcon={<Refresh sx={{ fontSize: 14 }} />} onClick={() => window.location.reload()} sx={{ fontSize: '0.72rem', px: 1.25, py: 0.35, height: 28, borderColor: T.accentBorder, color: T.accent, '&:hover': { bgcolor: T.accentFaint, borderColor: T.accent, transform: 'none' } }}>
+            {/* <AccentButton variant="outlined" size="small" startIcon={<Refresh sx={{ fontSize: 14 }} />} onClick={() => window.location.reload()} sx={{ fontSize: '0.72rem', px: 1.25, py: 0.35, height: 28, borderColor: T.accentBorder, color: T.accent, '&:hover': { bgcolor: T.accentFaint, borderColor: T.accent, transform: 'none' } }}>
               Refresh
-            </AccentButton>
-            <Tooltip title="Export to Excel">
+            </AccentButton> */}
+            {/* <Tooltip title="Export to Excel">
               <span>
                 <IconButton onClick={handleExportToExcel} disabled={filteredFinalizedData.length === 0} sx={{ bgcolor: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}`, color: T.accent, width: 36, height: 36, borderRadius: 2, '&:hover': { bgcolor: T.accentFaint }, '&:disabled': { opacity: 0.4 } }}>
                   <CloudUpload sx={{ fontSize: 18 }} />
                 </IconButton>
               </span>
-            </Tooltip>
-            <Tooltip title="Download the EARIST Appendix 33 payroll workbook">
+            </Tooltip> */}
+            <Tooltip title="Export and Download the EARIST Appendix 33 payroll workbook">
               <IconButton onClick={openAppendix33ExportModal} sx={{ bgcolor: alpha(T.accent, 0.08), border: `1px solid ${T.accentBorder}`, color: T.accent, width: 36, height: 36, borderRadius: 2, '&:hover': { bgcolor: T.accentFaint } }}>
-                <DescriptionIcon sx={{ fontSize: 18 }} />
-              </IconButton>
+<CloudUpload sx={{ fontSize: 18 }} />              </IconButton>
             </Tooltip>
             {isTechnical && (
               <>

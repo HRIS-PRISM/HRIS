@@ -441,6 +441,7 @@ const DepartmentAssignment = () => {
   const [departmentList, setDepartmentList] = useState([]);
 
   const [selectedCode, setSelectedCode]     = useState('');
+  const [assignBudgetCode, setAssignBudgetCode] = useState('');
   const [singleEmployee, setSingleEmployee] = useState(null);
   const [singleEmpNum, setSingleEmpNum]     = useState('');
 
@@ -544,13 +545,14 @@ const DepartmentAssignment = () => {
     setLoading(true);
     let ok = 0, fail = 0;
     for (const emp of toAssign) {
-      try { await axios.post(`${API_BASE_URL}/api/department-assignment`, { code: selectedCode, employeeNumber: emp.employeeNumber, name: emp.name }, getAuthHeaders()); ok++; }
+      try { await axios.post(`${API_BASE_URL}/api/department-assignment`, { code: selectedCode, budgetCode: assignBudgetCode, employeeNumber: emp.employeeNumber, name: emp.name }, getAuthHeaders()); ok++; }
       catch { fail++; }
     }
     setLoading(false);
     setSingleEmployee(null); setSingleEmpNum('');
     exitSelectMode();
     setSelectedCode('');
+    setAssignBudgetCode('');
     fetchAssignments();
     if (fail === 0) {
       setSuccessAction(ok > 1 ? 'bulk' : 'create');
@@ -645,6 +647,7 @@ const DepartmentAssignment = () => {
   const hasChanges = () =>
     editAssignment && originalAssignment &&
     (editAssignment.code !== originalAssignment.code ||
+      (editAssignment.budgetCode || '') !== (originalAssignment.budgetCode || '') ||
       editAssignment.employeeNumber !== originalAssignment.employeeNumber);
 
   // ── Access guard ─────────────────────────────────────────────
@@ -715,6 +718,21 @@ const DepartmentAssignment = () => {
                   {selectedDeptObj?.description && (
                     <Typography sx={{ fontSize: '0.72rem', color: T.muted, mt: 0.5, ml: 0.5 }}>{selectedDeptObj.description}</Typography>
                   )}
+
+                  <Box sx={{ mt: 1.75 }}>
+                    <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>
+                      Budget Department (payroll charge)
+                    </Typography>
+                    <DeptCodeAutocomplete
+                      value={assignBudgetCode}
+                      onChange={setAssignBudgetCode}
+                      departmentList={departmentList}
+                      placeholder="Same as department…"
+                    />
+                    <Typography sx={{ fontSize: '0.68rem', color: T.muted, mt: 0.75, ml: 0.5 }}>
+                      Optional. Set only when the payroll budget comes from another department (e.g. employee is in CAS but charged to CEN). Leave blank to use the department code above.
+                    </Typography>
+                  </Box>
 
                   <Box sx={{ mt: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent }}>
@@ -1049,6 +1067,14 @@ const DepartmentAssignment = () => {
                                         sx={{ height: 20, fontSize: '0.68rem', fontWeight: 700, bgcolor: alpha(T.accent, 0.06), color: T.accentMid, border: `1px solid ${alpha(T.accent, 0.15)}`, '& .MuiChip-label': { px: 0.75 } }}
                                       />
                                     )}
+                                    {editAssignment.budgetCode && (
+                                      <Chip
+                                        label={`Budget: ${editAssignment.budgetCode}`}
+                                        size="small"
+                                        icon={<DomainIcon sx={{ fontSize: '11px !important', color: '#8a6100 !important' }} />}
+                                        sx={{ height: 20, fontSize: '0.68rem', fontWeight: 700, bgcolor: alpha('#b8860b', 0.1), color: '#8a6100', border: `1px solid ${alpha('#b8860b', 0.28)}`, '& .MuiChip-label': { px: 0.75 } }}
+                                      />
+                                    )}
                                   </Box>
                                 </Box>
                               </Box>
@@ -1093,6 +1119,45 @@ const DepartmentAssignment = () => {
                                             {departmentList.find((d) => d.code === editAssignment.code).description}
                                           </Typography>
                                         )}
+                                      </Box>
+                                    </Box>
+                                  )}
+                                </Box>
+
+                                {/* Budget Department field */}
+                                <Box>
+                                  <Typography sx={{ fontSize: '0.65rem', fontWeight: 700, color: alpha(T.accent, 0.5), textTransform: 'uppercase', letterSpacing: '0.1em', mb: 1.25 }}>
+                                    Budget Department (Payroll Charge)
+                                  </Typography>
+                                  {isEditingModal ? (
+                                    <Box>
+                                      <DeptCodeAutocomplete
+                                        value={editAssignment.budgetCode || ''}
+                                        onChange={(val) => setEditAssignment((p) => ({ ...p, budgetCode: val }))}
+                                        departmentList={departmentList}
+                                        placeholder="Same as department…"
+                                      />
+                                      <Typography sx={{ fontSize: '0.7rem', color: T.muted, mt: 0.75, ml: 0.5 }}>
+                                        Optional. Routes this employee's pay to another department's tab in the exported payroll workbook. Their department above stays unchanged. Leave blank to use the department directly.
+                                      </Typography>
+                                    </Box>
+                                  ) : (
+                                    <Box sx={{
+                                      p: '14px 18px', borderRadius: 2,
+                                      bgcolor: editAssignment.budgetCode ? alpha('#b8860b', 0.05) : '#fafafa',
+                                      border: `1px solid ${editAssignment.budgetCode ? alpha('#b8860b', 0.25) : T.divider}`,
+                                      display: 'flex', alignItems: 'center', gap: 2,
+                                    }}>
+                                      <Box sx={{ width: 36, height: 36, borderRadius: 1.5, bgcolor: alpha('#b8860b', 0.1), display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                        <DomainIcon sx={{ fontSize: 18, color: '#8a6100' }} />
+                                      </Box>
+                                      <Box>
+                                        <Typography sx={{ fontSize: '1rem', fontWeight: 700, color: editAssignment.budgetCode ? '#8a6100' : T.muted, lineHeight: 1.2 }}>
+                                          {editAssignment.budgetCode || 'Same as department'}
+                                        </Typography>
+                                        <Typography sx={{ fontSize: '0.75rem', color: T.muted, mt: 0.2 }}>
+                                          {editAssignment.budgetCode ? 'Pay is charged to this department in the exported payroll' : 'No budget override — uses the department above'}
+                                        </Typography>
                                       </Box>
                                     </Box>
                                   )}

@@ -38,6 +38,7 @@ const XLSM_MIME = 'application/vnd.ms-excel.sheet.macroEnabled.12';
 const PAYROLL_SELECT = `
   SELECT
     pp.*,
+    NULLIF(bd.budgetCode, '') AS budgetDepartment,
     etc.typeName AS employmentTypeName,
     etc.id AS employmentTypeId
   FROM payroll_processed pp
@@ -52,6 +53,15 @@ const PAYROLL_SELECT = `
   ) ec ON CAST(ec.employeeNumber AS CHAR) = CAST(pp.employeeNumber AS CHAR)
   LEFT JOIN employment_type_config etc
     ON etc.id = ec.employmentCategory
+  LEFT JOIN (
+    SELECT da1.employeeNumber, da1.budgetCode
+    FROM department_assignment da1
+    INNER JOIN (
+      SELECT employeeNumber, MAX(id) AS max_id
+      FROM department_assignment
+      GROUP BY employeeNumber
+    ) da_latest ON da_latest.max_id = da1.id
+  ) bd ON CAST(bd.employeeNumber AS CHAR) = CAST(pp.employeeNumber AS CHAR)
 `;
 
 function parseExportPeriod(source = {}) {
@@ -89,7 +99,8 @@ function parseExportPeriod(source = {}) {
   let where = 'LEFT(pp.startDate, 7) = ?';
 
   if (department && department.toLowerCase() !== 'all') {
-    where += ' AND pp.department = ?';
+    // Route by budget department when set, otherwise the real department.
+    where += " AND COALESCE(NULLIF(bd.budgetCode, ''), pp.department) = ?";
     params.push(department);
   } else if (employmentType) {
     where += ' AND etc.typeName = ?';
@@ -98,7 +109,7 @@ function parseExportPeriod(source = {}) {
     // Only employees under an enabled department or employment category.
     const parts = [];
     if (allowedDepartments.length) {
-      parts.push(`pp.department IN (${allowedDepartments.map(() => '?').join(',')})`);
+      parts.push(`COALESCE(NULLIF(bd.budgetCode, ''), pp.department) IN (${allowedDepartments.map(() => '?').join(',')})`);
       params.push(...allowedDepartments);
     }
     if (allowedEmploymentTypes.length) {
