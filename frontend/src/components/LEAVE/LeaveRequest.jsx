@@ -2423,16 +2423,13 @@ const LeaveRequest = () => {
                     sx={{ height: 40, border: `1.5px solid ${T.accentBorder}`, color: selectedDates.length ? T.accent : T.muted, justifyContent: 'flex-start', px: 1.5, bgcolor: selectedDates.length ? T.accentFaint : '#fff', '&:hover': { bgcolor: T.accentFaint, borderColor: T.accent, color: T.accent, transform: 'none' } }}>
                     <Typography sx={{ fontSize: '0.875rem' }}>{selectedDates.length > 0 ? `${selectedDates.length} date(s) selected` : 'Select leave dates…'}</Typography>
                   </AccentButton>
-                  {isSickLeave(newRequest.leave_code) && (
-                    <Typography sx={{ fontSize: '0.68rem', color: '#1565C0', mt: 0.5, fontStyle: 'italic' }}>* Past dates allowed for sick leave</Typography>
-                  )}
+                                  <Typography sx={{ fontSize: '0.68rem', color: '#1565C0', mt: 0.5, fontStyle: 'italic' }}>* Past dates allowed</Typography>
                   <LeaveDatePickerModal
                     open={dateModalOpen}
                     onClose={() => { setNewRequest({ ...newRequest, leave_date: selectedDates.join(',') }); setDateModalOpen(false); }}
                     selectedDates={selectedDates} setSelectedDates={setSelectedDates}
                     accentColor={T.accent} accentDark={T.accentDark} primaryColor="#fdf5f5" secondaryColor="#f0dede"
-                    allowPastDates={isSickLeave(newRequest.leave_code)} adminOverride={isPrivilegedRole}
-                  />
+                    allowPastDates={true} adminOverride={isPrivilegedRole}                  />
                 </Box>
 
                 {/* Balance preview — now shows real-time remaining via getLeaveTypeStatsActive */}
