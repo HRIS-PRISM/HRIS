@@ -1,4531 +1,4865 @@
-"use strict";
+import API_BASE_URL from "../../apiConfig";
+import {
+  logOfficialTimeAdd,
+  logOfficialTimeDelete,
+  logOfficialTimeEdit,
+  logOfficialTimeSearch,
+} from "../../utils/moduleEmployeeSearchAudit";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useMemo,
+  useCallback,
+} from "react";
+import axios from "axios";
+import CloudUploadIcon from "@mui/icons-material/CloudUpload";
+import SaveIcon from "@mui/icons-material/Save";
+import SearchIcon from "@mui/icons-material/Search";
+import PeopleIcon from "@mui/icons-material/People";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+import CancelIcon from "@mui/icons-material/Cancel";
+import { useCRUDButtonStyles } from "../../hooks/useCRUDButtonStyles";
+
+import {
+  Typography,
+  TextField,
+  Button,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
+  Box,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  IconButton,
+  Card,
+  Grid,
+  InputAdornment,
+  Avatar,
+  Tooltip,
+  Chip,
+  Fade,
+  Alert,
+  styled,
+  Divider,
+  Checkbox,
+  Autocomplete,
+  Select,
+  MenuItem,
+  Popover,
+  List,
+  ListItem,
+} from "@mui/material";
+import { TablePagination } from "@mui/material";
+import { alpha } from "@mui/material/styles";
+import {
+  Close,
+  Schedule,
+  UploadFile,
+  Person,
+  AccessTime,
+  CheckCircle,
+  WarningAmber,
+  Visibility,
+  Add,
+  Delete,
+  ClearAll,
+  Edit,
+  ArrowBack,
+  ArrowForward,
+  CalendarToday,
+  RadioButtonUnchecked,
+  ExpandMore,
+  ExpandLess,
+  Circle,
+} from "@mui/icons-material";
+
+import LoadingOverlay from "../LoadingOverlay";
+import SuccessfulOverlay from "../SuccessfulOverlay";
+import { useSystemSettings } from "../../hooks/useSystemSettings";
+import usePageAccess from "../../hooks/usePageAccess";
+import useAttendanceRealtimeRefresh from "../../hooks/useAttendanceRealtimeRefresh";
+import AccessDenied from "../AccessDenied";
+import CircularProgress from "@mui/material/CircularProgress";
+import { sortEmployeesByLastName } from "../../utils/sortEmployeesByLastName";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// QA FIXES APPLIED (see previous revision history for #1–#22)
-//
-// EMPLOYMENT CATEGORY SUPPORT (see previous revision history for #23-#26)
-//
-// EXCEL "NAME" COLUMN (display-only) — see previous revision history for #27
-//
-// NEW IN THIS REVISION — WRITE-ROUTE SUPERVISOR-EXPIRY GUARD:
-//  #28 [NEW] POST /officialtimetable and PUT /officialtimetable/:employeeID
-//      now call ensureActiveSupervisorAssignment(req, res) before doing any
-//      work, exactly like the Excel-upload routes already did. Previously
-//      only the Excel upload routes verified the caller's supervisor
-//      assignment was currently active; the manual "Create Schedule" and
-//      "Edit Schedule" routes had no such check, so a supervisor whose
-//      assignment window had expired could still create/edit schedules by
-//      calling the API directly, even though the frontend now hides those
-//      buttons once frontend `canEdit` is false. This closes that gap:
-//      hiding UI is a UX nicety, this guard is the actual enforcement.
-//      GET /officialtimetable/:employeeID remains unguarded (read-only), so
-//      an expired supervisor can still view schedules for employees in
-//      their former department.
+// THEME TOKENS
 // ─────────────────────────────────────────────────────────────────────────────
+const T = {
+  accent: "#6d2323",
+  accentDark: "#5a1d1d",
+  accentMid: "#8B4545",
+  accentFaint: "rgba(109,35,35,0.06)",
+  accentBorder: "rgba(109,35,35,0.14)",
+  accentHover: "rgba(109,35,35,0.10)",
+  rowOdd: "rgba(109,35,35,0.025)",
+  rowHover: "rgba(109,35,35,0.055)",
+  text: "#1a1a1a",
+  muted: "#6b6b6b",
+  faint: "#a0a0a0",
+  surface: "#ffffff",
+  divider: "rgba(0,0,0,0.08)",
+};
 
-// ── #16: Graceful dependency loading ─────────────────────────────────────────
-let express,
-  router,
-  db,
-  authenticateToken,
-  logAudit,
-  ADMIN_ROLES,
-  upload,
-  xlsx,
-  fs,
-  fillExemptAttendance,
-  notifyAttendanceChanged;
-try {
-  express = require("express");
-  router = express.Router();
-  db = require("../db");
-  ({ authenticateToken, logAudit, ADMIN_ROLES } = require("../middleware/auth"));
-  ({ upload } = require("../middleware/upload"));
-  ({ fillExemptAttendance } = require("../services/autoAttendanceService"));
-  ({ notifyAttendanceChanged } = require("../socket/socketService"));
-  xlsx = require("xlsx");
-  fs = require("fs");
-} catch (depErr) {
-  console.error(
-    "[officialtime] FATAL: Failed to load dependency —",
-    depErr.message,
-  );
-  // Export a dummy router that always returns 503 so the server stays alive
-  const fallback = require("express").Router();
-  fallback.use((req, res) =>
-    res.status(503).json({
-      error: "Official Time module failed to load. Check server logs.",
-    }),
-  );
-  module.exports = fallback;
-  return;
+// #H: fallback color when an employment type has no colorHex assigned
+const DEFAULT_CATEGORY_COLOR = "#757575";
+
+// [NEW #K] Palette for day-pattern presets — mirrors the concept prototype
+const PATTERN_COLORS = ["#6d2323", "#2e6b4f", "#1d5b8b", "#8a5a1d", "#6a1f8a", "#0d7a7a", "#a3781d"];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SHIMMER
+// ─────────────────────────────────────────────────────────────────────────────
+const shimmerKf = `
+@keyframes shimmer {
+  0%   { background-position: -800px 0; }
+  100% { background-position:  800px 0; }
 }
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.55; }
+}`;
 
-// ── Constants ─────────────────────────────────────────────────────────────────
-const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // #15: 10 MB hard cap
-const DAYS_ORDER = [
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday",
-  "Sunday",
+const Bone = ({ w = "100%", h = 14, r = 6, sx = {} }) => (
+  <Box
+    sx={{
+      width: w,
+      height: h,
+      borderRadius: r,
+      background:
+        "linear-gradient(90deg,rgba(109,35,35,0.07) 25%,rgba(109,35,35,0.14) 50%,rgba(109,35,35,0.07) 75%)",
+      backgroundSize: "800px 100%",
+      animation: "shimmer 1.6s infinite linear",
+      flexShrink: 0,
+      ...sx,
+    }}
+  />
+);
+
+const OfficialTimeWireframe = () => (
+  <>
+    <style>{shimmerKf}</style>
+    <Box
+      sx={{
+        py: { xs: 2, md: 4 },
+        mt: { xs: 0, md: -5 },
+        width: "100vw",
+        maxWidth: "100%",
+        position: "relative",
+        left: "63%",
+        transform: "translateX(-61%)",
+        px: { xs: 2, sm: 3, md: 6 },
+      }}
+    >
+      {/* Header */}
+      <Box
+        sx={{
+          mb: 3,
+          borderRadius: 3,
+          overflow: "hidden",
+          border: `1px solid rgba(0,0,0,0.09)`,
+          animation: "blink 2s ease-in-out infinite",
+        }}
+      >
+        <Box
+          sx={{
+            p: 3.5,
+            background: "linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)",
+            display: "flex",
+            alignItems: "center",
+            gap: 2.5,
+          }}
+        >
+          <Box
+            sx={{
+              width: 52,
+              height: 52,
+              borderRadius: "50%",
+              bgcolor: "rgba(109,35,35,0.12)",
+            }}
+          />
+          <Box sx={{ flex: 1 }}>
+            <Bone w={220} h={18} sx={{ mb: 1 }} />
+            <Bone w={360} h={11} />
+          </Box>
+        </Box>
+      </Box>
+
+      <Grid container spacing={2}>
+        <Grid item xs={12} lg={4}>
+          <Box
+            sx={{
+              borderRadius: 3,
+              border: "1px solid rgba(0,0,0,0.09)",
+              bgcolor: "#fff",
+              minHeight: { xs: 400, lg: "calc(100vh - 280px)" },
+              animation: "blink 2s ease-in-out 0.1s infinite",
+            }}
+          >
+            <Box sx={{ p: 3.5, display: "flex", flexDirection: "column", gap: 2.5 }}>
+              {[100, 160, 120, 140, 110].map((w, i) => (
+                <Box key={i}>
+                  <Bone w={w} h={10} sx={{ mb: 1 }} />
+                  <Box sx={{ height: 40, borderRadius: 2, border: `1px solid rgba(0,0,0,0.09)`, bgcolor: "#fafafa" }} />
+                </Box>
+              ))}
+            </Box>
+          </Box>
+        </Grid>
+        <Grid item xs={12} lg={8}>
+          <Box
+            sx={{
+              borderRadius: 3,
+              border: "1px solid rgba(0,0,0,0.09)",
+              bgcolor: "#fff",
+              minHeight: { xs: 400, lg: "calc(100vh - 280px)" },
+              animation: "blink 2s ease-in-out 0.2s infinite",
+            }}
+          >
+            <Box sx={{ p: 3.5, display: "flex", flexDirection: "column", gap: 2.5 }}>
+              {[140, 180, 150, 160, 130].map((w, i) => (
+                <Box key={i}>
+                  <Bone w={w} h={10} sx={{ mb: 1 }} />
+                  <Box sx={{ height: 40, borderRadius: 2, border: `1px solid rgba(0,0,0,0.09)`, bgcolor: "#fafafa" }} />
+                </Box>
+              ))}
+            </Box>
+          </Box>
+        </Grid>
+      </Grid>
+    </Box>
+  </>
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STYLED COMPONENTS
+// ─────────────────────────────────────────────────────────────────────────────
+const SectionCard = styled(Card)({
+  borderRadius: 12,
+  boxShadow: "0 1px 4px rgba(0,0,0,0.07), 0 4px 24px rgba(0,0,0,0.04)",
+  border: "0.5px solid rgba(0,0,0,0.09)",
+  overflow: "hidden",
+  background: "#fff",
+  transition: "none",
+});
+
+const PanelHeader = ({ icon: Icon, title, rightContent }) => (
+  <Box
+    sx={{
+      px: 2.5,
+      py: 1.5,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      borderBottom: `1px solid ${T.divider}`,
+      bgcolor: T.accentFaint,
+    }}
+  >
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+      {Icon && <Icon sx={{ fontSize: 15, color: T.accent }} />}
+      <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: T.accent }}>
+        {title}
+      </Typography>
+    </Box>
+    {rightContent}
+  </Box>
+);
+
+const ModernTextField = styled(TextField)(() => ({
+  "& .MuiOutlinedInput-root": {
+    borderRadius: 8,
+    backgroundColor: "#fff",
+    transition: "border-color 0.18s",
+    "&:hover fieldset": { borderColor: T.accent },
+    "&.Mui-focused fieldset": { borderColor: T.accent },
+  },
+  "& label.Mui-focused": { color: T.accent },
+  "& .MuiInputLabel-root": { fontWeight: 500 },
+}));
+
+const PremiumTableContainer = styled(TableContainer)(() => ({
+  borderRadius: 10,
+  overflow: "auto",
+  boxShadow: "none",
+  border: `1px solid ${T.accentBorder}`,
+  maxHeight: "500px",
+  "&::-webkit-scrollbar": { width: "6px", height: "6px" },
+  "&::-webkit-scrollbar-track": { background: T.accentFaint, borderRadius: "4px" },
+  "&::-webkit-scrollbar-thumb": {
+    background: alpha(T.accent, 0.4),
+    borderRadius: "4px",
+    "&:hover": { background: alpha(T.accent, 0.6) },
+  },
+}));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STATUS BADGE
+// ─────────────────────────────────────────────────────────────────────────────
+const StatusBadge = ({ active }) => (
+  <Box
+    component="span"
+    sx={{
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 0.5,
+      px: 1,
+      py: 0.3,
+      borderRadius: "9px",
+      fontSize: "0.72rem",
+      fontWeight: 600,
+      border: "0.5px solid",
+      ...(active
+        ? { bgcolor: "rgba(46,125,50,0.08)", color: "#2e7d32", borderColor: "rgba(46,125,50,0.3)" }
+        : { bgcolor: "rgba(237,108,2,0.08)", color: "#b45309", borderColor: "rgba(237,108,2,0.3)" }),
+    }}
+  >
+    {active && (
+      <Box component="span" sx={{ width: 5, height: 5, borderRadius: "50%", bgcolor: "#2e7d32", display: "inline-block" }} />
+    )}
+    {active ? "Active" : "Inactive"}
+  </Box>
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// [NEW #H] EMPLOYMENT CATEGORY COLOR CHIP — mirrors the colored chip/dot
+// treatment used in EmploymentCategoryManagement.jsx's DynamicCategorySelect,
+// so the "Employment Category" column in the All Users table shows the same
+// color as the Manage Types / Assign Categories tabs there.
+// ─────────────────────────────────────────────────────────────────────────────
+const EmploymentCategoryChip = ({ label, colorHex }) => {
+  if (!label) {
+    return <Typography sx={{ fontSize: "0.88rem", color: T.faint }}>—</Typography>;
+  }
+  const color = colorHex || DEFAULT_CATEGORY_COLOR;
+  return (
+    <Chip
+      icon={
+        <Circle
+          sx={{
+            fontSize: "8px !important",
+            color: `${color} !important`,
+          }}
+        />
+      }
+      label={label}
+      size="small"
+      sx={{
+        height: 22,
+        fontSize: "0.72rem",
+        fontWeight: 700,
+        color,
+        bgcolor: alpha(color, 0.1),
+        border: `1px solid ${alpha(color, 0.28)}`,
+        borderRadius: "6px",
+        "& .MuiChip-icon": { ml: 0.9 },
+        "& .MuiChip-label": { px: 0.9 },
+      }}
+    />
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SCHEDULE TAB BAR
+// ─────────────────────────────────────────────────────────────────────────────
+const SCHEDULE_TABS = [
+  { key: "workDays", label: "Work Days" },
+  { key: "honorarium", label: "Honorarium" },
+  { key: "serviceCredits", label: "Service Credits" },
+  { key: "overtime", label: "Overtime" },
 ];
-const VALID_TIME_RE = /^\d{1,2}:\d{2}:\d{2}\s*(AM|PM)$/i; // #10: strict time format
-const OFFICIAL_TIME_ADMIN_ROLES = Array.isArray(ADMIN_ROLES)
-  ? ADMIN_ROLES
-  : ["admin", "administrator", "superadmin", "technical"];
+
+const ScheduleTabBar = ({ activeTab, setTab }) => (
+  <Box
+    sx={{
+      display: "flex",
+      border: `1px solid ${T.accentBorder}`,
+      borderRadius: 1,
+      overflow: "hidden",
+      flex: 1,
+      minWidth: 280,
+    }}
+  >
+    {SCHEDULE_TABS.map(({ key, label }, i, arr) => (
+      <Button
+        key={key}
+        onClick={() => setTab(key)}
+        disableElevation
+        fullWidth
+        sx={{
+          borderRadius: 0,
+          textTransform: "none",
+          fontWeight: activeTab === key ? 700 : 400,
+          fontSize: "0.82rem",
+          py: 0.9,
+          bgcolor: activeTab === key ? T.accent : "#fff",
+          color: activeTab === key ? "#fff" : "#444",
+          borderRight: i < arr.length - 1 ? `1px solid ${T.accentBorder}` : "none",
+          "&:hover": { bgcolor: activeTab === key ? T.accentDark : T.accentFaint },
+        }}
+      >
+        {label}
+      </Button>
+    ))}
+  </Box>
+);
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PURE UTILITIES
+// EMPLOYEE AUTOCOMPLETE — debounced, lazy load, mirrors Children.jsx
 // ─────────────────────────────────────────────────────────────────────────────
+const EmployeeSearchField = ({ onSelect, selectedEmployee, onClear, disabled = false }) => {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
+  const debounceRef = useRef(null);
+  const dropdownRef = useRef(null);
+  const inputRef = useRef(null);
 
-function lastDayOfMonth(year, month) {
-  if (month === 2) {
-    const leap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
-    return leap ? 29 : 28;
-  }
-  return [4, 6, 9, 11].includes(month) ? 30 : 31;
-}
-
-function toDateOnlyString(val) {
-  if (val == null || val === "") return val;
-  if (typeof val === "string" && /^\d{4}-\d{2}-\d{2}/.test(val))
-    return val.split("T")[0];
-  const d = new Date(val);
-  if (Number.isNaN(d.getTime())) return val;
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-// Parses any DB/JS date value into a real Date object (or null).
-// Used for ACTUAL comparisons — never truncates time.
-function toDateTime(val) {
-  if (val == null || val === "") return null;
-  const d = val instanceof Date ? val : new Date(val);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
-function getActiveSupervisorAssignmentId(user) {
-  const employeeNumber = user?.employeeNumber || user?.employeeID || user?.id;
-  if (!employeeNumber) return Promise.resolve(null);
-  return new Promise((resolve) => {
-    db.query(
-      `SELECT id
-       FROM supervisor_assignment
-       WHERE TRIM(CAST(supervisorEmployeeNumber AS CHAR)) = TRIM(CAST(? AS CHAR))
-         AND status = 0
-       ORDER BY COALESCE(updatedAt, createdAt) DESC, id DESC
-       LIMIT 1`,
-      [employeeNumber],
-      (err, rows) => {
-        if (err) {
-          console.error("supervisor assignment lookup error:", err.message);
-          return resolve(null);
-        }
-        resolve(rows?.[0]?.id ?? null);
-      },
-    );
-  });
-}
-
-async function saveSupervisorOfficialTimeSnapshot({ user, employeeID, startDate, endDate }) {
-  const supervisorAssignmentId = await getActiveSupervisorAssignmentId(user);
-  if (supervisorAssignmentId == null) {
-    return {
-      saved: false,
-      reason: "No supervisor assignment covers the current Manila time.",
+  useEffect(() => {
+    const handler = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) setOpen(false);
     };
-  }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
-  const rows = await queryAsync(
-    db,
-    `SELECT *
-     FROM officialtime
-     WHERE employeeID = ? AND startDate = ? AND endDate = ?
-     ORDER BY id ASC`,
-    [employeeID, startDate, endDate],
-  );
-  if (!rows?.length) {
-    return {
-      saved: false,
-      supervisorAssignmentId,
-      reason: `No official-time rows matched ${employeeID} for ${startDate} to ${endDate}.`,
-    };
-  }
+  useEffect(() => {
+    if (!selectedEmployee) setQuery("");
+    else setQuery(selectedEmployee.name || "");
+  }, [selectedEmployee]);
 
-  await queryAsync(
-    db,
-    `INSERT INTO officialtime_history
-       (employeeID, supervisor_assignment_id, startDate, endDate, snapshot_data)
-     VALUES (?, ?, ?, ?, ?)`,
-    [
-      employeeID,
-      supervisorAssignmentId,
-      startDate,
-      endDate,
-      JSON.stringify(rows),
-    ],
-  );
-
-  return {
-    saved: true,
-    supervisorAssignmentId,
-    rowCount: rows.length,
-  };
-}
-
-// Formats a Date/DB value as "YYYY-MM-DD hh:mm AM/PM" (e.g. "2026-09-30 05:00 PM").
-// This is the display format used in supervisor-assignment messages and API output.
-function formatDateTime12h(val) {
-  const d = toDateTime(val);
-  if (!d) return null;
-
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-
-  let hours = d.getHours();
-  const minutes = String(d.getMinutes()).padStart(2, "0");
-  const ampm = hours >= 12 ? "PM" : "AM";
-  hours = hours % 12;
-  if (hours === 0) hours = 12;
-  const hoursStr = String(hours).padStart(2, "0");
-
-  return `${year}-${month}-${day} ${hoursStr}:${minutes} ${ampm}`;
-}
-
-// #28: Resolve the CURRENT supervisor_assignment row for the logged-in user
-// (as a supervisor). "Current" = the row whose start/end actually covers
-// right now (full datetime precision, not just the calendar date). If none
-// covers now, we still return the most recent row so the caller can explain
-// *why* (expired vs. not started yet vs. never assigned).
-function getSupervisorAssignmentStatus(supervisorEmployeeNumber) {
-  return new Promise((resolve, reject) => {
-    if (!supervisorEmployeeNumber)
-      return resolve({ hasAssignment: false, active: false, reason: 'no_employee' });
-
-    db.query(
-      `SELECT id, departmentCode, role, start, end
-       FROM supervisor_assignment
-       WHERE supervisorEmployeeNumber = ?
-       ORDER BY end DESC`,
-      [supervisorEmployeeNumber],
-      (err, rows) => {
-        if (err) return reject(err);
-        if (!rows || !rows.length)
-          return resolve({ hasAssignment: false, active: false, reason: 'no_assignment' });
-
-        const now = new Date();
-
-        const current = rows.find((r) => {
-          const s = toDateTime(r.start);
-          const e = toDateTime(r.end);
-          return (!s || s <= now) && (!e || e >= now);
-        });
-
-        if (current) {
-          return resolve({
-            hasAssignment: true,
-            active: true,
-            assignmentId: current.id,
-            departmentCode: current.departmentCode,
-            role: current.role,
-            start: formatDateTime12h(current.start),
-            end: formatDateTime12h(current.end),
-            startAt: current.start ? new Date(current.start).toISOString() : null,
-            endAt: current.end ? new Date(current.end).toISOString() : null,
-          });
-        }
-
-        const mostRecent = rows[0]; // rows sorted by end DESC
-        const mostRecentStart = toDateTime(mostRecent.start);
-        const mostRecentEnd = toDateTime(mostRecent.end);
-        resolve({
-          hasAssignment: true,
-          active: false,
-          expired: !!mostRecentEnd && mostRecentEnd < now,
-          notStarted: !!mostRecentStart && mostRecentStart > now,
-          assignmentId: mostRecent.id,
-          departmentCode: mostRecent.departmentCode,
-          role: mostRecent.role,
-          start: formatDateTime12h(mostRecent.start),
-          end: formatDateTime12h(mostRecent.end),
-          startAt: mostRecent.start ? new Date(mostRecent.start).toISOString() : null,
-          endAt: mostRecent.end ? new Date(mostRecent.end).toISOString() : null,
-        });
-      },
-    );
-  });
-}
-
-function isOfficialTimeAdminRole(user) {
-  const role = String(user?.role || "").toLowerCase();
-  return OFFICIAL_TIME_ADMIN_ROLES.includes(role);
-}
-
-function adminOfficialTimeBypassStatus(user) {
-  return {
-    hasAssignment: true,
-    active: true,
-    bypassed: true,
-    role: user?.role || null,
-    departmentCodes: [],
-    departments: [],
-  };
-}
-
-// Currently covering supervisor_assignment rows (start/end window includes now).
-// Title/role on the assignment is display-only and is not used as a filter.
-function getCoveringSupervisorDepartments(supervisorEmployeeNumber) {
-  return new Promise((resolve, reject) => {
-    if (!supervisorEmployeeNumber) return resolve([]);
-    db.query(
-      `SELECT sa.departmentCode, sa.role, sa.start, sa.end,
-              dt.description AS departmentDescription
-       FROM supervisor_assignment sa
-       LEFT JOIN department_table dt ON dt.code = sa.departmentCode
-       WHERE TRIM(CAST(sa.supervisorEmployeeNumber AS CHAR)) = TRIM(CAST(? AS CHAR))`,
-      [supervisorEmployeeNumber],
-      (err, rows) => {
-        if (err) return reject(err);
-        const now = new Date();
-        resolve(
-          (rows || [])
-            .filter((r) => {
-              const s = toDateTime(r.start);
-              const e = toDateTime(r.end);
-              return (!s || s <= now) && (!e || e >= now);
-            })
-            .map((r) => ({
-              code: r.departmentCode,
-              description: r.departmentDescription || r.departmentCode,
-              role: r.role,
-            }))
-            .filter((r) => r.code),
-        );
-      },
-    );
-  });
-}
-
-function getUnauthorizedEmployeeIDs(employeeIDs, departmentCodes) {
-  return new Promise((resolve, reject) => {
-    const ids = [
-      ...new Set(
-        (employeeIDs || []).map((v) => String(v).trim()).filter(Boolean),
-      ),
-    ];
-    const codes = [
-      ...new Set(
-        (departmentCodes || []).map((v) => String(v).trim()).filter(Boolean),
-      ),
-    ];
-    if (!ids.length) return resolve([]);
-    if (!codes.length) return resolve(ids);
-    db.query(
-      `SELECT DISTINCT da.employeeNumber AS employeeID
-       FROM department_assignment da
-       WHERE da.employeeNumber IN (${ids.map(() => "?").join(",")})
-         AND da.code IN (${codes.map(() => "?").join(",")})`,
-      [...ids, ...codes],
-      (err, rows) => {
-        if (err) return reject(err);
-        const allowed = new Set((rows || []).map((r) => String(r.employeeID)));
-        resolve(ids.filter((id) => !allowed.has(id)));
-      },
-    );
-  });
-}
-
-async function attachSupervisorDepartments(status, supervisorEmployeeNumber) {
-  if (!status?.active || status.bypassed) return status;
-  const departments = await getCoveringSupervisorDepartments(
-    supervisorEmployeeNumber,
-  );
-  return {
-    ...status,
-    departments,
-    departmentCodes: departments.map((d) => d.code),
-  };
-}
-
-// #28: Shared guard for every Excel-upload route AND (now) the manual
-// create/edit routes. Sends the 403 itself when blocked, so a route handler
-// just does: `if (!status) return;`
-//
-// Admin roles (technical / superadmin / administrator) bypass
-// supervisor_assignment entirely — that table is only for Staff tagged in
-// Supervisor Assignment. Staff still need a window that covers now, and
-// later helpers also restrict writes to those department(s).
-async function ensureActiveSupervisorAssignment(req, res) {
-  if (isOfficialTimeAdminRole(req.user)) {
-    return adminOfficialTimeBypassStatus(req.user);
-  }
-
-  const supervisorEmployeeNumber =
-    req.user?.employeeNumber || req.user?.employeeID || req.user?.id;
-  try {
-    const status = await getSupervisorAssignmentStatus(supervisorEmployeeNumber);
-    if (!status.active) {
-      const message = !status.hasAssignment
-        ? 'You do not have a supervisor assignment on record. Uploading Excel schedules is not permitted.'
-        : status.expired
-        ? `Your supervisor assignment for department "${status.departmentCode}" expired on ${status.end}. Please contact an administrator to renew it before uploading.`
-        : status.notStarted
-        ? `Your supervisor assignment for department "${status.departmentCode}" has not started yet (starts ${status.start}). You are not yet authorized to upload.`
-        : 'You are not currently authorized to upload Excel schedules.';
-      res.status(403).json({ message, supervisorAssignment: status });
-      return null;
+  const fetchAll = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await axios.get(`${API_BASE_URL}/Remittance/employees/department/search`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+      });
+      setResults(r.data || []);
+    } catch {
+      setResults([]);
+    } finally {
+      setLoading(false);
     }
-    return attachSupervisorDepartments(status, supervisorEmployeeNumber);
-  } catch (err) {
-    res.status(500).json({ message: 'Error checking supervisor assignment.', detail: err.message });
+  }, []);
+
+  const fetchByQuery = useCallback(async (q) => {
+    setLoading(true);
+    try {
+      const r = await axios.get(
+        `${API_BASE_URL}/Remittance/employees/department/search?q=${encodeURIComponent(q)}`,
+        { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } },
+      );
+      setResults(r.data || []);
+    } catch {
+      setResults([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const handleInputChange = (e) => {
+    const val = e.target.value;
+    setQuery(val);
+    setOpen(true);
+    if (selectedEmployee) onClear();
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      if (val.trim().length === 0) fetchAll();
+      else if (val.trim().length >= 2) fetchByQuery(val.trim());
+      else setResults([]);
+    }, 300);
+  };
+
+  const handleFocus = () => {
+    setOpen(true);
+    if (!results.length && !loading) {
+      query.trim().length >= 2 ? fetchByQuery(query.trim()) : fetchAll();
+    }
+  };
+
+  const handleSelect = (emp) => {
+    setQuery(emp.name || "");
+    setOpen(false);
+    onSelect(emp);
+  };
+
+  const handleClear = () => {
+    setQuery("");
+    setResults([]);
+    onClear();
+    setOpen(false);
+    inputRef.current?.focus();
+  };
+
+  return (
+    <Box sx={{ position: "relative", width: "100%" }} ref={dropdownRef}>
+      <ModernTextField
+        inputRef={inputRef}
+        fullWidth
+        size="small"
+        placeholder="Type name or employee number…"
+        value={query}
+        onChange={handleInputChange}
+        onFocus={handleFocus}
+        onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
+        disabled={disabled}
+        autoComplete="off"
+        InputProps={{
+          startAdornment: (
+            <InputAdornment position="start">
+              <Person sx={{ color: T.accentMid, fontSize: 18 }} />
+            </InputAdornment>
+          ),
+          endAdornment: (
+            <InputAdornment position="end">
+              {loading ? (
+                <CircularProgress size={14} sx={{ color: T.accent }} />
+              ) : selectedEmployee ? (
+                <IconButton size="small" onClick={handleClear} sx={{ p: 0.25 }}>
+                  <Close sx={{ fontSize: 14, color: T.faint }} />
+                </IconButton>
+              ) : (
+                <IconButton
+                  size="small"
+                  onClick={() => { setOpen((o) => !o); if (!open && !results.length) fetchAll(); }}
+                  sx={{ p: 0.25 }}
+                >
+                  {open ? <ExpandLess sx={{ fontSize: 16, color: T.faint }} /> : <ExpandMore sx={{ fontSize: 16, color: T.faint }} />}
+                </IconButton>
+              )}
+            </InputAdornment>
+          ),
+        }}
+        sx={{
+          "& .MuiOutlinedInput-root": {
+            borderColor: selectedEmployee ? T.accent : undefined,
+            "& fieldset": selectedEmployee ? { borderColor: T.accent, borderWidth: 1.5 } : {},
+          },
+        }}
+      />
+
+      {open && (
+        <Paper
+          elevation={6}
+          sx={{
+            position: "absolute",
+            top: "100%",
+            left: 0,
+            right: 0,
+            zIndex: 1400,
+            maxHeight: 260,
+            overflow: "auto",
+            mt: 0.5,
+            borderRadius: "10px",
+            border: `1px solid ${T.accentBorder}`,
+            "&::-webkit-scrollbar": { width: "5px" },
+            "&::-webkit-scrollbar-thumb": { background: "#d0b8b8", borderRadius: "4px" },
+          }}
+        >
+          {loading ? (
+            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1, py: 2.5 }}>
+              <CircularProgress size={16} sx={{ color: T.accent }} />
+              <Typography sx={{ fontSize: "0.8rem", color: T.muted }}>Searching…</Typography>
+            </Box>
+          ) : results.length > 0 ? (
+            <List dense disablePadding>
+              {results.map((emp) => (
+                <ListItem
+                  key={emp.employeeNumber}
+                  button
+                  onClick={() => handleSelect(emp)}
+                  sx={{
+                    py: 1,
+                    px: 1.5,
+                    borderBottom: `1px solid ${T.divider}`,
+                    "&:hover": { bgcolor: T.accentFaint },
+                    "&:last-child": { borderBottom: "none" },
+                  }}
+                >
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                    <Avatar sx={{ width: 30, height: 30, fontSize: "0.72rem", bgcolor: alpha(T.accent, 0.15), color: T.accent, fontWeight: 700 }}>
+                      {emp.name?.charAt(0)?.toUpperCase() || "?"}
+                    </Avatar>
+                    <Box>
+                      <Typography sx={{ fontSize: "0.83rem", fontWeight: 700, color: T.text, lineHeight: 1.2 }}>
+                        {emp.name}
+                      </Typography>
+                      <Typography sx={{ fontSize: "0.72rem", color: T.muted }}>
+                        #{emp.employeeNumber}{emp.department ? ` · ${emp.department}` : ""}
+                      </Typography>
+                    </Box>
+                  </Box>
+                </ListItem>
+              ))}
+            </List>
+          ) : (
+            <Box sx={{ py: 2.5, textAlign: "center" }}>
+              <Typography sx={{ fontSize: "0.8rem", color: T.faint, fontStyle: "italic" }}>
+                {query.length >= 2 ? `No results for "${query}"` : "Type to search or browse"}
+              </Typography>
+            </Box>
+          )}
+        </Paper>
+      )}
+    </Box>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ACADEMIC YEAR AUTOCOMPLETE
+// ─────────────────────────────────────────────────────────────────────────────
+const generateAcademicYearOptions = () => {
+  const y = new Date().getFullYear();
+  return Array.from({ length: 11 }, (_, i) => `${y - 5 + i} - ${y - 5 + i + 1}`);
+};
+const ACADEMIC_YEAR_OPTIONS = generateAcademicYearOptions();
+
+const autoFormatAcademicYear = (raw) => {
+  if (!raw) return raw;
+  const t = raw.trim();
+  if (/^\d{4}\s*-\s*\d{4}$/.test(t)) return t.replace(/\s*-\s*/, " - ");
+  if (/^\d{4}$/.test(t)) { const y = parseInt(t, 10); return `${y} - ${y + 1}`; }
+  return raw;
+};
+
+const AcademicYearAutocomplete = ({ value, onChange, onBlur, sx, size = "small", label = "Academic Year", placeholder = "e.g. 2025 - 2026" }) => (
+  <Autocomplete
+    freeSolo
+    disableClearable
+    filterOptions={(options) => options}  //← show all options always, no filtering
+    options={ACADEMIC_YEAR_OPTIONS}
+    value={value || ""}
+    inputValue={value || ""}
+    onInputChange={(_, v, reason) => {
+      if (reason === "input") onChange(v ?? "");  //* ← only update on actual user typing
+    }}
+    onChange={(_, v) => {
+      if (typeof v === "string") onChange(v);
+    }}
+    popupIcon={<CalendarToday sx={{ fontSize: 16 }} />}
+    renderInput={(params) => (
+      <TextField
+        {...params}
+        size={size}
+        label={label}
+        placeholder={placeholder}
+        onBlur={onBlur}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.target.blur(); // ← commit on Enter the same way Tab/click-away does
+          }
+          params.inputProps?.onKeyDown?.(e); // preserve MUI's own Enter handling (highlighted option selection)
+        }}
+        sx={{
+          bgcolor: "#fff",
+          "& .MuiOutlinedInput-root": {
+            borderRadius: "8px",
+            "&:hover fieldset": { borderColor: T.accent },
+            "&.Mui-focused fieldset": { borderColor: T.accent },
+          },
+          "& label.Mui-focused": { color: T.accent },
+          ...sx,
+        }}
+      />
+    )}
+    renderOption={(props, option) => (
+      <Box component="li" {...props} sx={{ fontSize: "0.875rem", fontWeight: 500, py: "6px !important", px: "14px !important", "&.Mui-focused,&:hover": { bgcolor: `${T.accentFaint} !important`, color: T.accent } }}>
+        <CalendarToday sx={{ fontSize: 14, mr: 1, opacity: 0.5 }} />
+        {option}
+      </Box>
+    )}
+    PaperComponent={({ children, ...p }) => (
+      <Paper {...p} elevation={4} sx={{ borderRadius: "10px", border: `1px solid ${T.accentBorder}`, overflow: "hidden", mt: 0.5 }}>
+        {children}
+      </Paper>
+    )}
+  />
+);
+// ─────────────────────────────────────────────────────────────────────────────
+// TIME PICKER FIELD
+// ─────────────────────────────────────────────────────────────────────────────
+const TimePickerField = ({ value, onChange, label, size = "small", disabled = false, accentColor = T.accent, patterns = [], direction }) => {
+  const parseVal = (v) => {
+    if (!v || !String(v).trim()) return { hh: "", mm: "", ss: "", ampm: "AM" };
+    const m = String(v).trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)$/i);
+    if (!m) return { hh: "", mm: "", ss: "", ampm: "AM" };
+    return { hh: m[1].padStart(2, "0"), mm: m[2], ss: m[3] || "00", ampm: (m[4] || "AM").toUpperCase() };
+  };
+  const init = parseVal(value);
+  const [hh, setHh] = useState(init.hh);
+  const [mm, setMm] = useState(init.mm);
+  const [ss, setSs] = useState(init.ss);
+  const [ampm, setAmpm] = useState(init.ampm);
+  const [focused, setFocused] = useState(false);
+  const [anchorEl, setAnchorEl] = useState(null);
+  // [NEW #K] When this field has usable patterns (direction is set and at
+  // least one saved pattern has a time for that direction), Quick Pick opens
+  // showing those patterns first. showCustomGrid lets the person fall back
+  // to the original hour/minute grid without losing that shortcut.
+  const [showCustomGrid, setShowCustomGrid] = useState(false);
+  const lastEmittedRef = useRef(value);
+  const hhRef = useRef(null);
+  const mmRef = useRef(null);
+  const ssRef = useRef(null);
+
+  useEffect(() => {
+    if (value !== lastEmittedRef.current) {
+      const { hh: h, mm: m, ss: s, ampm: a } = parseVal(value);
+      setHh(h); setMm(m); setSs(s); setAmpm(a);
+      lastEmittedRef.current = value;
+    }
+  }, [value]);
+
+  const emit = useCallback((h, m, s, a) => {
+    const empty = !h && !m && !s;
+    const out = empty ? "" : `${(h || "00").padStart(2, "0")}:${(m || "00").padStart(2, "0")}:${(s || "00").padStart(2, "0")} ${a}`;
+    lastEmittedRef.current = out;
+    onChange(out);
+  }, [onChange]);
+
+  const applyExactTime = useCallback((timeStr) => {
+    const p = parseVal(timeStr);
+    setHh(p.hh); setMm(p.mm); setSs(p.ss); setAmpm(p.ampm);
+    emit(p.hh, p.mm, p.ss, p.ampm);
+  }, [emit]);
+
+  const segStyle = {
+    width: 24, textAlign: "center", border: "none", outline: "none",
+    background: "transparent", fontSize: "0.82rem", fontFamily: "monospace",
+    fontWeight: 600, color: disabled ? "#aaa" : T.text, padding: 0,
+    cursor: disabled ? "not-allowed" : "text",
+  };
+  const HOURS = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
+  const MINUTES = ["00", "15", "30", "45"];
+  const isEmpty = !hh && !mm && !ss;
+
+  // [NEW #K] Which saved patterns actually have a usable time for this
+  // field's direction (Time In fields use pattern.timeIn, Time Out fields
+  // use pattern.timeOut). Break/Honorarium/Service-Credit/Overtime fields
+  // pass no `direction`, so this stays empty and Quick Pick behaves exactly
+  // as before for them.
+  const patternOptions = direction
+    ? patterns.filter((p) => (direction === "out" ? p.timeOut : p.timeIn))
+    : [];
+  const showPatternList = patternOptions.length > 0 && !showCustomGrid;
+
+  return (
+    <Box sx={{ display: "flex", alignItems: "center", gap: 0.4, width: "100%" }}>
+      <Box
+        onClick={() => !disabled && hhRef.current?.focus()}
+        sx={{
+          flex: 1, display: "flex", alignItems: "center", minWidth: 0,
+          px: 1, py: 0.65,
+          border: `1px solid ${focused ? accentColor : "rgba(0,0,0,0.23)"}`,
+          borderRadius: "4px",
+          boxShadow: focused ? `0 0 0 1px ${accentColor}` : "none",
+          transition: "border-color 0.15s, box-shadow 0.15s",
+          bgcolor: disabled ? "#f5f5f5" : "#fff",
+          cursor: disabled ? "not-allowed" : "text",
+          position: "relative",
+        }}
+      >
+        {label && (
+          <Box component="span" sx={{ position: "absolute", top: -8, left: 7, px: 0.4, bgcolor: disabled ? "#f5f5f5" : "#fff", fontSize: "0.62rem", color: focused ? accentColor : "rgba(0,0,0,0.55)", lineHeight: 1, pointerEvents: "none", transition: "color 0.15s", whiteSpace: "nowrap" }}>
+            {label}
+          </Box>
+        )}
+        <input
+          ref={hhRef} type="text" inputMode="numeric" maxLength={2} placeholder="HH" value={hh} disabled={disabled}
+          onChange={(e) => { const r = e.target.value.replace(/\D/g, "").slice(0, 2); setHh(r); emit(r, mm, ss, ampm); if (r.length === 2) { mmRef.current?.focus(); mmRef.current?.select(); } }}
+          onBlur={(e) => { setFocused(false); const v = e.target.value.replace(/\D/g, ""); const p = v ? v.padStart(2, "0") : ""; setHh(p); emit(p, mm, ss, ampm); }}
+          onFocus={(e) => { setFocused(true); e.target.select(); }}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowRight" && e.target.selectionStart === e.target.value.length) { e.preventDefault(); mmRef.current?.focus(); mmRef.current?.select(); }
+            if (e.key === ":") { e.preventDefault(); mmRef.current?.focus(); mmRef.current?.select(); }
+          }}
+          style={segStyle}
+        />
+        <span style={{ fontSize: "0.82rem", fontFamily: "monospace", color: "#bbb", lineHeight: 1, margin: "0 1px", userSelect: "none" }}>:</span>
+        <input
+          ref={mmRef} type="text" inputMode="numeric" maxLength={2} placeholder="MM" value={mm} disabled={disabled}
+          onChange={(e) => { const r = e.target.value.replace(/\D/g, "").slice(0, 2); setMm(r); emit(hh, r, ss, ampm); if (r.length === 2) { ssRef.current?.focus(); ssRef.current?.select(); } }}
+          onBlur={(e) => { setFocused(false); const v = e.target.value.replace(/\D/g, ""); const p = v ? v.padStart(2, "0") : ""; setMm(p); emit(hh, p, ss, ampm); }}
+          onFocus={(e) => { setFocused(true); e.target.select(); }}
+          onKeyDown={(e) => {
+            if (e.key === "Backspace" && !mm) { e.preventDefault(); hhRef.current?.focus(); hhRef.current?.select(); }
+            if (e.key === "ArrowLeft" && e.target.selectionStart === 0) { e.preventDefault(); hhRef.current?.focus(); hhRef.current?.select(); }
+            if (e.key === "ArrowRight" && e.target.selectionStart === e.target.value.length) { e.preventDefault(); ssRef.current?.focus(); ssRef.current?.select(); }
+            if (e.key === ":") { e.preventDefault(); ssRef.current?.focus(); ssRef.current?.select(); }
+          }}
+          style={segStyle}
+        />
+        <span style={{ display: "none", fontSize: "0.82rem", fontFamily: "monospace", color: "#bbb", lineHeight: 1, margin: "0 1px", userSelect: "none" }}>:</span>
+        <input
+          ref={ssRef} type="text" inputMode="numeric" maxLength={2} placeholder="SS" value={ss} disabled={disabled}
+          onChange={(e) => { const r = e.target.value.replace(/\D/g, "").slice(0, 2); setSs(r); emit(hh, mm, r, ampm); }}
+          onBlur={(e) => { setFocused(false); const v = e.target.value.replace(/\D/g, ""); const p = v ? v.padStart(2, "0") : ""; setSs(p); emit(hh, mm, p, ampm); }}
+          onFocus={(e) => { setFocused(true); e.target.select(); }}
+          onKeyDown={(e) => {
+            if (e.key === "Backspace" && !ss) { e.preventDefault(); mmRef.current?.focus(); mmRef.current?.select(); }
+            if (e.key === "ArrowLeft" && e.target.selectionStart === 0) { e.preventDefault(); mmRef.current?.focus(); mmRef.current?.select(); }
+          }}
+          style={{ ...segStyle, display: "none" }}
+        />
+      </Box>
+
+      {/* [NEW #K] AM/PM is now a single-click toggle instead of a dropdown —
+          one tap flips it, no menu to open first. Uses a hard-pixel box (not
+          MUI Button) so the width can never shift between AM and PM. */}
+      <Tooltip title="Click to switch AM/PM">
+        <Box
+          component="button"
+          type="button"
+          disabled={disabled}
+          onClick={() => { const next = ampm === "AM" ? "PM" : "AM"; setAmpm(next); emit(hh, mm, ss, next); }}
+          sx={{
+            width: 44, minWidth: 44, maxWidth: 44, height: 32, flexShrink: 0,
+            boxSizing: "border-box",
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+            fontFamily: "inherit", fontSize: "0.76rem", fontWeight: 800, letterSpacing: "0.2px",
+            borderRadius: "5px", p: 0, m: 0,
+            cursor: disabled ? "not-allowed" : "pointer",
+            color: ampm === "AM" ? "#1565c0" : accentColor,
+            bgcolor: ampm === "AM" ? alpha("#1565c0", 0.08) : alpha(accentColor, 0.08),
+            border: `1px solid ${alpha(ampm === "AM" ? "#1565c0" : accentColor, 0.3)}`,
+            opacity: disabled ? 0.5 : 1,
+            transition: "background-color 0.12s, color 0.12s, border-color 0.12s",
+            "&:hover": disabled ? {} : { bgcolor: alpha(ampm === "AM" ? "#1565c0" : accentColor, 0.16) },
+          }}
+        >
+          {ampm}
+        </Box>
+      </Tooltip>
+
+      <Tooltip title={patternOptions.length ? "Quick pick — from your saved patterns" : "Quick pick"}>
+        <span>
+          <IconButton
+            size="small" disabled={disabled}
+            onClick={(e) => { setShowCustomGrid(false); setAnchorEl(e.currentTarget); }}
+            sx={{ color: alpha(accentColor, 0.7), p: 0.5, "&:hover": { color: accentColor, bgcolor: alpha(accentColor, 0.08) } }}
+          >
+            <AccessTime fontSize="small" />
+          </IconButton>
+        </span>
+      </Tooltip>
+
+      {!isEmpty && (
+        <Tooltip title="Clear">
+          <IconButton
+            size="small" disabled={disabled}
+            onClick={() => { setHh(""); setMm(""); setSs(""); setAmpm("AM"); lastEmittedRef.current = ""; onChange(""); }}
+            sx={{ color: alpha("#000", 0.35), p: 0.5, "&:hover": { color: "#c62828", bgcolor: alpha("#c62828", 0.08) } }}
+          >
+            <Close fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      )}
+
+      <Popover
+        open={Boolean(anchorEl)} anchorEl={anchorEl} onClose={() => { setAnchorEl(null); setShowCustomGrid(false); }}
+        anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
+        transformOrigin={{ vertical: "top", horizontal: "left" }}
+        PaperProps={{
+          sx: {
+            borderRadius: 2, boxShadow: "0 8px 32px rgba(0,0,0,0.22)",
+            border: `1px solid ${alpha(accentColor, 0.18)}`,
+            p: 0, width: 300, maxHeight: 340, overflow: "hidden",
+            display: "flex", flexDirection: "column",
+          },
+        }}
+      >
+        {showPatternList ? (
+          <>
+            <Box sx={{ bgcolor: accentColor, px: 2, py: 1, flexShrink: 0 }}>
+              <Typography sx={{ color: "#fff", fontWeight: 700, fontSize: "0.78rem", letterSpacing: "0.5px", textTransform: "uppercase" }}>
+                From your patterns
+              </Typography>
+            </Box>
+            <Box sx={{ overflowY: "auto", flex: 1, py: 0.5 }}>
+              {patternOptions.map((p) => {
+                const t = direction === "out" ? p.timeOut : p.timeIn;
+                return (
+                  <Box
+                    key={p.id}
+                    onClick={() => { applyExactTime(t); setAnchorEl(null); }}
+                    sx={{
+                      display: "flex", alignItems: "center", gap: 1, px: 1.5, py: 0.9,
+                      cursor: "pointer", "&:hover": { bgcolor: alpha(p.color || accentColor, 0.08) },
+                    }}
+                  >
+                    <Box sx={{ width: 9, height: 9, borderRadius: "3px", bgcolor: p.color || accentColor, flexShrink: 0 }} />
+                    <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: T.text, flex: 1, minWidth: 0 }} noWrap>{p.name}</Typography>
+                    <Typography sx={{ fontSize: "0.74rem", fontWeight: 800, color: accentColor, fontFamily: "monospace", flexShrink: 0 }}>{t}</Typography>
+                  </Box>
+                );
+              })}
+            </Box>
+            <Box sx={{ px: 2, py: 0.75, borderTop: `1px solid ${alpha(accentColor, 0.12)}`, display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0, bgcolor: "#fafafa" }}>
+              <Button size="small" onClick={() => setShowCustomGrid(true)} sx={{ fontSize: "0.7rem", color: accentColor, textTransform: "none", minWidth: 0, px: 0, fontWeight: 700 }}>
+                Or pick any time…
+              </Button>
+              <Button size="small" onClick={() => setAnchorEl(null)} sx={{ fontSize: "0.72rem", color: "#555", textTransform: "none", minWidth: 0, px: 1.5 }}>
+                Close
+              </Button>
+            </Box>
+          </>
+        ) : (
+          <>
+            <Box sx={{ bgcolor: accentColor, px: 2, py: 1, flexShrink: 0, display: "flex", alignItems: "center", gap: 1 }}>
+              {patternOptions.length > 0 && (
+                <IconButton size="small" onClick={() => setShowCustomGrid(false)} sx={{ color: "#fff", p: 0.25, mr: 0.25 }}>
+                  <ArrowBack sx={{ fontSize: 15 }} />
+                </IconButton>
+              )}
+              <Typography sx={{ color: "#fff", fontWeight: 700, fontSize: "0.78rem", letterSpacing: "0.5px", textTransform: "uppercase" }}>
+                Quick Pick
+              </Typography>
+            </Box>
+            <Box sx={{ overflowY: "auto", flex: 1 }}>
+              {["AM", "PM"].map((ap) => (
+                <Box key={ap}>
+                  <Box sx={{ px: 2, py: 0.6, bgcolor: ap === "AM" ? "#e3f0fb" : "#f7f0f0", position: "sticky", top: 0, zIndex: 1 }}>
+                    <Typography sx={{ fontSize: "0.7rem", fontWeight: 800, color: ap === "AM" ? "#1565c0" : accentColor, letterSpacing: "0.6px" }}>
+                      {ap}
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: "3px", px: 1.25, py: 0.75 }}>
+                    {HOURS.map((h) =>
+                      MINUTES.map((min) => (
+                        <Button
+                          key={`${h}${min}${ap}`} size="small"
+                          onClick={() => { setHh(h); setMm(min); setSs("00"); setAmpm(ap); emit(h, min, "00", ap); setAnchorEl(null); }}
+                          sx={{
+                            minWidth: 0, height: 26, fontSize: "0.68rem", fontWeight: 600,
+                            fontFamily: "monospace", px: 0, borderRadius: 1, textTransform: "none",
+                            bgcolor: alpha(ap === "AM" ? "#1565c0" : accentColor, 0.06),
+                            color: ap === "AM" ? "#1565c0" : accentColor,
+                            border: `1px solid ${alpha(ap === "AM" ? "#1565c0" : accentColor, 0.18)}`,
+                            "&:hover": { bgcolor: alpha(ap === "AM" ? "#1565c0" : accentColor, 0.18), transform: "scale(1.05)" },
+                            transition: "all 0.1s ease",
+                          }}
+                        >
+                          {h}:{min}
+                        </Button>
+                      )),
+                    )}
+                  </Box>
+                </Box>
+              ))}
+            </Box>
+            <Box sx={{ px: 2, py: 0.75, borderTop: `1px solid ${alpha(accentColor, 0.12)}`, display: "flex", justifyContent: "flex-end", flexShrink: 0, bgcolor: "#fafafa" }}>
+              <Button size="small" onClick={() => setAnchorEl(null)} sx={{ fontSize: "0.72rem", color: "#555", textTransform: "none", minWidth: 0, px: 1.5 }}>
+                Close
+              </Button>
+            </Box>
+          </>
+        )}
+      </Popover>
+    </Box>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UTILITY FUNCTIONS
+// ─────────────────────────────────────────────────────────────────────────────
+const getAuthHeaders = () => ({
+  headers: {
+    Authorization: `Bearer ${localStorage.getItem("token")}`,
+    "Content-Type": "application/json",
+  },
+});
+
+// [NEW] Client-side mirror of the backend's OFFICIAL_TIME_ADMIN_ROLES check
+// (administrator / superadmin / technical). Decodes the same JWT already
+// stored under "token" — no new localStorage key needed. This is a UI
+// convenience only: the real enforcement lives server-side in
+// ensureActiveSupervisorAssignment()'s admin bypass, so a hidden/forged
+// frontend role can never grant more than the backend already allows.
+const OFFICIAL_TIME_ADMIN_ROLES = ["administrator", "superadmin", "technical", "admin"];
+const decodeJwtPayload = (token) => {
+  try {
+    const base64Url = token.split(".")[1];
+    const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+    const json = decodeURIComponent(
+      atob(base64)
+        .split("")
+        .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+        .join(""),
+    );
+    return JSON.parse(json);
+  } catch {
     return null;
   }
-}
+};
+const getCurrentUserRole = () => {
+  const token = localStorage.getItem("token");
+  if (!token) return "";
+  return String(decodeJwtPayload(token)?.role || "").toLowerCase();
+};
 
-async function assertEmployeesInSupervisorScope(res, supervisorStatus, employeeIDs) {
-  if (!supervisorStatus || supervisorStatus.bypassed) return true;
-  const unauthorized = await getUnauthorizedEmployeeIDs(
-    employeeIDs,
-    supervisorStatus.departmentCodes,
-  );
-  if (!unauthorized.length) return true;
-  res.status(403).json({
-    message:
-      unauthorized.length === 1
-        ? `You do not have supervisor authority over employee ${unauthorized[0]}.`
-        : `You do not have supervisor authority over employee(s): ${unauthorized.join(", ")}.`,
-    unauthorizedEmployeeIDs: unauthorized,
-  });
-  return false;
-}
-
-function assertSupervisorOwnsDepartment(res, supervisorStatus, department) {
-  if (!supervisorStatus || supervisorStatus.bypassed) return true;
-  const target = String(department || "").trim().toLowerCase();
-  const owned = (supervisorStatus.departments || []).some((d) => {
-    return (
-      String(d.code || "").trim().toLowerCase() === target ||
-      String(d.description || "").trim().toLowerCase() === target
-    );
-  });
-  if (owned) return true;
-  res.status(403).json({
-    message: `You are not assigned as supervisor for department "${department}".`,
-  });
-  return false;
-}
-
-async function filterScheduleListToSupervisorScope(supervisorStatus, scheduleList) {
-  if (!supervisorStatus || supervisorStatus.bypassed) {
-    return { scheduleList, skipped: [] };
+const countUniqueSchedules = (rows) => {
+  const keys = new Set();
+  for (const r of rows || []) {
+    const s = normalizeDateStr(r?.startDate);
+    const e = normalizeDateStr(r?.endDate);
+    if (s && e) keys.add(`${s}|${e}`);
   }
-  const ids = (scheduleList || []).map((s) => String(s.employeeID));
-  const unauthorized = await getUnauthorizedEmployeeIDs(
-    ids,
-    supervisorStatus.departmentCodes,
-  );
-  if (!unauthorized.length) return { scheduleList, skipped: [] };
-  const blocked = new Set(unauthorized);
-  return {
-    scheduleList: scheduleList.filter((s) => !blocked.has(String(s.employeeID))),
-    skipped: unauthorized,
-  };
-}
+  return keys.size;
+};
 
-// #14: Auto-format academic year server-side.
-function autoFormatAcademicYear(raw) {
-  if (!raw) return raw;
-  const trimmed = String(raw).trim();
-  if (/^\d{4}\s*-\s*\d{4}$/.test(trimmed)) {
-    const [startYear, endYear] = trimmed.split("-").map((part) => part.trim());
-    return `${startYear}-${endYear}`;
-  }
-  if (/^\d{4}$/.test(trimmed)) {
-    const y = parseInt(trimmed, 10);
-    return `${y}-${y + 1}`;
-  }
-  return raw;
-}
+const officialTimeGetConfig = (skipAudit = false) => ({
+  ...getAuthHeaders(),
+  ...(skipAudit ? { params: { skipAudit: "1" } } : {}),
+});
 
-// ─────────────────────────────────────────────────────────────────────────────
-// #9 & #17: Locale-safe, Lotus-bug-safe date normalisation
-// ─────────────────────────────────────────────────────────────────────────────
-function normDate(val) {
-  if (val == null || val === "") return null;
-
-  // JS Date object — arrives when cellDates:true is used
-  if (val instanceof Date) {
-    if (Number.isNaN(val.getTime())) return null;
-    return `${val.getUTCFullYear()}-${String(val.getUTCMonth() + 1).padStart(2, "0")}-${String(val.getUTCDate()).padStart(2, "0")}`;
-  }
-
-  const s = String(val).trim();
-
-  // Already YYYY-MM-DD (fast path — most common after cellDates:true + dateNF)
+const formatDateOnly = (val) => {
+  if (!val) return "—";
+  const s = String(val).split("T")[0];
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-
-  // ISO with time component
-  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) return s.split("T")[0];
-
-  // Excel serial number — use xlsx.SSF.parse_date_code which correctly handles
-  // the Lotus 1900 leap-year bug (phantom Feb 29 1900, serial 60)
-  if (/^\d{4,6}$/.test(s)) {
-    const serial = parseInt(s, 10);
-    try {
-      const parsed = xlsx.SSF.parse_date_code(serial);
-      if (parsed && parsed.y && parsed.m && parsed.d) {
-        return `${parsed.y}-${String(parsed.m).padStart(2, "0")}-${String(parsed.d).padStart(2, "0")}`;
-      }
-    } catch (_) {
-      // SSF not available — fall through to manual calculation
-    }
-
-    const corrected = serial > 59 ? serial - 1 : serial;
-    const excelEpoch = new Date(Date.UTC(1899, 11, 31));
-    const ms = excelEpoch.getTime() + corrected * 86400000;
-    const d = new Date(ms);
-    if (!Number.isNaN(d.getTime())) {
-      return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
-    }
-  }
-
-  // MM/DD/YYYY (US format emitted by xlsx raw:false for date cells)
-  const slashMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (slashMatch) {
-    const [, a, b, y] = slashMatch;
-    const month = parseInt(a, 10);
-    const day = parseInt(b, 10);
-    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
-      return `${y}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-    }
-  }
-
-  // Fallback: parse via Date (UTC-safe)
   const d = new Date(val);
-  if (Number.isNaN(d.getTime())) return null;
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
-}
+  if (isNaN(d.getTime())) return String(val);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
 
-// #10: Strict time format validation — returns normalised "HH:MM:SS AM/PM" or null + reason
-function validateAndNormaliseTime(val, fieldName) {
-  if (val == null || val === "") return { value: "00:00:00 AM", valid: true };
-  const s = String(val).trim();
-
-  if (VALID_TIME_RE.test(s)) {
-    const parts = s.match(/^(\d{1,2}):(\d{2}):(\d{2})\s*(AM|PM)$/i);
-    const hh = String(parts[1]).padStart(2, "0");
-    return {
-      value: `${hh}:${parts[2]}:${parts[3]} ${parts[4].toUpperCase()}`,
-      valid: true,
-    };
+const formatDateLong = (val) => {
+  if (!val) return "";
+  const months = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  const s = String(val).split("T")[0];
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const [y, m, d] = s.split("-").map(Number);
+    return `${months[m - 1]} ${String(d).padStart(2, "0")}, ${y}`;
   }
+  const d = new Date(val);
+  if (isNaN(d.getTime())) return String(val);
+  return `${months[d.getMonth()]} ${String(d.getDate()).padStart(2, "0")}, ${d.getFullYear()}`;
+};
 
-  const noSec = s.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
-  if (noSec) {
-    const hh = String(noSec[1]).padStart(2, "0");
-    return {
-      value: `${hh}:${noSec[2]}:00 ${noSec[3].toUpperCase()}`,
-      valid: true,
-    };
+const formatScheduleDisplayText = (academicYear) => {
+  if (!academicYear) return "—";
+  const str = String(academicYear).trim();
+  const yearsMatch = str.match(/(\d{4})\s*-\s*(\d{4})/);
+  const semesterMatch =
+    str.match(/(1st|2nd|Summer|Vacation|Christmas|Midyear|Enrollment)\s+\w+/i) ||
+    str.match(/(1st|2nd|Summer|Vacation|Christmas|Midyear|Enrollment)/i);
+  if (yearsMatch) {
+    const years = `${yearsMatch[1]} - ${yearsMatch[2]}`;
+    const semester = semesterMatch ? semesterMatch[0].trim() : "";
+    return semester ? `${semester} S.Y ${years}` : `S.Y ${years}`;
   }
+  return str;
+};
 
-  const h24 = s.match(/^(\d{1,2}):(\d{2}):(\d{2})$/);
-  if (h24) {
-    let hh = parseInt(h24[1], 10);
-    const mm = h24[2],
-      ss = h24[3];
-    const ap = hh >= 12 ? "PM" : "AM";
-    if (hh === 0) hh = 12;
-    else if (hh > 12) hh -= 12;
-    return {
-      value: `${String(hh).padStart(2, "0")}:${mm}:${ss} ${ap}`,
-      valid: true,
-    };
-  }
+const normalizeDateStr = (val) => {
+  if (!val) return "";
+  const s = String(val).split("T")[0];
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : "";
+};
 
-  return {
-    value: null,
-    valid: false,
-    reason: `Invalid time format for "${fieldName}": "${s}". Expected HH:MM:SS AM/PM (e.g. 08:00:00 AM).`,
-  };
-}
-
-// #6: Validate breaktime — must be empty, null, or a non-negative integer string
-function validateBreaktime(val) {
-  if (val == null || val === "") return { value: null, valid: true };
-  const s = String(val).trim();
-  if (s === "") return { value: null, valid: true };
-  if (!/^\d+$/.test(s))
-    return {
-      value: null,
-      valid: false,
-      reason: `breaktime must be a whole number of minutes (e.g. 60). Got: "${s}".`,
-    };
-  return { value: s, valid: true };
-}
-
-function parseTimeToMinutes(val) {
-  if (val == null) return null;
-  const s = String(val).trim();
-  if (!s || s === "—") return null;
-  const m = s.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i);
+const parseTimeToMinutes = (str) => {
+  if (!str) return null;
+  const m = String(str).trim().match(/^(\d{1,2}):(\d{1,2})(?::\d{1,2})?\s*(AM|PM)$/i);
   if (!m) return null;
-  let hh = Number(m[1]);
-  const mm = Number(m[2]);
-  const ap = (m[4] || "").toUpperCase();
-  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
-  if (hh < 0 || hh > 12 || mm < 0 || mm > 59) return null;
-  if (ap) {
-    if (hh === 12) hh = 0;
-    if (ap === "PM") hh += 12;
-  } else {
-    if (hh > 23) return null;
-  }
-  const minutes = hh * 60 + mm;
-  if (minutes === 0) return null;
-  return minutes;
-}
+  let h = parseInt(m[1], 10);
+  const min = parseInt(m[2], 10);
+  const ap = m[3].toUpperCase();
+  if (ap === "PM" && h !== 12) h += 12;
+  if (ap === "AM" && h === 12) h = 0;
+  if (h < 0 || h > 23 || min < 0 || min > 59) return null;
+  return h * 60 + min;
+};
 
-function getSegmentsForDayRow(row) {
-  const segments = [];
-  const add = (label, start, end) => {
-    if (start != null && end != null && start < end)
-      segments.push({ label, start, end });
-  };
-  const ti = parseTimeToMinutes(row.officialTimeIN);
-  const to = parseTimeToMinutes(row.officialTimeOUT);
-  const bi = parseTimeToMinutes(row.officialBreaktimeIN);
-  const bo = parseTimeToMinutes(row.officialBreaktimeOUT);
-  if (ti != null && to != null) {
-    if (bi != null && bo != null) {
-      add("Work time (Time In → Break In)", ti, bi);
-      add("Work time (Break Out → Time Out)", bo, to);
-    } else {
-      add("Work time (Time In → Time Out)", ti, to);
+const formatMinutesToTime = (m) => {
+  if (m == null || m < 0 || m >= 24 * 60) return "";
+  const h = Math.floor(m / 60);
+  const min = m % 60;
+  const ap = h >= 12 ? "PM" : "AM";
+  const h12 = h % 12 || 12;
+  return `${h12}:${String(min).padStart(2, "0")} ${ap}`;
+};
+
+const checkTimeOverlaps = (rows) => {
+  if (!rows?.length) return { valid: true };
+  for (const row of rows) {
+    const segs = [];
+    const r = row || {};
+    const push = (inKey, outKey, label) => {
+      const s = parseTimeToMinutes(r[inKey]);
+      const e = parseTimeToMinutes(r[outKey]);
+      if (s != null && e != null && s < e && !(s === 0 && e === 12 * 60)) segs.push({ start: s, end: e, label });
+    };
+    const tIn = parseTimeToMinutes(r.officialTimeIN);
+    const tOut = parseTimeToMinutes(r.officialTimeOUT);
+    const bIn = parseTimeToMinutes(r.officialBreaktimeIN);
+    const bOut = parseTimeToMinutes(r.officialBreaktimeOUT);
+    if (tIn != null && tOut != null && tIn < tOut) {
+      if (bIn != null && bOut != null && bIn > tIn && bOut < tOut && bIn < bOut) {
+        if (tIn < bIn) segs.push({ start: tIn, end: bIn, label: "Work Days" });
+        if (bOut < tOut) segs.push({ start: bOut, end: tOut, label: "Work Days" });
+      } else segs.push({ start: tIn, end: tOut, label: "Work Days" });
     }
+    push("officialHonorariumTimeIN", "officialHonorariumTimeOUT", "Honorarium");
+    push("officialServiceCreditTimeIN", "officialServiceCreditTimeOUT", "Service Credits");
+    push("officialOverTimeIN", "officialOverTimeOUT", "Overtime");
+    for (let a = 0; a < segs.length; a++)
+      for (let b = a + 1; b < segs.length; b++)
+        if (segs[a].start < segs[b].end && segs[b].start < segs[a].end)
+          return { valid: false, day: r.day, segmentA: segs[a], segmentB: segs[b] };
   }
-  add(
-    "Honorarium time",
-    parseTimeToMinutes(row.officialHonorariumTimeIN),
-    parseTimeToMinutes(row.officialHonorariumTimeOUT),
-  );
-  add(
-    "Service Credits time",
-    parseTimeToMinutes(row.officialServiceCreditTimeIN),
-    parseTimeToMinutes(row.officialServiceCreditTimeOUT),
-  );
-  add(
-    "Overtime time",
-    parseTimeToMinutes(row.officialOverTimeIN),
-    parseTimeToMinutes(row.officialOverTimeOUT),
-  );
-  return segments;
-}
+  return { valid: true };
+};
 
-function findOverlapInSegments(segments) {
-  for (let i = 0; i < segments.length; i++)
-    for (let j = i + 1; j < segments.length; j++) {
-      const a = segments[i],
-        b = segments[j];
-      if (a.start < b.end && b.start < a.end) return { a, b };
-    }
-  return null;
-}
+const deepClone = (o) => JSON.parse(JSON.stringify(o));
+const computeChecksum = (data) => {
+  const s = JSON.stringify(data);
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) { h = ((h << 5) + h) ^ s.charCodeAt(i); h = h >>> 0; }
+  return h;
+};
 
-function formatMinutesToTime(mins) {
-  const m = Math.max(0, Math.min(1439, Number(mins)));
-  const hh24 = Math.floor(m / 60);
-  const mm = String(m % 60).padStart(2, "0");
-  const ap = hh24 >= 12 ? "PM" : "AM";
-  let hh12 = hh24 % 12;
-  if (hh12 === 0) hh12 = 12;
-  return `${hh12}:${mm} ${ap}`;
-}
+const DAYS_ORDER = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
 
-function formatTimeOverlapMessage({ day, employeeID, segA, segB }) {
-  const os = Math.max(segA.start, segB.start),
-    oe = Math.min(segA.end, segB.end);
-  return (
-    `Schedule conflict on ${day || "Unknown day"} for Employee ${employeeID}:\n` +
-    `${segA.label} overlaps with ${segB.label} between ${formatMinutesToTime(os)} and ${formatMinutesToTime(oe)}.\n` +
-    `Overlapping period: ${formatMinutesToTime(os)} – ${formatMinutesToTime(oe)}.\n` +
-    `Please revise the schedule to remove the conflict.`
-  );
-}
-
-function buildTimeOverlapPayload({ day, employeeID, segA, segB }) {
-  const os = Math.max(segA.start, segB.start),
-    oe = Math.min(segA.end, segB.end);
+// ─────────────────────────────────────────────────────────────────────────────
+// [CHANGE A] makeDefaultRow — weekends default to blank for all time fields
+// ─────────────────────────────────────────────────────────────────────────────
+const makeDefaultRow = (employeeID, day) => {
+  const isWeekend = day === "Saturday" || day === "Sunday";
   return {
-    day: day || "Unknown day",
-    employeeID: String(employeeID),
-    segmentA: { label: segA.label, start: segA.start, end: segA.end },
-    segmentB: { label: segB.label, start: segB.start, end: segB.end },
-    overlap: {
-      start: os,
-      end: oe,
-      startText: formatMinutesToTime(os),
-      endText: formatMinutesToTime(oe),
-      periodText: `${formatMinutesToTime(os)} – ${formatMinutesToTime(oe)}`,
-    },
-  };
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// AUDIT HELPERS
-// ─────────────────────────────────────────────────────────────────────────────
-
-const OFFICIAL_TIME_AUDIT_ROW_FIELDS = [
-  "day",
-  "officialTimeIN",
-  "officialBreaktimeIN",
-  "officialBreaktimeOUT",
-  "officialTimeOUT",
-  "officialHonorariumTimeIN",
-  "officialHonorariumTimeOUT",
-  "officialServiceCreditTimeIN",
-  "officialServiceCreditTimeOUT",
-  "officialOverTimeIN",
-  "officialOverTimeOUT",
-  "breaktime",
-  "status",
-  "startDate",
-  "endDate",
-  "academicYear",
-];
-
-function normalizeAuditValue(val) {
-  if (val == null) return null;
-  const s = String(val).trim();
-  return s === "" ? null : s;
-}
-
-// #11: Truncation is returned so callers can surface it in API response
-function sanitizeOfficialTimeRows(rows, maxRows = 200) {
-  const list = Array.isArray(rows) ? rows : [];
-  const truncated = list.length > maxRows;
-  const records = list.slice(0, maxRows).map((row) => {
-    const src = row || {},
-      out = {};
-    OFFICIAL_TIME_AUDIT_ROW_FIELDS.forEach((key) => {
-      out[key] = normalizeAuditValue(src[key]);
-    });
-    return out;
-  });
-  return { records, totalRows: list.length, truncated };
-}
-
-function buildOfficialTimeAuditDetails(payload = {}) {
-  const base = payload || {};
-  const { records, totalRows, truncated } = sanitizeOfficialTimeRows(
-    base.records,
-    200,
-  );
-  return {
-    module: "officialtime",
-    source: base.source || "unknown",
-    employeeID:
-      base.employeeID == null ? null : String(base.employeeID).trim() || null,
-    academicYear: normalizeAuditValue(base.academicYear),
-    startDate: normalizeAuditValue(base.startDate),
-    endDate: normalizeAuditValue(base.endDate),
-    lookupEndDate: normalizeAuditValue(base.lookupEndDate),
-    notes: normalizeAuditValue(base.notes),
-    records,
-    totalRows,
-    truncated,
-    recordedAt: new Date().toISOString(),
-  };
-}
-
-function normalizeEmployeeList(list) {
-  const arr = Array.isArray(list) ? list : [];
-  return [
-    ...new Set(
-      arr.map((v) => String(v == null ? "" : v).trim()).filter((v) => v !== ""),
-    ),
-  ];
-}
-
-function buildOfficialTimeActionAuditDetails(payload = {}) {
-  const base = payload || {};
-  const affectedEmployeeNumbers = normalizeEmployeeList(
-    base.affectedEmployeeNumbers,
-  );
-  return {
-    module: "officialtime",
-    source: base.source || "unknown",
-    status: base.status || "success",
-    employeeID:
-      base.employeeID == null ? null : String(base.employeeID).trim() || null,
-    affectedEmployeeNumbers,
-    affectedCount: affectedEmployeeNumbers.length,
-    academicYear: normalizeAuditValue(base.academicYear),
-    startDate: normalizeAuditValue(base.startDate),
-    endDate: normalizeAuditValue(base.endDate),
-    lookupEndDate: normalizeAuditValue(base.lookupEndDate),
-    blockCount: Number.isFinite(base.blockCount) ? base.blockCount : null,
-    rowCount: Number.isFinite(base.rowCount) ? base.rowCount : null,
-    insertedCount: Number.isFinite(base.insertedCount)
-      ? base.insertedCount
-      : null,
-    updatedCount: Number.isFinite(base.updatedCount) ? base.updatedCount : null,
-    skippedCount: Number.isFinite(base.skippedCount) ? base.skippedCount : null,
-    failedCount: Number.isFinite(base.failedCount) ? base.failedCount : null,
-    notes: normalizeAuditValue(base.notes),
-    recordedAt: new Date().toISOString(),
-  };
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// DATABASE HELPERS
-// ─────────────────────────────────────────────────────────────────────────────
-
-// #2 & #8: Filter by status = 'active' only — inactive schedules no longer block uploads
-function hasOverlappingRange(conn, employeeID, newStart, newEnd) {
-  return new Promise((resolve, reject) => {
-    conn.query(
-      `SELECT DISTINCT startDate, endDate FROM officialtime
-       WHERE employeeID = ? AND status = 'active'
-         AND startDate IS NOT NULL AND endDate IS NOT NULL`,
-      [employeeID],
-      (err, rows) => {
-        if (err) return reject(err);
-        const newS = new Date(newStart).getTime();
-        const newE = new Date(newEnd).getTime();
-        for (const row of Array.isArray(rows) ? rows : []) {
-          const s = new Date(row.startDate).getTime();
-          const e = new Date(row.endDate).getTime();
-          if (newS < e && s < newE) return resolve(true);
-        }
-        resolve(false);
-      },
-    );
-  });
-}
-
-// #20: Resolve each employeeID's actual department, so a department-scoped
-// upload can detect and name any "foreign" department(s) present in the file.
-function getEmployeeDepartmentMap(employeeIDs) {
-  return new Promise((resolve, reject) => {
-    const ids = [...new Set((employeeIDs || []).map((v) => String(v)))];
-    if (!ids.length) return resolve(new Map());
-    db.query(
-      `SELECT da.employeeNumber AS employeeID, dt.description AS department
-       FROM department_assignment da
-       INNER JOIN department_table dt ON da.code = dt.code
-       WHERE da.employeeNumber IN (${ids.map(() => "?").join(",")})`,
-      ids,
-      (err, rows) => {
-        if (err) return reject(err);
-        const map = new Map();
-        (rows || []).forEach((r) =>
-          map.set(String(r.employeeID), r.department),
-        );
-        resolve(map);
-      },
-    );
-  });
-}
-
-// #25: Resolve each employeeID's actual employment category label
-// ("ParentGroup | TypeName"), so a category-scoped upload can detect and
-// name any "foreign" employment category(ies) present in the file — mirrors
-// getEmployeeDepartmentMap() but against employment_category /
-// employment_type_config instead of department_assignment / department_table.
-function getEmployeeCategoryMap(employeeIDs) {
-  return new Promise((resolve, reject) => {
-    const ids = [...new Set((employeeIDs || []).map((v) => String(v)))];
-    if (!ids.length) return resolve(new Map());
-    db.query(
-      `SELECT ec.employeeNumber AS employeeID, etc.id AS categoryId,
-              CONCAT(etc.parentGroup, ' | ', etc.typeName) AS categoryLabel
-       FROM employment_category ec
-       INNER JOIN employment_type_config etc ON etc.id = ec.employmentCategory
-       WHERE ec.employeeNumber IN (${ids.map(() => "?").join(",")})`,
-      ids,
-      (err, rows) => {
-        if (err) return reject(err);
-        const map = new Map();
-        (rows || []).forEach((r) =>
-          map.set(String(r.employeeID), {
-            categoryId: r.categoryId,
-            categoryLabel: r.categoryLabel,
-          }),
-        );
-        resolve(map);
-      },
-    );
-  });
-}
-
-// #25: Set of employeeNumbers assigned to a given employment_type_config.id
-function getCategoryEmployeeIDs(employmentCategoryId) {
-  return new Promise((resolve, reject) => {
-    if (!employmentCategoryId) return resolve(null); // null = no restriction
-    db.query(
-      `SELECT employeeNumber AS employeeID FROM employment_category WHERE employmentCategory = ?`,
-      [employmentCategoryId],
-      (err, rows) => {
-        if (err) return reject(err);
-        resolve(new Set((rows || []).map((r) => String(r.employeeID))));
-      },
-    );
-  });
-}
-
-// #25: Resolve a single employment_type_config.id to its display label,
-// used in upload validation messages ("employment category 'X' not found", etc.)
-function getEmploymentCategoryLabel(employmentCategoryId) {
-  return new Promise((resolve, reject) => {
-    if (!employmentCategoryId) return resolve(null);
-    db.query(
-      `SELECT id, parentGroup, typeName FROM employment_type_config WHERE id = ? LIMIT 1`,
-      [employmentCategoryId],
-      (err, rows) => {
-        if (err) return reject(err);
-        if (!rows || !rows.length) return resolve(null);
-        resolve(`${rows[0].parentGroup} | ${rows[0].typeName}`);
-      },
-    );
-  });
-}
-
-// #21: Find any currently-active schedule(s) for a set of employees, so
-// uploads can warn "this will deactivate an existing schedule" up front.
-function getActiveSchedulesForEmployees(employeeIDs) {
-  return new Promise((resolve, reject) => {
-    const ids = [...new Set((employeeIDs || []).map((v) => String(v)))];
-    if (!ids.length) return resolve(new Map());
-    db.query(
-      `SELECT DISTINCT employeeID, startDate, endDate FROM officialtime
-       WHERE status = 'active' AND employeeID IN (${ids.map(() => "?").join(",")})`,
-      ids,
-      (err, rows) => {
-        if (err) return reject(err);
-        const map = new Map();
-        (rows || []).forEach((r) => {
-          const key = String(r.employeeID);
-          if (!map.has(key)) map.set(key, []);
-          map.get(key).push({
-            startDate: toDateOnlyString(r.startDate),
-            endDate: toDateOnlyString(r.endDate),
-          });
-        });
-        resolve(map);
-      },
-    );
-  });
-}
-
-// #1 & #3: Transaction helpers
-function beginTransaction(conn) {
-  return new Promise((resolve, reject) =>
-    conn.beginTransaction((err) => (err ? reject(err) : resolve())),
-  );
-}
-function commitTransaction(conn) {
-  return new Promise((resolve, reject) =>
-    conn.commit((err) => (err ? reject(err) : resolve())),
-  );
-}
-function rollbackTransaction(conn) {
-  return new Promise((resolve) => {
-    if (!conn || typeof conn.rollback !== "function") {
-      console.error("[officialtime] Invalid connection for rollback");
-      return resolve();
-    }
-    conn.rollback(() => resolve());
-  });
-}
-function queryAsync(conn, sql, params) {
-  return new Promise((resolve, reject) =>
-    conn.query(sql, params, (err, result) =>
-      err ? reject(err) : resolve(result),
-    ),
-  );
-}
-function getConnectionAsync(pool) {
-  return new Promise((resolve, reject) => {
-    pool.getConnection((err, connection) => {
-      if (err) return reject(err);
-      resolve(connection);
-    });
-  });
-}
-function releaseConnection(conn) {
-  if (conn && typeof conn.release === "function") conn.release();
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// EXCEL FIELD RESOLVER
-// ─────────────────────────────────────────────────────────────────────────────
-
-function getField(r, dbField, aliases = []) {
-  const dbLower = dbField.toLowerCase();
-  if (r[dbLower] != null) return r[dbLower];
-  for (const alias of aliases) {
-    if (r[alias] != null) return r[alias];
-  }
-  return null;
-}
-
-function normaliseRow(row) {
-  const out = {};
-  for (const key in row) {
-    const cleanKey = String(key)
-      .replace(/\u00A0/g, "")
-      .trim()
-      .toLowerCase();
-    out[cleanKey] = row[key];
-  }
-  return out;
-}
-
-// #7: Duplicate day detection helper
-function hasDuplicateDay(rows) {
-  const seen = new Set();
-  for (const r of rows) {
-    const d = (r.day || "").trim().toLowerCase();
-    if (seen.has(d)) return r.day;
-    seen.add(d);
-  }
-  return null;
-}
-
-// TIME_FIELDS for validation
-const TIME_FIELDS = [
-  "officialTimeIN",
-  "officialBreaktimeIN",
-  "officialBreaktimeOUT",
-  "officialTimeOUT",
-  "officialHonorariumTimeIN",
-  "officialHonorariumTimeOUT",
-  "officialServiceCreditTimeIN",
-  "officialServiceCreditTimeOUT",
-  "officialOverTimeIN",
-  "officialOverTimeOUT",
-];
-
-// ─────────────────────────────────────────────────────────────────────────────
-// #17: Safe workbook reader — always uses cellDates:true to let xlsx handle
-//      the Lotus 1900 leap-year bug internally, eliminating the off-by-one.
-// ─────────────────────────────────────────────────────────────────────────────
-function readWorkbookSheet(filePath) {
-  const workbook = xlsx.readFile(filePath, {
-    cellDates: true, // parse date serials → JS Date objects (Lotus-bug-safe)
-    dateNF: "yyyy-mm-dd", // format Date cells as YYYY-MM-DD strings in output
-  });
-  return xlsx.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], {
-    defval: null,
-    raw: false, // use formatted strings; Date cells become "YYYY-MM-DD" via dateNF
-  });
-}
-
-/**
- * Parse all rows from the cleaned sheet into schedule groups.
- * Returns { groups, skippedRows, timeErrors }
- *
- * IMPORTANT: Matching/grouping is done ENTIRELY by employeeID (employeeNumber).
- * The optional "Name" column (see nameFromFile below) is carried through
- * purely for display in the validate-preview UI and is never used to look
- * up, match, or validate anything against the system.
- */
-function parseSheetIntoGroups(cleanedSheet) {
-  const groupKey = (empId, from, to) => `${String(empId)}|${from}|${to}`;
-  const groups = new Map();
-  const skippedRows = []; // #13
-  const timeErrors = []; // #10
-
-  cleanedSheet.forEach((r, rowIndex) => {
-    const excelRow = rowIndex + 2; // 1-based + header row
-
-    // Matching key: employeeID / employeeNumber. This is the ONLY field used
-    // to identify the employee anywhere in this pipeline (grouping, DB
-    // overlap checks, Department/Employment Category resolution, etc).
-    const employeeID = getField(r, "employeeID", [
-      "employeenumber",
-      "employee number",
-      "employee_id",
-    ]);
-    const day = getField(r, "day", ["weekday"]);
-
-    // [NEW] Optional "Name" column — display-only. Never validated or
-    // matched against system records; the system always resolves the real
-    // employee name/department/employment category by employeeID. This is
-    // included purely so uploaders/reviewers can eyeball whose row is whose
-    // in the validate-preview table instead of only seeing employeeID.
-    const nameFromFile = getField(r, "name", [
-      "employee name",
-      "employeename",
-      "full name",
-      "fullname",
-    ]);
-
-    // #13: Collect skipped rows with specific reasons
-    if (!employeeID) {
-      skippedRows.push({ row: excelRow, reason: "Missing employeeID" });
-      return;
-    }
-    if (!day) {
-      skippedRows.push({ row: excelRow, employeeID, reason: "Missing day" });
-      return;
-    }
-
-    const effectiveFrom = normDate(
-      getField(r, "startDate", [
-        "effective_from",
-        "effective from",
-        "start date",
-      ]),
-    );
-    const effectiveUntil = normDate(
-      getField(r, "endDate", [
-        "effective_until",
-        "effective until",
-        "end date",
-      ]),
-    );
-
-    if (!effectiveFrom) {
-      skippedRows.push({
-        row: excelRow,
-        employeeID,
-        day,
-        reason: "Missing or invalid startDate",
-      });
-      return;
-    }
-    if (!effectiveUntil) {
-      skippedRows.push({
-        row: excelRow,
-        employeeID,
-        day,
-        reason: "Missing or invalid endDate",
-      });
-      return;
-    }
-    if (effectiveFrom > effectiveUntil) {
-      skippedRows.push({
-        row: excelRow,
-        employeeID,
-        day,
-        reason: `startDate (${effectiveFrom}) is after endDate (${effectiveUntil})`,
-      });
-      return;
-    }
-
-    // #10: Validate all time fields
-    const resolvedTimes = {};
-    let rowHasTimeError = false;
-    for (const field of TIME_FIELDS) {
-      const rawVal = getField(r, field, []);
-      const result = validateAndNormaliseTime(rawVal, field);
-      if (!result.valid) {
-        timeErrors.push({
-          row: excelRow,
-          employeeID,
-          day,
-          field,
-          reason: result.reason,
-        });
-        rowHasTimeError = true;
-      } else {
-        resolvedTimes[field] = result.value;
-      }
-    }
-    if (rowHasTimeError) return; // skip row if any time field is invalid
-
-    // #6: Validate breaktime
-    const rawBreaktime = getField(r, "breaktime", ["break time"]);
-    const breaktimeResult = validateBreaktime(rawBreaktime);
-    if (!breaktimeResult.valid) {
-      timeErrors.push({
-        row: excelRow,
-        employeeID,
-        day,
-        field: "breaktime",
-        reason: breaktimeResult.reason,
-      });
-      return;
-    }
-
-    // Status from file (stored for audit reference only — always inserted as 'active')
-    const statusFromFile = getField(r, "status", []) || null;
-
-    const key = groupKey(employeeID, effectiveFrom, effectiveUntil);
-    if (!groups.has(key)) {
-      // #14: Auto-format academicYear server-side
-      const academicYearVal = (() => {
-        const ayRaw = getField(r, "academicYear", ["academic year"]);
-        const semRaw = getField(r, "semester", []);
-        const yrRaw = getField(r, "year", []);
-        const ay =
-          ayRaw != null && String(ayRaw).trim() !== ""
-            ? autoFormatAcademicYear(String(ayRaw).trim())
-            : null;
-        const sem =
-          semRaw != null && String(semRaw).trim() !== ""
-            ? String(semRaw).trim()
-            : "";
-        if (ay && sem) return `${ay} ${sem}`.trim();
-        if (ay) return ay;
-        if (yrRaw != null && String(yrRaw).trim() !== "") {
-          const y = Number(String(yrRaw).trim());
-          if (Number.isFinite(y))
-            return sem ? `${y}-${y + 1} ${sem}`.trim() : `${y}-${y + 1}`;
-        }
-        return sem || null;
-      })();
-
-      groups.set(key, {
-        employeeID,
-        startDate: effectiveFrom,
-        endDate: effectiveUntil,
-        academicYear: academicYearVal,
-        // [NEW] Display-only name pulled from the Excel "Name" column (if
-        // present). Never used for validation/matching — only for showing
-        // a readable label next to employeeID in the validate-preview UI.
-        // The employee's actual name/department/employment category always
-        // comes from the system, resolved by employeeID.
-        employeeName:
-          nameFromFile != null && String(nameFromFile).trim() !== ""
-            ? String(nameFromFile).trim()
-            : null,
-        rows: [],
-      });
-    }
-
-    groups.get(key).rows.push({
-      day,
-      ...resolvedTimes,
-      breaktime: breaktimeResult.value,
-      _statusFromFile: statusFromFile,
-    });
-  });
-
-  return { groups, skippedRows, timeErrors };
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SHARED VALIDATION LOGIC (used by every upload route — single, department, category)
-// ─────────────────────────────────────────────────────────────────────────────
-
-async function getEmployeeName(employeeID) {
-  const rows = await queryAsync(
-    db,
-    "SELECT firstName, middleName, lastName, nameExtension FROM person_table WHERE agencyEmployeeNum = ? LIMIT 1",
-    [employeeID],
-  );
-  if (!rows || !rows.length) return null;
-  const r = rows[0];
-  return (
-    `${r.firstName || ""} ${r.middleName || ""} ${r.lastName || ""} ${r.nameExtension || ""}`
-      .replace(/\s+/g, " ")
-      .trim() || null
-  );
-}
-
-async function validateScheduleList(scheduleList) {
-  const errors = [];
-
-  // Time segment overlaps
-  for (const s of scheduleList) {
-    // #7: Duplicate day check
-    const dupDay = hasDuplicateDay(s.rows);
-    if (dupDay) {
-      const name = await getEmployeeName(s.employeeID);
-      errors.push({
-        type: "duplicate_day",
-        employeeID: s.employeeID,
-        day: dupDay,
-        message: `Duplicate day "${dupDay}" found for employee ${s.employeeID}${name ? ` (${name})` : ""} in range ${s.startDate} to ${s.endDate}.`,
-      });
-      continue;
-    }
-
-    for (const row of s.rows) {
-      const segments = getSegmentsForDayRow(row);
-      const overlap = findOverlapInSegments(segments);
-      if (overlap) {
-        errors.push({
-          type: "time_overlap",
-          employeeID: s.employeeID,
-          day: row.day,
-          message: formatTimeOverlapMessage({
-            day: row.day,
-            employeeID: s.employeeID,
-            segA: overlap.a,
-            segB: overlap.b,
-          }),
-          overlap: buildTimeOverlapPayload({
-            day: row.day,
-            employeeID: s.employeeID,
-            segA: overlap.a,
-            segB: overlap.b,
-          }),
-        });
-      }
-    }
-  }
-
-  // Within-file date range overlap
-  const rangesOverlap = (a1, a2, b1, b2) => a1 < b2 && b1 < a2;
-  const uniqueEmpIds = [
-    ...new Set(scheduleList.map((s) => String(s.employeeID))),
-  ];
-  for (const empId of uniqueEmpIds) {
-    const list = scheduleList.filter((s) => String(s.employeeID) === empId);
-    for (let i = 0; i < list.length; i++)
-      for (let j = i + 1; j < list.length; j++)
-        if (
-          rangesOverlap(
-            list[i].startDate,
-            list[i].endDate,
-            list[j].startDate,
-            list[j].endDate,
-          )
-        )
-          errors.push({
-            type: "date_overlap_in_file",
-            employeeID: empId,
-            message: `Overlapping schedule in file for employee ${empId}: ${list[i].startDate}–${list[i].endDate} overlaps ${list[j].startDate}–${list[j].endDate}.`,
-          });
-  }
-
-  // #2 & #8: DB date range overlap — active schedules only
-  for (const s of scheduleList) {
-    const overlaps = await hasOverlappingRange(
-      db,
-      s.employeeID,
-      s.startDate,
-      s.endDate,
-    );
-    if (overlaps)
-      errors.push({
-        type: "date_overlap_db",
-        employeeID: s.employeeID,
-        message: `Upload would overlap an existing active schedule for employee ${s.employeeID} (${s.startDate}–${s.endDate}). Please use a different date range or deactivate the existing schedule first.`,
-      });
-  }
-
-  return errors;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// FILE CLEANUP HELPER — #12: always deletes temp file
-// ─────────────────────────────────────────────────────────────────────────────
-
-function safeUnlink(filePath) {
-  if (!filePath) return;
-  fs.unlink(filePath, (err) => {
-    if (err && err.code !== "ENOENT")
-      console.error("[officialtime] Failed to delete temp file:", err.message);
-  });
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SCHOOL YEAR ACTIVATOR (stubs)
-// ─────────────────────────────────────────────────────────────────────────────
-
-router.get("/officialtime/school-year/:empId", authenticateToken, (req, res) =>
-  res.status(200).json(null),
-);
-router.post("/officialtime/school-year", authenticateToken, (req, res) =>
-  res.status(200).json({ message: "OK" }),
-);
-
-// ─────────────────────────────────────────────────────────────────────────────
-// POST batch official time lookup (DTR batch print — avoids N+1 per employee)
-// ─────────────────────────────────────────────────────────────────────────────
-
-const OFFICIAL_TIME_BATCH_CHUNK = 250;
-
-router.post("/officialtimetable/batch", authenticateToken, (req, res) => {
-  const { employeeNumbers, startDate, endDate } = req.body || {};
-  const ids = Array.isArray(employeeNumbers)
-    ? [...new Set(employeeNumbers.map((n) => String(n).trim()).filter(Boolean))]
-    : [];
-
-  if (!ids.length) {
-    return res.json({ byEmployee: {} });
-  }
-
-  const periodStart = startDate ? String(startDate).slice(0, 10) : null;
-  const periodEnd = endDate ? String(endDate).slice(0, 10) : null;
-
-  const byEmployee = {};
-  ids.forEach((id) => {
-    byEmployee[id] = [];
-  });
-
-  const chunks = [];
-  for (let i = 0; i < ids.length; i += OFFICIAL_TIME_BATCH_CHUNK) {
-    chunks.push(ids.slice(i, i + OFFICIAL_TIME_BATCH_CHUNK));
-  }
-
-  const runChunk = (chunk) =>
-    new Promise((resolve, reject) => {
-      const placeholders = chunk.map(() => "?").join(",");
-      let sql = `SELECT * FROM officialtime WHERE employeeID IN (${placeholders})`;
-      const params = [...chunk];
-      if (periodStart && periodEnd) {
-        sql += " AND startDate <= ? AND endDate >= ?";
-        params.push(periodEnd, periodStart);
-      }
-      sql += " ORDER BY employeeID, startDate, endDate, id";
-
-      db.query(sql, params, (err, results) => {
-        if (err) return reject(err);
-        (results || []).forEach((row) => {
-          const emp = String(row.employeeID).trim();
-          if (!byEmployee[emp]) byEmployee[emp] = [];
-          byEmployee[emp].push({
-            ...row,
-            startDate: toDateOnlyString(row.startDate),
-            endDate: toDateOnlyString(row.endDate),
-          });
-        });
-        resolve();
-      });
-    });
-
-  Promise.all(chunks.map(runChunk))
-    .then(() => {
-      const skipAudit =
-        req.body?.skipAudit === true ||
-        req.body?.skipAudit === "1" ||
-        req.body?.skipAudit === "true";
-      if (!skipAudit) {
-        try {
-          logAudit(
-            req.user,
-            "View",
-            "Official Time",
-            null,
-            `batch:${ids.length}`,
-            buildOfficialTimeActionAuditDetails({
-              source: "view-db-batch",
-              employeeID: ids[0],
-              affectedEmployeeNumbers: ids.slice(0, 50),
-              startDate: periodStart,
-              endDate: periodEnd,
-              rowCount: Object.values(byEmployee).reduce(
-                (n, rows) => n + rows.length,
-                0,
-              ),
-            }),
-          );
-        } catch (e) {
-          console.error("Audit log error:", e);
-        }
-      }
-      res.json({ byEmployee });
-    })
-    .catch((err) => res.status(500).json({ error: err.message }));
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// GET official time table by employeeID
-// [READ-ONLY — no supervisor-active guard. Left intentionally accessible so
-// that a supervisor whose assignment has expired can still VIEW schedules
-// for employees in their former department, per product requirement.]
-// ─────────────────────────────────────────────────────────────────────────────
-
-router.get("/officialtimetable/:employeeID", authenticateToken, (req, res) => {
-  const { employeeID } = req.params;
-  const { date, startDate, endDate } = req.query;
-
-  let sql = "SELECT * FROM officialtime WHERE employeeID = ?";
-  const params = [employeeID];
-  if (date) {
-    sql += " AND ? BETWEEN startDate AND endDate";
-    params.push(date);
-  } else if (startDate && endDate) {
-    sql += " AND startDate = ? AND endDate = ?";
-    params.push(startDate, endDate);
-  }
-  sql += " ORDER BY startDate, endDate, id";
-
-  db.query(sql, params, (err, results) => {
-    if (err) return res.status(500).json({ error: err.message });
-    const out = (results || []).map((row) => ({
-      ...row,
-      startDate: toDateOnlyString(row.startDate),
-      endDate: toDateOnlyString(row.endDate),
-    }));
-    const skipAudit =
-      req.query.skipAudit === "1" ||
-      req.query.skipAudit === "true" ||
-      req.query.audit === "0";
-    if (!skipAudit) {
-      try {
-        logAudit(
-          req.user,
-          "View",
-          "Official Time",
-          null,
-          employeeID,
-          buildOfficialTimeActionAuditDetails({
-            source: "view-db",
-            employeeID,
-            affectedEmployeeNumbers: [employeeID],
-            startDate: startDate || date || null,
-            endDate: endDate || date || null,
-            rowCount: out.length,
-          }),
-        );
-      } catch (e) {
-        console.error("Audit log error:", e);
-      }
-    }
-    res.json(out);
-  });
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// POST official time table (insert new schedule version)
-// #1: Wrapped in DB transaction
-// #28 [NEW]: Now requires an ACTIVE supervisor assignment. Previously this
-// route had no assignment-status check at all, so a supervisor whose window
-// had expired could still create schedules by calling the API directly even
-// though the frontend hides the "Create Schedule" button once expired. This
-// brings write-time enforcement in line with the Excel-upload routes.
-// ─────────────────────────────────────────────────────────────────────────────
-
-router.post("/officialtimetable", authenticateToken, async (req, res) => {
-  // [NEW #28] Block if the caller's supervisor_assignment window isn't
-  // currently active. ensureActiveSupervisorAssignment() sends the 403
-  // response itself (with a clear expired/not-started/no-assignment
-  // message) when blocked.
-  const supervisorStatus = await ensureActiveSupervisorAssignment(req, res);
-  if (!supervisorStatus) return;
-
-  const { employeeID, academicYear, startDate, endDate, status, records, saveSupervisorHistory } =
-    req.body || {};
-
-  if (!employeeID)
-    return res.status(400).json({ message: "employeeID is required." });
-  if (
-    !(await assertEmployeesInSupervisorScope(res, supervisorStatus, [
-      employeeID,
-    ]))
-  )
-    return;
-  if (!startDate || !endDate)
-    return res
-      .status(400)
-      .json({ message: "startDate and endDate are required." });
-  if (new Date(startDate) > new Date(endDate))
-    return res
-      .status(400)
-      .json({ message: "startDate must be on or before endDate." });
-  if (!records || !Array.isArray(records) || !records.length)
-    return res.status(400).json({ message: "No records to insert." });
-
-  // #2: Active-only overlap check
-  try {
-    const overlaps = await hasOverlappingRange(
-      db,
-      employeeID,
-      startDate,
-      endDate,
-    );
-    if (overlaps)
-      return res.status(409).json({
-        message: `This date range (${startDate}–${endDate}) overlaps an existing active schedule for employee ${employeeID}. Choose different dates.`,
-      });
-  } catch (err) {
-    return res
-      .status(500)
-      .json({ error: "Overlap check failed: " + err.message });
-  }
-
-  // #14: Auto-format academicYear
-  const academicYearVal = academicYear
-    ? autoFormatAcademicYear(String(academicYear).trim())
-    : null;
-
-  const values = records.map((r) => [
     employeeID,
-    academicYearVal,
-    startDate,
-    endDate,
-    r.day ?? null,
-    r.officialTimeIN ?? null,
-    r.officialBreaktimeIN ?? null,
-    r.officialBreaktimeOUT ?? null,
-    r.officialTimeOUT ?? null,
-    r.officialHonorariumTimeIN ?? null,
-    r.officialHonorariumTimeOUT ?? null,
-    r.officialServiceCreditTimeIN ?? null,
-    r.officialServiceCreditTimeOUT ?? null,
-    r.officialOverTimeIN ?? null,
-    r.officialOverTimeOUT ?? null,
-    "active",
-    r.breaktime ?? null,
+    day,
+    officialTimeIN:              isWeekend ? "" : "08:00:00 AM",
+    officialBreaktimeIN:         isWeekend ? "" : "00:00:00 AM",
+    officialBreaktimeOUT:        isWeekend ? "" : "00:00:00 PM",
+    officialTimeOUT:             isWeekend ? "" : "05:00:00 PM",
+    officialHonorariumTimeIN:    isWeekend ? "" : "00:00:00 AM",
+    officialHonorariumTimeOUT:   isWeekend ? "" : "00:00:00 PM",
+    officialServiceCreditTimeIN: isWeekend ? "" : "00:00:00 AM",
+    officialServiceCreditTimeOUT:isWeekend ? "" : "00:00:00 AM",
+    officialOverTimeIN:          isWeekend ? "" : "00:00:00 AM",
+    officialOverTimeOUT:         isWeekend ? "" : "00:00:00 PM",
+    breaktime: "",
+  };
+};
+
+const TIME_FIELDS = {
+  workDays: [
+    { key: "officialTimeIN", label: "Time In" },
+    { key: "officialBreaktimeIN", label: "Break In" },
+    { key: "officialBreaktimeOUT", label: "Break Out" },
+    { key: "officialTimeOUT", label: "Time Out" },
+  ],
+  honorarium: [
+    { key: "officialHonorariumTimeIN", label: "Honorarium In" },
+    { key: "officialHonorariumTimeOUT", label: "Honorarium Out" },
+  ],
+  serviceCredits: [
+    { key: "officialServiceCreditTimeIN", label: "SC In" },
+    { key: "officialServiceCreditTimeOUT", label: "SC Out" },
+  ],
+  overtime: [
+    { key: "officialOverTimeIN", label: "OT In" },
+    { key: "officialOverTimeOUT", label: "OT Out" },
+  ],
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ACTION BUTTON — reusable labeled pill button for row actions
+// ─────────────────────────────────────────────────────────────────────────────
+const ActionBtn = ({ onClick, disabled, icon: Icon, label, variant = "default", tooltip }) => {
+  const styles = {
+    default: { color: disabled ? T.faint : T.faint, borderColor: T.divider, bgcolor: "transparent", hoverBg: "rgba(0,0,0,0.05)" },
+    clear:   { color: "#a32d2d", borderColor: "rgba(198,40,40,0.3)", bgcolor: "rgba(198,40,40,0.04)", hoverBg: "rgba(198,40,40,0.10)" },
+    copy:    { color: T.accent, borderColor: alpha(T.accent, 0.32), bgcolor: T.accentFaint, hoverBg: alpha(T.accent, 0.12) },
+    apply:   { color: "#185fa5", borderColor: "rgba(21,101,192,0.32)", bgcolor: "rgba(21,101,192,0.05)", hoverBg: "rgba(21,101,192,0.12)" },
+    // [CHANGE B] new variant for Fill Break
+    break:   { color: "#6a1f8a", borderColor: "rgba(106,31,138,0.32)", bgcolor: "rgba(106,31,138,0.05)", hoverBg: "rgba(106,31,138,0.13)" },
+  };
+  const s = styles[variant] || styles.default;
+
+  const btn = (
+    <Button
+      size="small"
+      onClick={onClick}
+      disabled={disabled}
+      startIcon={<Icon sx={{ fontSize: "13px !important" }} />}
+      sx={{
+        fontSize: "0.66rem", fontWeight: 600, textTransform: "none",
+        px: 0.9, py: 0.35, borderRadius: "6px",
+        border: `0.5px solid ${disabled ? T.divider : s.borderColor}`,
+        color: disabled ? T.faint : s.color,
+        bgcolor: disabled ? "transparent" : s.bgcolor,
+        minWidth: 0, lineHeight: 1.4, whiteSpace: "nowrap", gap: 0.4,
+        "& .MuiButton-startIcon": { mr: 0.4 },
+        "&:hover": { bgcolor: disabled ? "transparent" : s.hoverBg, borderColor: disabled ? T.divider : s.borderColor },
+        "&.Mui-disabled": { opacity: 0.38, color: T.faint, borderColor: T.divider, bgcolor: "transparent" },
+        transition: "background 0.12s, border-color 0.12s",
+      }}
+    >
+      {label}
+    </Button>
+  );
+
+  return tooltip && !disabled ? (
+    <Tooltip title={tooltip} placement="top" arrow><span>{btn}</span></Tooltip>
+  ) : btn;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SCHEDULE TIME ROWS
+// [CHANGE B] Added fillBreak helper + "Fill break" ActionBtn on Work Days tab
+// ─────────────────────────────────────────────────────────────────────────────
+const ScheduleTimeRows = ({ records, onChangeRecord, scheduleView, readOnly = false, patterns = [] }) => {
+  const fields = TIME_FIELDS[scheduleView] || TIME_FIELDS.workDays;
+
+  const rowHasValues = (record) =>
+    fields.some((f) => record[f.key] && record[f.key] !== "");
+
+  const rowMatchesAbove = (index) => {
+    if (index === 0) return false;
+    const above = records[index - 1];
+    const current = records[index];
+    return fields.every((f) => (above[f.key] || "") === (current[f.key] || ""));
+  };
+
+  const clearRow = (index) => {
+    fields.forEach((f) => onChangeRecord(index, f.key, ""));
+  };
+
+  const copyFromAbove = (index) => {
+    const above = records[index - 1];
+    fields.forEach((f) => onChangeRecord(index, f.key, above[f.key] || ""));
+  };
+
+  const applyToAllBelow = (fromIndex) => {
+    const source = records[fromIndex];
+    for (let i = fromIndex + 1; i < records.length; i++) {
+      fields.forEach((f) => onChangeRecord(i, f.key, source[f.key] || ""));
+    }
+  };
+
+  // [CHANGE B] Fill Break In + Break Out with defaults if they are empty
+  const isNoTimeValue = (v) =>
+    !v || v === "" || /^00:00:00\s*(AM|PM)$/i.test(String(v).trim());
+
+  const fillBreak = (index) => {
+    const row = records[index];
+    const breakInVal  = isNoTimeValue(row.officialBreaktimeIN)  ? "12:00:00 PM" : row.officialBreaktimeIN;
+    const breakOutVal = isNoTimeValue(row.officialBreaktimeOUT) ? "01:00:00 PM" : row.officialBreaktimeOUT;
+    onChangeRecord(index, "officialBreaktimeIN",  breakInVal);
+    onChangeRecord(index, "officialBreaktimeOUT", breakOutVal);
+  };
+
+  // [CHANGE B] Button appears whenever BOTH break fields have no real time set —
+  // either truly empty (weekends), OR still at the "00:00:00 AM/PM" placeholder
+  // default used on weekdays. Either way, the user hasn't set a real break yet.
+  const breakIsEmpty = (index) => {
+    const row = records[index];
+    return isNoTimeValue(row.officialBreaktimeIN) && isNoTimeValue(row.officialBreaktimeOUT);
+  };
+
+  return (
+    <>
+      <TableHead>
+        <TableRow sx={{ bgcolor: T.accent }}>
+          <TableCell
+            sx={{
+              color: "#fff", fontWeight: 700, fontSize: "0.75rem", py: 1.25,
+              width: 100, position: "sticky", top: 0, zIndex: 1, bgcolor: T.accent,
+            }}
+          >
+            Day
+          </TableCell>
+          {fields.map((f) => (
+            <TableCell
+              key={f.key}
+              sx={{
+                color: "#fff", fontWeight: 700, fontSize: "0.75rem", py: 1.25,
+                minWidth: readOnly ? 130 : 170, position: "sticky", top: 0, zIndex: 1, bgcolor: T.accent,
+              }}
+            >
+              {f.label}
+            </TableCell>
+          ))}
+          {!readOnly && (
+            <TableCell
+              sx={{
+                color: "#fff", fontWeight: 700, fontSize: "0.75rem", py: 1.25,
+                width: 220, position: "sticky", top: 0, zIndex: 1, bgcolor: T.accent,
+              }}
+            >
+              Actions
+            </TableCell>
+          )}
+        </TableRow>
+      </TableHead>
+
+      <TableBody>
+        {records.map((record, index) => {
+          const hasValues        = rowHasValues(record);
+          const aboveHasValues   = index > 0 && rowHasValues(records[index - 1]);
+          const matchesAbove     = !readOnly && rowMatchesAbove(index);
+          const canCopyFromAbove = !readOnly && index > 0 && aboveHasValues && !matchesAbove;
+          const isLastRow        = index === records.length - 1;
+          // [CHANGE B] only relevant on Work Days tab
+          const showFillBreak    = !readOnly && scheduleView === "workDays" && breakIsEmpty(index);
+
+          return (
+            <TableRow
+              key={record.day || index}
+              sx={{ "&:nth-of-type(even)": { bgcolor: T.rowOdd }, "&:hover": { bgcolor: T.rowHover } }}
+            >
+              <TableCell sx={{ fontWeight: 700, color: T.text, fontSize: "0.82rem", py: 0.75, verticalAlign: "middle" }}>
+                {record.day}
+              </TableCell>
+
+              {fields.map((f) => (
+                <TableCell key={f.key} sx={{ py: 0.6, minWidth: readOnly ? 130 : 170, verticalAlign: "middle" }}>
+                  {readOnly ? (
+                    <Typography sx={{ color: T.text, fontSize: "0.82rem", fontFamily: "monospace" }}>
+                      {record[f.key] || "—"}
+                    </Typography>
+                  ) : (
+                    <TimePickerField
+                      value={record[f.key] || ""}
+                      onChange={(val) => onChangeRecord(index, f.key, val)}
+                      accentColor={T.accent}
+                      // [NEW #K] Only the Work Days tab's main Time In / Time Out
+                      // columns know how to read a pattern (patterns only define
+                      // one in/out pair). Break, Honorarium, Service Credit and
+                      // Overtime fields get no `direction`, so their Quick Pick
+                      // stays exactly the original hour/minute grid.
+                      patterns={f.key === "officialTimeIN" || f.key === "officialTimeOUT" ? patterns : []}
+                      direction={f.key.toUpperCase().endsWith("OUT") ? "out" : f.key.toUpperCase().endsWith("IN") ? "in" : undefined}
+                    />
+                  )}
+                </TableCell>
+              ))}
+
+              {!readOnly && (
+                <TableCell sx={{ py: 0.6, verticalAlign: "middle" }}>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.6, flexWrap: "nowrap" }}>
+
+                    {/* 1. Clear this row */}
+                    <ActionBtn
+                      onClick={() => clearRow(index)}
+                      disabled={!hasValues}
+                      icon={ClearAll}
+                      label="Clear row"
+                      variant="clear"
+                      tooltip={`Clear all ${scheduleView} times for ${record.day}`}
+                    />
+
+                    {/* [CHANGE B] 2. Fill Break — Work Days tab only, shown when both break fields empty */}
+                    {showFillBreak && (
+                      <ActionBtn
+                        onClick={() => fillBreak(index)}
+                        icon={AccessTime}
+                        label="Fill break"
+                        variant="break"
+                        tooltip={`Auto-fill Break In (12:00 PM) & Break Out (1:00 PM) for ${record.day}`}
+                      />
+                    )}
+
+                    {/* 3. Copy from above */}
+                    {canCopyFromAbove && (
+                      <ActionBtn
+                        onClick={() => copyFromAbove(index)}
+                        icon={ArrowBack}
+                        label="Copy above"
+                        variant="copy"
+                        tooltip={`Copy ${records[index - 1].day}'s times to ${record.day}`}
+                      />
+                    )}
+
+                    {/* 4. Apply to all below */}
+                    {hasValues && !isLastRow && (
+                      <ActionBtn
+                        onClick={() => applyToAllBelow(index)}
+                        icon={ArrowForward}
+                        label="Apply to all"
+                        variant="apply"
+                        tooltip={`Apply ${record.day}'s times to all days below`}
+                      />
+                    )}
+
+                  </Box>
+                </TableCell>
+              )}
+            </TableRow>
+          );
+        })}
+      </TableBody>
+    </>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// VIEW TOGGLE (Single / All Users)
+// ─────────────────────────────────────────────────────────────────────────────
+const ViewToggle = ({ value, onChange }) => (
+  <Box sx={{ display: "flex", border: `1.5px solid ${alpha(T.accent, 0.35)}`, borderRadius: 2, overflow: "hidden", bgcolor: alpha(T.accent, 0.04) }}>
+    {[
+      { key: "single", label: "Single Employee", icon: <Person sx={{ fontSize: 16 }} /> },
+      { key: "allUsers", label: "All Users", icon: <PeopleIcon sx={{ fontSize: 16 }} /> },
+    ].map(({ key, label, icon }, i) => {
+      const active = value === key;
+      return (
+        <Button
+          key={key}
+          onClick={() => onChange(key)}
+          startIcon={icon}
+          disableElevation
+          sx={{
+            borderRadius: 0, textTransform: "none",
+            fontWeight: active ? 700 : 500, fontSize: "0.85rem", px: 2.5, py: 1,
+            bgcolor: active ? T.accent : "transparent",
+            color: active ? "#fff" : T.accent,
+            borderRight: i === 0 ? `1px solid ${alpha(T.accent, 0.25)}` : "none",
+            transition: "all 0.18s ease",
+            "&:hover": { bgcolor: active ? T.accentDark : alpha(T.accent, 0.1) },
+          }}
+        >
+          {label}
+        </Button>
+      );
+    })}
+  </Box>
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TAMPER WARNING BANNER
+// ─────────────────────────────────────────────────────────────────────────────
+const TamperWarningBanner = ({ onRestore }) => (
+  <Box
+    sx={{
+      position: "fixed", top: 0, left: 0, right: 0, zIndex: 9999,
+      bgcolor: "#7a0000", color: "#fff", px: 3, py: 1.5,
+      display: "flex", alignItems: "center", justifyContent: "space-between",
+      boxShadow: "0 4px 20px rgba(0,0,0,0.4)", borderBottom: "3px solid #ff4444",
+    }}
+  >
+    <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+      <WarningAmber sx={{ color: "#ffd180", fontSize: 22 }} />
+      <Box>
+        <Typography sx={{ fontWeight: 800, fontSize: "0.92rem", lineHeight: 1.2 }}>⚠ Data Tampering Detected</Typography>
+        <Typography sx={{ fontSize: "0.78rem", opacity: 0.85, mt: 0.25 }}>Schedule data was modified outside the application.</Typography>
+      </Box>
+    </Box>
+    <Button
+      variant="outlined" size="small" onClick={onRestore}
+      sx={{ borderColor: "#ffd180", color: "#ffd180", fontWeight: 700, textTransform: "none", fontSize: "0.8rem", flexShrink: 0, ml: 2, "&:hover": { bgcolor: "rgba(255,209,128,0.15)", borderColor: "#ffd180" } }}
+    >
+      Restore from Server
+    </Button>
+  </Box>
+);
+
+const UploadRestrictionNotice = ({ message }) => (
+  <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1, p: 1.5, mb: 1.5, bgcolor: "#fff5f5", border: "1px solid #ffcdd2", borderRadius: "10px" }}>
+    <WarningAmber sx={{ color: "#c62828", fontSize: 18, mt: "1px", flexShrink: 0 }} />
+    <Typography sx={{ fontSize: "0.78rem", color: "#7a0000", lineHeight: 1.55 }}>{message}</Typography>
+  </Box>
+);
+
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+const MonthSetupStatusCard = ({
+  year,
+  month,
+  onShiftMonth,
+  rows,
+  loading,
+  error,
+  filter,
+  onFilter,
+  query,
+  onQuery,
+  department,
+  onDepartment,
+  departments,
+  onSelectEmployee,
+  selectedEmployeeNumber,
+  doneCount = 0,
+  totalCount = 0,
+  embedded = false,
+}) => {
+  const PAGE_SIZE = 12;
+  const listRef = useRef(null);
+  const [page, setPage] = useState(0);
+  const pct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
+  const monthLabel = `${MONTH_NAMES[month - 1] || ""} ${year}`;
+  const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount - 1);
+  const pageStart = rows.length === 0 ? 0 : safePage * PAGE_SIZE;
+  const pageRows = rows.slice(pageStart, pageStart + PAGE_SIZE);
+
+  useEffect(() => {
+    setPage(0);
+  }, [query, filter, department, year, month]);
+
+  useEffect(() => {
+    if (listRef.current) listRef.current.scrollTop = 0;
+  }, [safePage, query, filter, department]);
+
+  return (
+    <SectionCard
+      sx={{
+        height: embedded ? "100%" : { lg: "calc(100vh - 295px)" },
+        minHeight: embedded ? 0 : { lg: "calc(100vh - 295px)" },
+        maxHeight: embedded ? "100%" : { lg: "calc(100vh - 295px)" },
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+        boxSizing: "border-box",
+      }}
+    >
+      <PanelHeader
+        icon={CalendarToday}
+        title="Setup by month"
+        rightContent={
+          <Box
+            component="span"
+            sx={{
+              fontSize: "0.68rem",
+              fontWeight: 800,
+              bgcolor: doneCount === totalCount && totalCount > 0 ? alpha("#2e7d32", 0.12) : alpha(T.accent, 0.1),
+              color: doneCount === totalCount && totalCount > 0 ? "#2e7d32" : T.accent,
+              border: `0.5px solid ${doneCount === totalCount && totalCount > 0 ? "rgba(46,125,50,0.28)" : T.accentBorder}`,
+              borderRadius: "9px",
+              px: 0.9,
+              py: 0.2,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {loading ? "…" : `${doneCount}/${totalCount}`}
+          </Box>
+        }
+      />
+
+      <Box sx={{ px: 1.75, pt: 1.5, pb: 1.25, display: "flex", flexDirection: "column", gap: 1.15, borderBottom: `1px solid ${T.divider}` }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+          <IconButton
+            size="small"
+            onClick={() => onShiftMonth(-1)}
+            aria-label="Previous month"
+            sx={{ width: 28, height: 28, color: T.accent, border: `1px solid ${T.accentBorder}`, borderRadius: 1.25, "&:hover": { bgcolor: T.accentFaint } }}
+          >
+            <ArrowBack sx={{ fontSize: 14 }} />
+          </IconButton>
+          <Box sx={{ flex: 1, minWidth: 0, textAlign: "center" }}>
+            <Typography sx={{ fontSize: "0.82rem", fontWeight: 800, color: T.accent, letterSpacing: "0.01em", lineHeight: 1.2 }}>
+              {monthLabel}
+            </Typography>
+            <Typography sx={{ fontSize: "0.62rem", color: T.faint, fontWeight: 600, lineHeight: 1.2, mt: 0.15 }}>
+              Check means already set up
+            </Typography>
+          </Box>
+          <IconButton
+            size="small"
+            onClick={() => onShiftMonth(1)}
+            aria-label="Next month"
+            sx={{ width: 28, height: 28, color: T.accent, border: `1px solid ${T.accentBorder}`, borderRadius: 1.25, "&:hover": { bgcolor: T.accentFaint } }}
+          >
+            <ArrowForward sx={{ fontSize: 14 }} />
+          </IconButton>
+        </Box>
+
+        <Box>
+          <Box sx={{ display: "flex", justifyContent: "space-between", mb: 0.4 }}>
+            <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: T.muted }}>
+              {totalCount === 0 ? "No employees loaded" : `${doneCount} of ${totalCount} already set up`}
+            </Typography>
+            <Typography sx={{ fontSize: "0.68rem", fontWeight: 800, color: pct === 100 && totalCount > 0 ? "#2e7d32" : T.accent }}>
+              {pct}%
+            </Typography>
+          </Box>
+          <Box sx={{ height: 6, borderRadius: 99, bgcolor: "rgba(0,0,0,0.08)", overflow: "hidden" }}>
+            <Box sx={{ width: `${pct}%`, height: "100%", bgcolor: pct === 100 && totalCount > 0 ? "#2e7d32" : T.accent, transition: "width 0.25s ease" }} />
+          </Box>
+        </Box>
+
+        <TextField
+          size="small"
+          placeholder="Search name or number"
+          value={query}
+          onChange={(e) => onQuery(e.target.value)}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon sx={{ fontSize: 16, color: T.faint }} />
+              </InputAdornment>
+            ),
+          }}
+          sx={{
+            "& .MuiOutlinedInput-root": {
+              borderRadius: "8px",
+              fontSize: "0.78rem",
+              bgcolor: "#fff",
+              "&:hover fieldset": { borderColor: T.accent },
+              "&.Mui-focused fieldset": { borderColor: T.accent },
+            },
+          }}
+        />
+
+        <Box sx={{ display: "flex", gap: 0.6 }}>
+          {[
+            { key: "all", label: "All" },
+            { key: "done", label: "Done" },
+            { key: "missing", label: "Not yet" },
+          ].map(({ key, label }) => {
+            const active = filter === key;
+            return (
+              <Button
+                key={key}
+                size="small"
+                onClick={() => onFilter(key)}
+                sx={{
+                  flex: 1,
+                  minWidth: 0,
+                  px: 0.5,
+                  py: 0.35,
+                  fontSize: "0.68rem",
+                  fontWeight: 700,
+                  textTransform: "none",
+                  borderRadius: "7px",
+                  color: active ? "#fff" : T.accent,
+                  bgcolor: active ? T.accent : "transparent",
+                  border: `1px solid ${active ? T.accent : T.accentBorder}`,
+                  "&:hover": { bgcolor: active ? T.accentDark : T.accentFaint },
+                }}
+              >
+                {label}
+              </Button>
+            );
+          })}
+        </Box>
+
+        {departments.length > 0 && (
+          <Select
+            size="small"
+            displayEmpty
+            value={department}
+            onChange={(e) => onDepartment(e.target.value)}
+            sx={{
+              fontSize: "0.75rem",
+              borderRadius: "8px",
+              bgcolor: "#fff",
+              "& .MuiSelect-select": { py: 0.7 },
+              "&:hover .MuiOutlinedInput-notchedOutline": { borderColor: T.accent },
+              "&.Mui-focused .MuiOutlinedInput-notchedOutline": { borderColor: T.accent },
+            }}
+          >
+            <MenuItem value="" sx={{ fontSize: "0.78rem" }}>All departments</MenuItem>
+            {departments.map((d) => (
+              <MenuItem key={d} value={d} sx={{ fontSize: "0.78rem" }}>{d}</MenuItem>
+            ))}
+          </Select>
+        )}
+      </Box>
+
+      <Box ref={listRef} sx={{ flex: 1, minHeight: 0, overflowY: "auto", "&::-webkit-scrollbar": { width: "6px" }, "&::-webkit-scrollbar-thumb": { background: "#d0b8b8", borderRadius: "4px" } }}>
+        {loading ? (
+          <Box sx={{ py: 4, display: "flex", alignItems: "center", justifyContent: "center", gap: 1 }}>
+            <CircularProgress size={18} sx={{ color: T.accent }} />
+            <Typography sx={{ fontSize: "0.78rem", color: T.muted }}>Checking schedules…</Typography>
+          </Box>
+        ) : error ? (
+          <Typography sx={{ px: 2, py: 3, fontSize: "0.78rem", color: "#c62828" }}>{error}</Typography>
+        ) : rows.length === 0 ? (
+          <Typography sx={{ px: 2, py: 3, fontSize: "0.78rem", color: T.faint, fontStyle: "italic" }}>
+            No employees match this month view.
+          </Typography>
+        ) : (
+          pageRows.map((row) => {
+            const selected = String(selectedEmployeeNumber || "") === String(row.employeeNumber || "");
+            const name = row.fullName || row.employeeNumber || "Unnamed";
+            return (
+              <Box
+                key={row.employeeNumber}
+                onClick={() => onSelectEmployee(row)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onSelectEmployee(row);
+                  }
+                }}
+                sx={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: 1,
+                  px: 1.5,
+                  py: 1,
+                  cursor: "pointer",
+                  borderBottom: `1px solid ${T.divider}`,
+                  bgcolor: selected ? alpha(T.accent, 0.07) : "transparent",
+                  borderLeft: selected ? `3px solid ${T.accent}` : "3px solid transparent",
+                  "&:hover": { bgcolor: T.accentFaint },
+                }}
+              >
+                <Tooltip title={row.covered ? "Official time covers this month" : "Not set up for this month"}>
+                  <Box sx={{ mt: 0.15, flexShrink: 0, display: "flex" }}>
+                    {row.covered ? (
+                      <CheckCircle sx={{ fontSize: 18, color: "#2e7d32" }} />
+                    ) : (
+                      <RadioButtonUnchecked sx={{ fontSize: 18, color: "#c4a0a0" }} />
+                    )}
+                  </Box>
+                </Tooltip>
+                <Box sx={{ minWidth: 0, flex: 1 }}>
+                  <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: T.text, lineHeight: 1.25 }} noWrap>
+                    {name}
+                  </Typography>
+                  <Typography sx={{ fontSize: "0.68rem", color: T.muted, mt: 0.15 }} noWrap>
+                    #{row.employeeNumber}{row.department ? ` · ${row.department}` : ""}
+                  </Typography>
+                  <Typography sx={{ fontSize: "0.66rem", color: row.covered ? "#2e7d32" : T.faint, fontWeight: row.covered ? 700 : 500, mt: 0.2 }} noWrap>
+                    {row.covered
+                      ? `${formatDateOnly(row.startDate)} – ${formatDateOnly(row.endDate)}`
+                      : "Not added for this month"}
+                  </Typography>
+                </Box>
+              </Box>
+            );
+          })
+        )}
+      </Box>
+
+      {!loading && !error && rows.length > 0 && (
+        <Box sx={{ flexShrink: 0, borderTop: `1px solid ${T.divider}`, px: 1, py: 0.6, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 0.5, bgcolor: "#fafafa" }}>
+          <Typography sx={{ fontSize: "0.66rem", fontWeight: 700, color: T.muted, whiteSpace: "nowrap" }}>
+            {pageStart + 1}–{Math.min(pageStart + PAGE_SIZE, rows.length)} of {rows.length}
+          </Typography>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.25 }}>
+            <IconButton
+              size="small"
+              disabled={safePage === 0}
+              onClick={() => setPage(safePage - 1)}
+              aria-label="Previous page"
+              sx={{ width: 26, height: 26, color: T.accent, "&.Mui-disabled": { color: T.faint } }}
+            >
+              <ArrowBack sx={{ fontSize: 14 }} />
+            </IconButton>
+            <Typography sx={{ fontSize: "0.68rem", fontWeight: 800, color: T.accent, minWidth: 42, textAlign: "center" }}>
+              {safePage + 1}/{pageCount}
+            </Typography>
+            <IconButton
+              size="small"
+              disabled={safePage >= pageCount - 1}
+              onClick={() => setPage(safePage + 1)}
+              aria-label="Next page"
+              sx={{ width: 26, height: 26, color: T.accent, "&.Mui-disabled": { color: T.faint } }}
+            >
+              <ArrowForward sx={{ fontSize: 14 }} />
+            </IconButton>
+          </Box>
+        </Box>
+      )}
+    </SectionCard>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN COMPONENT
+// ─────────────────────────────────────────────────────────────────────────────
+const OfficialTimeForm = ({
+  embedded = false,
+  initialContext = null,
+  onClose,
+  onScheduleSaved,
+} = {}) => {
+  const { settings } = useSystemSettings();
+  const { hasAccess, loading: accessLoading } = usePageAccess("official-time");
+
+  // [NEW] Admin roles get an Edit/Delete bypass on every schedule block,
+  // active or inactive — see the matching backend bypass in
+  // ensureActiveSupervisorAssignment(). Computed once; role doesn't change
+  // mid-session without a re-login.
+  const isOfficialTimeAdmin = useMemo(
+    () => OFFICIAL_TIME_ADMIN_ROLES.includes(getCurrentUserRole()),
+    [],
+  );
+
+  const [viewMode, setViewMode] = useState("single");
+  const showSingleView = embedded || viewMode === "single";
+  const showAllUsers = !embedded && viewMode === "allUsers";
+
+  const seedEmp = initialContext?.employee || null;
+  const seedEmpNum = String(initialContext?.employeeNumber || seedEmp?.employeeNumber || "").trim();
+  const seedMonthFrom = String(initialContext?.startDate || "").slice(0, 10);
+  const seedMonthMatch = seedMonthFrom.match(/^(\d{4})-(\d{2})-\d{2}$/);
+  const nowForStatus = new Date();
+  const [selectedEmployee, setSelectedEmployee] = useState(() =>
+    seedEmpNum
+      ? {
+          employeeNumber: seedEmpNum,
+          name: String(seedEmp?.name || seedEmp?.fullName || "").trim(),
+          department: seedEmp?.department || "",
+        }
+      : null,
+  );
+  const [employeeID, setEmployeeID] = useState(seedEmpNum);
+  const [records, setRecords] = useState([]);
+  const [hasSearched, setHasSearched] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [found, setFound] = useState(false);
+  const [file, setFile] = useState(null);
+
+  const [draftAcademicYear, setDraftAcademicYear] = useState("");
+  const [draftSemester, setDraftSemester] = useState("");
+  const [draftStartDate, setDraftStartDate] = useState("");
+  const [draftEndDate, setDraftEndDate] = useState("");
+  const draftStatus = "active";
+
+  // ── [NEW #K] Day-pattern presets ("Patterns") ──────────────────────────
+  // Optional shortcut only. Stored client-side (localStorage) for now — see
+  // the note in the patch docs for swapping this to a real backend table
+  // (GET/POST/DELETE /officialtime/patterns) later without touching the JSX
+  // below. Picking a pattern only changes what pre-fills modalRecords when
+  // the Create Schedule modal opens; the modal itself (ScheduleTimeRows,
+  // Fill Break, Copy/Apply, overlap validation) is completely unchanged.
+  const PATTERNS_STORAGE_KEY = "earist-official-time-patterns";
+  const [patterns, setPatterns] = useState(() => {
+    try {
+      const raw = localStorage.getItem(PATTERNS_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [selectedPatternId, setSelectedPatternId] = useState("");
+  const [showPatternManager, setShowPatternManager] = useState(false);
+  const [patternDraft, setPatternDraft] = useState({
+    name: "",
+    days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+    timeIn: "08:00:00 AM",
+    timeOut: "05:00:00 PM",
+    color: PATTERN_COLORS[0],
+  });
+
+  const persistPatterns = useCallback((next) => {
+    setPatterns(next);
+    try {
+      localStorage.setItem(PATTERNS_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      /* ignore quota / private mode */
+    }
+  }, []);
+
+  // Builds the same 7-row shape makeDefaultRow() produces, but filled from a
+  // saved pattern instead of the hardcoded 8AM–5PM default. Days not in the
+  // pattern stay blank (a day off), same convention as weekends in
+  // makeDefaultRow.
+  const buildRecordsFromPattern = useCallback((pattern, empId) => {
+    return DAYS_ORDER.map((day) => {
+      const working = pattern.days.includes(day);
+      return {
+        ...makeDefaultRow(empId, day),
+        officialTimeIN: working ? pattern.timeIn : "",
+        officialTimeOUT: working ? pattern.timeOut : "",
+        officialBreaktimeIN: working ? "00:00:00 AM" : "",
+        officialBreaktimeOUT: working ? "00:00:00 PM" : "",
+      };
+    });
+  }, []);
+  // ── end pattern additions ──────────────────────────────────────────────
+
+  const [activeScheduleKey, setActiveScheduleKey] = useState(null);
+  const [scheduleView, setScheduleView] = useState("workDays");
+
+  const [showViewScheduleModal, setShowViewScheduleModal] = useState(false);
+  const [deleteScheduleTarget, setDeleteScheduleTarget] = useState(null);
+  const [deletingSchedule, setDeletingSchedule] = useState(false);
+  const [viewScheduleInfo, setViewScheduleInfo] = useState(null);
+  const [viewScheduleRecords, setViewScheduleRecords] = useState([]);
+  const [viewScheduleView, setViewScheduleView] = useState("workDays");
+  const [isEditingViewSchedule, setIsEditingViewSchedule] = useState(false);
+  const [editViewRecords, setEditViewRecords] = useState([]);
+  const [editViewScheduleView, setEditViewScheduleView] = useState("workDays");
+  const [editViewSaving, setEditViewSaving] = useState(false);
+  const [editViewEndDate, setEditViewEndDate] = useState("");
+
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [modalRecords, setModalRecords] = useState([]);
+  const [modalScheduleView, setModalScheduleView] = useState("workDays");
+  const [checkingOverlap, setCheckingOverlap] = useState(false);
+
+  const [showConflictModal, setShowConflictModal] = useState(false);
+  const [showWarningModal, setShowWarningModal] = useState(false);
+  const [warningMessage, setWarningMessage] = useState("");
+  const [warningOverlap, setWarningOverlap] = useState(null);
+
+  const [allUsers, setAllUsers] = useState([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [allUsersPage, setAllUsersPage] = useState(0);
+  const [allUsersRowsPerPage, setAllUsersRowsPerPage] = useState(10);
+  const [selectedUsers, setSelectedUsers] = useState(new Set());
+  const [showBulkBlocksModal, setShowBulkBlocksModal] = useState(false);
+  const [showBulkConfirmModal, setShowBulkConfirmModal] = useState(false);
+  const [bulkScheduleBlocks, setBulkScheduleBlocks] = useState([]);
+  const [bulkTargetEmployees, setBulkTargetEmployees] = useState([]);
+  const [isBulkSchedule, setIsBulkSchedule] = useState(false);
+
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [previewRecords, setPreviewRecords] = useState([]);
+  const [previewViewScheduleView, setPreviewViewScheduleView] = useState("workDays");
+  const [showAnalyzeModal, setShowAnalyzeModal] = useState(false);
+  const [analyzeResult, setAnalyzeResult] = useState(null);
+  const [analyzeEmployeeNames, setAnalyzeEmployeeNames] = useState({});
+  const [analyzing, setAnalyzing] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [uploadAcknowledgeChecked, setUploadAcknowledgeChecked] = useState(false);
+
+  // ── Department-scoped upload ──
+  const [deptFile, setDeptFile] = useState(null);
+  const [deptUploadDepartment, setDeptUploadDepartment] = useState("");
+  const [deptAnalyzing, setDeptAnalyzing] = useState(false);
+  const [deptConfirming, setDeptConfirming] = useState(false);
+  const [deptAnalyzeResult, setDeptAnalyzeResult] = useState(null);
+  const [showDeptAnalyzeModal, setShowDeptAnalyzeModal] = useState(false);
+  const [deptUploadAcknowledgeChecked, setDeptUploadAcknowledgeChecked] = useState(false);
+  const [deptAnalyzeEmployeeNames, setDeptAnalyzeEmployeeNames] = useState({});
+
+  // ── Employment-Category-scoped upload ──
+  // Mirrors the Department-scoped upload state/handlers exactly, but scopes
+  // the upload to a single employment_type_config.id instead of a department.
+  const [catFile, setCatFile] = useState(null);
+  const [catUploadCategory, setCatUploadCategory] = useState("");
+  const [catAnalyzing, setCatAnalyzing] = useState(false);
+  const [catConfirming, setCatConfirming] = useState(false);
+  const [catAnalyzeResult, setCatAnalyzeResult] = useState(null);
+  const [showCatAnalyzeModal, setShowCatAnalyzeModal] = useState(false);
+  const [catUploadAcknowledgeChecked, setCatUploadAcknowledgeChecked] = useState(false);
+  const [catAnalyzeEmployeeNames, setCatAnalyzeEmployeeNames] = useState({});
+
+  // ── Department Table options (source of truth for the Department dropdowns) ──
+  // [CHANGE E] Fetched from GET /officialtime/departments, which reads
+  // directly from department_table (joined with department_assignment).
+  const [departmentTableList, setDepartmentTableList] = useState([]);
+
+  const fetchDepartmentTableOptions = useCallback(async () => {
+    try {
+      const r = await axios.get(`${API_BASE_URL}/officialtime/departments`, getAuthHeaders());
+      setDepartmentTableList(Array.isArray(r.data) ? r.data : []);
+    } catch {
+      setDepartmentTableList([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchDepartmentTableOptions();
+  }, [fetchDepartmentTableOptions]);
+
+  // ── Employment Category options (source of truth for the Employment
+  // Category dropdowns) — fetched from GET /officialtime/employment-categories,
+  // which reads directly from employment_type_config (isActive = 1). This is
+  // an INDEPENDENT axis from Department: e.g. Department = "College of
+  // Engineering", Employment Category = "Non-Teaching | General Administration".
+  // [CHANGE H] Each item now also carries colorHex (from employment_type_config)
+  // so the dropdowns/table can render the same color used in
+  // EmploymentCategoryManagement.jsx.
+  const [employmentCategoryList, setEmploymentCategoryList] = useState([]);
+
+  const fetchEmploymentCategoryOptions = useCallback(async () => {
+    try {
+      const r = await axios.get(`${API_BASE_URL}/officialtime/employment-categories`, getAuthHeaders());
+      setEmploymentCategoryList(Array.isArray(r.data) ? r.data : []);
+    } catch {
+      setEmploymentCategoryList([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchEmploymentCategoryOptions();
+  }, [fetchEmploymentCategoryOptions]);
+
+  // [CHANGE H] Quick id → colorHex lookup, used wherever we only have an id
+  // (e.g. the currently-selected upload category) and need its color.
+  const employmentCategoryColorById = useMemo(() => {
+    const map = new Map();
+    employmentCategoryList.forEach((c) => map.set(String(c.id), c.colorHex || DEFAULT_CATEGORY_COLOR));
+    return map;
+  }, [employmentCategoryList]);
+
+  // ── All Users filters ──
+  const [filterDepartment, setFilterDepartment] = useState("");
+  const [filterEmploymentCategory, setFilterEmploymentCategory] = useState(""); // [NEW]
+  const [filterStatus, setFilterStatus] = useState("");
+  const [filterAcademicYear, setFilterAcademicYear] = useState("");
+  const [filterStartDate, setFilterStartDate] = useState("");
+  const [filterEndDate, setFilterEndDate] = useState("");
+
+  const [statusYear, setStatusYear] = useState(
+    seedMonthMatch ? Number(seedMonthMatch[1]) : nowForStatus.getFullYear(),
+  );
+  const [statusMonth, setStatusMonth] = useState(
+    seedMonthMatch ? Number(seedMonthMatch[2]) : nowForStatus.getMonth() + 1,
+  );
+  const [monthStatusRows, setMonthStatusRows] = useState([]);
+  const [monthStatusLoading, setMonthStatusLoading] = useState(false);
+  const [monthStatusError, setMonthStatusError] = useState("");
+  const [monthStatusFilter, setMonthStatusFilter] = useState("all");
+  const [monthStatusQuery, setMonthStatusQuery] = useState("");
+  const [monthStatusDepartment, setMonthStatusDepartment] = useState("");
+  const monthStatusReqRef = useRef(0);
+
+  const [successOpen, setSuccessOpen] = useState(false);
+  const [successAction, setSuccessAction] = useState("");
+  const [lastSaved, setLastSaved] = useState(null);
+  const [tamperDetected, setTamperDetected] = useState(false);
+
+  const serverRecordsRef = useRef([]);
+  const checksumRef = useRef(null);
+  const tamperCheckIntervalRef = useRef(null);
+
+  // ── Helpers ──
+  const showToast = useCallback((msg) => {
+    setSuccessAction(msg);
+    setSuccessOpen(true);
+    setTimeout(() => setSuccessOpen(false), 3000);
+  }, []);
+
+  const fetchMonthCoverage = useCallback(async () => {
+    const reqId = ++monthStatusReqRef.current;
+    setMonthStatusLoading(true);
+    setMonthStatusError("");
+    try {
+      const r = await axios.get(`${API_BASE_URL}/officialtime/month-coverage`, {
+        ...getAuthHeaders(),
+        params: { year: statusYear, month: statusMonth },
+      });
+      if (reqId !== monthStatusReqRef.current) return;
+      setMonthStatusRows(Array.isArray(r.data?.employees) ? r.data.employees : []);
+    } catch {
+      if (reqId !== monthStatusReqRef.current) return;
+      setMonthStatusRows([]);
+      setMonthStatusError("Couldn't load who is set up for this month.");
+    } finally {
+      if (reqId === monthStatusReqRef.current) setMonthStatusLoading(false);
+    }
+  }, [statusYear, statusMonth]);
+
+  useEffect(() => {
+    fetchMonthCoverage();
+  }, [fetchMonthCoverage]);
+
+  const notifyScheduleSaved = useCallback(() => {
+    if (typeof onScheduleSaved === "function") onScheduleSaved();
+    fetchMonthCoverage();
+  }, [onScheduleSaved, fetchMonthCoverage]);
+
+  const buildDefaultRecords = useCallback(
+    (empId) => DAYS_ORDER.map((day) => makeDefaultRow(empId, day)),
+    [],
+  );
+
+  const stampServerRecords = useCallback((data) => {
+    const clean = deepClone(data);
+    serverRecordsRef.current = clean;
+    checksumRef.current = computeChecksum(clean);
+    setTamperDetected(false);
+  }, []);
+
+  // ── All Users — fetchAllUsers ──
+  // [FIX D] Declared here (before handleAnalyzeFile/handleConfirmUpload/
+  // handleConfirmDeptUpload/handleConfirmCatUpload) so it is initialized
+  // before those callbacks' dependency arrays close over it.
+  const fetchAllUsers = useCallback(async () => {
+    setLoadingUsers(true);
+    try {
+      const r = await axios.get(`${API_BASE_URL}/officialtime/users-status`, getAuthHeaders());
+      setAllUsers(r.data || []);
+      setAllUsersPage(0);
+    } catch {
+      showToast("Error fetching users.");
+    } finally {
+      setLoadingUsers(false);
+    }
+  }, [showToast]);
+
+  const scheduleBlocks = useMemo(() => {
+    const byKey = new Map();
+    for (const r of records) {
+      const key = `${normalizeDateStr(r.startDate)}|${normalizeDateStr(r.endDate)}`;
+      if (!byKey.has(key)) byKey.set(key, { academicYear: r.academicYear, startDate: r.startDate, endDate: r.endDate, status: r.status, key });
+    }
+    return Array.from(byKey.values())
+      .filter((v) => normalizeDateStr(v.startDate) || normalizeDateStr(v.endDate))
+      .sort((a, b) => (String(b.status).toLowerCase() === "active" ? 1 : 0) - (String(a.status).toLowerCase() === "active" ? 1 : 0));
+  }, [records]);
+
+  const scheduleBlockRows = useMemo(() => {
+    const rows = [];
+    for (let i = 0; i < scheduleBlocks.length; i += 2) rows.push(scheduleBlocks.slice(i, i + 2));
+    return rows;
+  }, [scheduleBlocks]);
+
+  const activeBlockData = useMemo(() => {
+    if (!activeScheduleKey) return scheduleBlocks[0] || null;
+    return scheduleBlocks.find((b) => b.key === activeScheduleKey) || scheduleBlocks[0] || null;
+  }, [activeScheduleKey, scheduleBlocks]);
+
+  const activeBlockRecords = useMemo(() => {
+    if (!activeBlockData) return [];
+    const normStart = normalizeDateStr(activeBlockData.startDate);
+    const normEnd = normalizeDateStr(activeBlockData.endDate);
+    return [...records.filter((r) => normalizeDateStr(r.startDate) === normStart && normalizeDateStr(r.endDate) === normEnd)]
+      .sort((a, b) => DAYS_ORDER.indexOf(a.day) - DAYS_ORDER.indexOf(b.day));
+  }, [activeBlockData, records]);
+
+  // ── Tamper check ──
+  useEffect(() => {
+    if (tamperCheckIntervalRef.current) clearInterval(tamperCheckIntervalRef.current);
+    if (!serverRecordsRef.current.length) return;
+    tamperCheckIntervalRef.current = setInterval(() => {
+      setRecords((current) => {
+        if (checksumRef.current && computeChecksum(current) !== checksumRef.current) {
+          setTamperDetected(true);
+          return deepClone(serverRecordsRef.current);
+        }
+        return current;
+      });
+    }, 3000);
+    return () => clearInterval(tamperCheckIntervalRef.current);
+  }, [hasSearched]);
+
+  useEffect(() => () => { if (tamperCheckIntervalRef.current) clearInterval(tamperCheckIntervalRef.current); }, []);
+
+  // ── Employee select ──
+  const handleEmployeeSelect = useCallback(async (emp) => {
+    setSelectedEmployee(emp);
+    setEmployeeID(String(emp.employeeNumber));
+    setRecords([]);
+    setHasSearched(false);
+    setFound(false);
+    setActiveScheduleKey(null);
+    setDraftAcademicYear("");
+    setDraftSemester("");
+    setDraftStartDate("");
+    setDraftEndDate("");
+    setLastSaved(null);
+    serverRecordsRef.current = [];
+    checksumRef.current = null;
+    setTamperDetected(false);
+
+    const id = String(emp.employeeNumber);
+    setLoading(true);
+    setHasSearched(true);
+    try {
+      const res = await axios.get(`${API_BASE_URL}/officialtimetable/${id}`, officialTimeGetConfig(true));
+      const data = res.data.length > 0 ? res.data : buildDefaultRecords(id);
+      stampServerRecords(data);
+      setRecords(deepClone(data));
+      const hadExisting = res.data.length > 0;
+      setFound(hadExisting);
+      if (hadExisting) {
+        const byKey = new Map();
+        for (const r of res.data) {
+          const key = `${normalizeDateStr(r.startDate)}|${normalizeDateStr(r.endDate)}`;
+          if (!byKey.has(key)) byKey.set(key, { status: r.status, key });
+        }
+        const sorted = Array.from(byKey.values()).sort((a, b) => (String(b.status).toLowerCase() === "active" ? 1 : 0) - (String(a.status).toLowerCase() === "active" ? 1 : 0));
+        if (sorted.length > 0) setActiveScheduleKey(sorted[0].key);
+      }
+      logOfficialTimeSearch({
+        targetEmployeeNumber: id,
+        targetName: emp?.name || String(emp.employeeNumber || id),
+        scheduleCount: countUniqueSchedules(res.data),
+        hadExisting,
+      });
+    } catch (err) {
+      console.error("Error fetching records:", err);
+      showToast("Error fetching records.");
+    } finally {
+      setLoading(false);
+    }
+  }, [buildDefaultRecords, showToast, stampServerRecords]);
+
+  const embeddedSeedRef = useRef("");
+  useEffect(() => {
+    if (!embedded || accessLoading || hasAccess === false) return;
+    const num = String(initialContext?.employeeNumber || "").trim();
+    if (!num) return;
+    const seedKey = `${num}|${initialContext?.startDate || ""}|${initialContext?.endDate || ""}`;
+    if (embeddedSeedRef.current === seedKey) return;
+    embeddedSeedRef.current = seedKey;
+    const emp = initialContext?.employee
+      ? {
+          employeeNumber: num,
+          name: String(initialContext.employee.name || initialContext.employee.fullName || "").trim(),
+          department: initialContext.employee.department || "",
+        }
+      : { employeeNumber: num, name: "" };
+    handleEmployeeSelect(emp);
+  }, [embedded, initialContext, accessLoading, hasAccess, handleEmployeeSelect]);
+
+  const canUploadExcel = true;
+  const uploadRestrictionMessage = null;
+
+  const handleEmployeeClear = useCallback(() => {
+    setSelectedEmployee(null);
+    setEmployeeID("");
+    setRecords([]);
+    setHasSearched(false);
+    setFound(false);
+    setActiveScheduleKey(null);
+    serverRecordsRef.current = [];
+    checksumRef.current = null;
+    setTamperDetected(false);
+  }, []);
+
+  const requestDeleteInactiveSchedule = useCallback((block) => {
+    if (!block) return;
+    const isActive = String(block.status || "active").toLowerCase() === "active";
+    if (isActive && !isOfficialTimeAdmin) {
+      showToast("Only inactive official time can be deleted.");
+      return;
+    }
+    setDeleteScheduleTarget({
+      academicYear: block.academicYear,
+      startDate: block.startDate,
+      endDate: block.endDate,
+      status: block.status,
+      // [NEW] Lets the confirmation dialog show a stronger warning when an
+      // admin is about to delete the currently ACTIVE schedule.
+      wasActive: isActive,
+    });
+  }, [showToast, isOfficialTimeAdmin]);
+
+  const handleConfirmDeleteInactiveSchedule = useCallback(async () => {
+    if (!employeeID || !deleteScheduleTarget) return;
+    const startDate = normalizeDateStr(deleteScheduleTarget.startDate);
+    const endDate = normalizeDateStr(deleteScheduleTarget.endDate);
+    if (!startDate || !endDate) {
+      showToast("This schedule is missing a start or end date.");
+      return;
+    }
+    setDeletingSchedule(true);
+    try {
+      await axios.delete(`${API_BASE_URL}/officialtimetable/${employeeID}`, {
+        ...getAuthHeaders(),
+        params: { startDate, endDate },
+      });
+      logOfficialTimeDelete({
+        targetEmployeeNumber: employeeID,
+        targetName: selectedEmployee?.name || employeeID,
+        periodStart: startDate,
+        periodEnd: endDate,
+      });
+      showToast(deleteScheduleTarget.wasActive ? "Active official time deleted." : "Inactive official time deleted.");
+      setDeleteScheduleTarget(null);
+      setShowViewScheduleModal(false);
+      setIsEditingViewSchedule(false);
+      setActiveScheduleKey(null);
+      const res = await axios.get(`${API_BASE_URL}/officialtimetable/${employeeID}`, officialTimeGetConfig(true));
+      const allRows = res.data || [];
+      stampServerRecords(allRows.length > 0 ? allRows : buildDefaultRecords(employeeID));
+      setRecords(deepClone(allRows.length > 0 ? allRows : buildDefaultRecords(employeeID)));
+      setFound(allRows.length > 0);
+      notifyScheduleSaved();
+    } catch (err) {
+      showToast(err?.response?.data?.message || "Couldn't delete this inactive official time.");
+    } finally {
+      setDeletingSchedule(false);
+    }
+  }, [employeeID, deleteScheduleTarget, showToast, selectedEmployee, stampServerRecords, buildDefaultRecords, notifyScheduleSaved]);
+
+  const handleRestoreFromServer = useCallback(async () => {
+    if (!employeeID) return;
+    setLoading(true);
+    try {
+      const res = await axios.get(`${API_BASE_URL}/officialtimetable/${employeeID}`, officialTimeGetConfig(true));
+      const fresh = res.data.length > 0 ? res.data : buildDefaultRecords(employeeID);
+      stampServerRecords(fresh);
+      setRecords(deepClone(fresh));
+      setFound(res.data.length > 0);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+      setTamperDetected(false);
+    }
+  }, [employeeID, buildDefaultRecords, stampServerRecords]);
+
+  // ── Create schedule modal ──
+  // [NEW #K] Now checks `patterns` / `selectedPatternId` to optionally
+  // pre-fill blank days from a saved pattern instead of makeDefaultRow.
+  // Existing (already-set) rows for the active block are still preserved
+  // exactly as before — a pattern never overwrites real data.
+  const openCreateScheduleModal = useCallback(async () => {
+    if (!employeeID) { showToast("Please select an employee first."); return; }
+    if (!draftAcademicYear) { showToast("Please fill Academic Year first."); return; }
+    if (!draftStartDate || !draftEndDate) { showToast("Please fill Start Date and End Date first."); return; }
+    if (new Date(draftStartDate) > new Date(draftEndDate)) { showToast("Start date must be on or before End date."); return; }
+
+    const draftStart = new Date(draftStartDate).getTime();
+    const draftEnd   = new Date(draftEndDate).getTime();
+    const hasConflict = scheduleBlocks.some((v) => {
+      const s = v.startDate ? new Date(v.startDate).getTime() : 0;
+      const e = v.endDate   ? new Date(v.endDate).getTime()   : 0;
+      return s < draftEnd && e > draftStart;
+    });
+    if (hasConflict) { setShowConflictModal(true); return; }
+
+    const activePattern = patterns.find((p) => p.id === selectedPatternId) || null;
+    const patternRows = activePattern ? buildRecordsFromPattern(activePattern, employeeID) : null;
+    const sevenRows = DAYS_ORDER.map((day) => {
+      const existing = records.find((r) => r.day === day && activeBlockData && normalizeDateStr(r.startDate) === normalizeDateStr(activeBlockData.startDate));
+      if (existing) return { ...existing, employeeID };
+      if (patternRows) return patternRows.find((r) => r.day === day);
+      return makeDefaultRow(employeeID, day);
+    });
+    setModalRecords(sevenRows);
+    setModalScheduleView("workDays");
+    setIsBulkSchedule(false);
+    setShowScheduleModal(true);
+  }, [employeeID, draftAcademicYear, draftSemester, draftStartDate, draftEndDate, scheduleBlocks, records, activeBlockData, showToast, patterns, selectedPatternId, buildRecordsFromPattern]);
+
+  const handleModalRecordChange = useCallback((index, field, value) => {
+    setModalRecords((prev) => { const u = [...prev]; u[index] = { ...u[index], [field]: value }; return u; });
+  }, []);
+
+  const handleClearModalTimes = useCallback(() => {
+    const fields = (TIME_FIELDS[modalScheduleView] || []).map((f) => f.key);
+    setModalRecords((prev) => prev.map((row) => { const u = { ...row }; fields.forEach((f) => { u[f] = ""; }); return u; }));
+  }, [modalScheduleView]);
+
+  const handleResetModalToDefault = useCallback(() => {
+    setModalRecords(DAYS_ORDER.map((day) => makeDefaultRow(employeeID, day)));
+  }, [employeeID]);
+
+  const handleSubmitFromModal = useCallback(async () => {
+    if (!employeeID || !draftStartDate || !draftEndDate) { showToast("Employee, start date and end date are required."); return; }
+    const sevenRows = DAYS_ORDER.map((day) => { const r = modalRecords.find((x) => x.day === day); return r ? { ...r, day } : makeDefaultRow(employeeID, day); });
+    setCheckingOverlap(true);
+    await new Promise((r) => setTimeout(r, 300));
+    const overlapResult = checkTimeOverlaps(sevenRows);
+    setCheckingOverlap(false);
+    if (!overlapResult.valid) {
+      const a = overlapResult.segmentA, b = overlapResult.segmentB;
+      setWarningMessage(`Time overlap on ${overlapResult.day}: ${a.label} (${formatMinutesToTime(a.start)} – ${formatMinutesToTime(a.end)}) overlaps with ${b.label} (${formatMinutesToTime(b.start)} – ${formatMinutesToTime(b.end)}).`);
+      setShowWarningModal(true);
+      return;
+    }
+    setSaving(true);
+    try {
+      const academicYearForBackend = [draftAcademicYear, draftSemester].filter(Boolean).join(" ").trim() || null;
+      await axios.post(
+        `${API_BASE_URL}/officialtimetable`,
+        { employeeID, academicYear: academicYearForBackend, startDate: draftStartDate, endDate: draftEndDate, status: draftStatus || "active", records: sevenRows },
+        { ...getAuthHeaders(), timeout: 30000 },
+      );
+      setLastSaved(new Date());
+      showToast("Official time saved successfully.");
+      setShowScheduleModal(false);
+      logOfficialTimeAdd({ targetEmployeeNumber: employeeID, targetName: selectedEmployee?.name || employeeID, periodStart: draftStartDate, periodEnd: draftEndDate, academicYear: academicYearForBackend });
+      const res = await axios.get(`${API_BASE_URL}/officialtimetable/${employeeID}`, officialTimeGetConfig(true));
+      const allRows = res.data || [];
+      stampServerRecords(allRows);
+      setRecords(deepClone(allRows));
+      setFound(allRows.length > 0);
+      const newKey = `${normalizeDateStr(draftStartDate)}|${normalizeDateStr(draftEndDate)}`;
+      setActiveScheduleKey(newKey);
+      notifyScheduleSaved();
+    } catch (err) {
+      const msg = err.code === "ECONNABORTED" ? "Request timed out."
+        : err.response?.status === 409 ? err.response?.data?.message || "Date range overlaps an existing schedule."
+        : err.response?.data?.error || err.response?.data?.message || err.message || "Error saving records.";
+      setWarningMessage(msg);
+      setWarningOverlap(err.response?.data?.overlap || null);
+      setShowWarningModal(true);
+    } finally {
+      setSaving(false);
+    }
+  }, [employeeID, draftAcademicYear, draftSemester, draftStartDate, draftEndDate, draftStatus, modalRecords, showToast, stampServerRecords, selectedEmployee, notifyScheduleSaved]);
+
+  // ── View/Edit schedule ──
+  const handleStartEditViewSchedule = useCallback(() => {
+    setEditViewRecords(deepClone(viewScheduleRecords));
+    setEditViewScheduleView(viewScheduleView);
+    setEditViewEndDate(normalizeDateStr(viewScheduleInfo?.endDate) || "");
+    setIsEditingViewSchedule(true);
+  }, [viewScheduleRecords, viewScheduleView, viewScheduleInfo]);
+
+  const handleCancelEditViewSchedule = useCallback(() => {
+    setIsEditingViewSchedule(false);
+    setEditViewRecords([]);
+    setEditViewEndDate("");
+  }, []);
+
+  const handleSaveEditedSchedule = useCallback(async () => {
+    if (!viewScheduleInfo || !employeeID) return;
+    const newEndDate = editViewEndDate || normalizeDateStr(viewScheduleInfo.endDate);
+    if (newEndDate && normalizeDateStr(viewScheduleInfo.startDate) && newEndDate < normalizeDateStr(viewScheduleInfo.startDate)) {
+      showToast("End date cannot be before start date."); return;
+    }
+    const overlapResult = checkTimeOverlaps(editViewRecords);
+    if (!overlapResult.valid) {
+      const a = overlapResult.segmentA, b = overlapResult.segmentB;
+      setWarningMessage(`Time overlap on ${overlapResult.day}: ${a.label} (${formatMinutesToTime(a.start)} – ${formatMinutesToTime(a.end)}) overlaps with ${b.label}.`);
+      setShowWarningModal(true);
+      return;
+    }
+    setEditViewSaving(true);
+    try {
+      await axios.put(
+        `${API_BASE_URL}/officialtimetable/${employeeID}`,
+        { startDate: viewScheduleInfo.startDate, endDate: newEndDate || viewScheduleInfo.endDate, origEndDate: normalizeDateStr(viewScheduleInfo.endDate), records: editViewRecords },
+        getAuthHeaders(),
+      );
+      showToast("Schedule updated successfully.");
+      logOfficialTimeEdit({ targetEmployeeNumber: employeeID, targetName: selectedEmployee?.name || employeeID, periodStart: normalizeDateStr(viewScheduleInfo.startDate), periodEnd: newEndDate || normalizeDateStr(viewScheduleInfo.endDate) });
+      setIsEditingViewSchedule(false);
+      setEditViewRecords([]);
+      setEditViewEndDate("");
+      const res = await axios.get(`${API_BASE_URL}/officialtimetable/${employeeID}`, officialTimeGetConfig(true));
+      const allRows = res.data || [];
+      stampServerRecords(allRows);
+      setRecords(deepClone(allRows));
+      setFound(allRows.length > 0);
+      const normStart = normalizeDateStr(viewScheduleInfo.startDate);
+      const normEnd = normalizeDateStr(newEndDate || viewScheduleInfo.endDate);
+      setViewScheduleRecords(allRows.filter((r) => normalizeDateStr(r.startDate) === normStart && normalizeDateStr(r.endDate) === normEnd));
+      setViewScheduleInfo((prev) => prev ? { ...prev, endDate: newEndDate || prev.endDate } : prev);
+      notifyScheduleSaved();
+    } catch (err) {
+      const msg = err.response?.data?.message || err.response?.data?.error || err.message || "Error updating schedule.";
+      setWarningMessage(msg);
+      setWarningOverlap(err.response?.data?.overlap || null);
+      setShowWarningModal(true);
+    } finally {
+      setEditViewSaving(false);
+    }
+  }, [viewScheduleInfo, employeeID, editViewRecords, editViewEndDate, showToast, stampServerRecords, selectedEmployee, notifyScheduleSaved]);
+
+  // ── Upload ──
+  const handleAnalyzeFile = useCallback(async () => {
+    if (!file || analyzing || !canUploadExcel) return;
+    const formData = new FormData();
+    formData.append("file", file);
+    setUploadAcknowledgeChecked(false);
+    setAnalyzeEmployeeNames({});
+    setAnalyzing(true);
+    try {
+      const res = await axios.post(`${API_BASE_URL}/upload-excel-faculty-official-time/validate`, formData, { headers: { Authorization: `Bearer ${localStorage.getItem("token") || ""}` } });
+      setAnalyzeResult({ ok: true, ...res.data });
+      setShowAnalyzeModal(true);
+
+      // ── [CHANGE I] Names come from the Excel "Name" column when present
+      // (backend already echoes it back as schedules[].name, display-only).
+      // Only fall back to a system lookup by employeeID for rows where the
+      // Excel had no Name / a blank Name — this never affects matching.
+      const schedulesData = res.data.schedules || [];
+      const idsNeedingLookup = [...new Set(
+        schedulesData
+          .filter((s) => !s.name || !String(s.name).trim())
+          .map((s) => String(s.employeeID)),
+      )];
+      const namesMap = {};
+      await Promise.all(
+        idsNeedingLookup.map(async (id) => {
+          try {
+            const r = await axios.get(`${API_BASE_URL}/Remittance/employees/search?q=${encodeURIComponent(id)}`, {
+              headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+            });
+            const match = (r.data || []).find((emp) => String(emp.employeeNumber) === id);
+            namesMap[id] = match?.name || "—";
+          } catch {
+            namesMap[id] = "—";
+          }
+        }),
+      );
+      setAnalyzeEmployeeNames(namesMap);
+    } catch (error) {
+      const d = error.response?.data || {};
+      setAnalyzeResult({ ok: false, message: d.message || error.message || "Validation failed.", timeErrors: d.timeErrors || [], allErrors: d.allErrors || [], skippedRows: d.skippedRows || [], warnings: d.warnings || [], overlap: d.overlap || null });
+      setShowAnalyzeModal(true);
+    } finally {
+      setAnalyzing(false);
+    }
+  }, [file, analyzing, canUploadExcel]);
+
+  const handleConfirmUpload = useCallback(async () => {
+    if (!file || confirming || !uploadAcknowledgeChecked || !canUploadExcel) return;
+    const formData = new FormData();
+    formData.append("file", file);
+    setConfirming(true);
+    
+    try {
+      const response = await axios.post(`${API_BASE_URL}/upload-excel-faculty-official-time`, formData, { headers: { Authorization: `Bearer ${localStorage.getItem("token") || ""}` } });
+      setShowAnalyzeModal(false);
+      setAnalyzeResult(null);
+      setAnalyzeEmployeeNames({});
+      setUploadAcknowledgeChecked(false);
+      if (response.data.records?.length > 0) {
+        setPreviewRecords(response.data.records);
+        setPreviewViewScheduleView("workDays");
+        setShowPreviewModal(true);
+        const uploadedEmpId = String(response.data.records[0]?.employeeID || "").trim();
+        if (uploadedEmpId && uploadedEmpId === employeeID) {
+          const refreshed = await axios.get(`${API_BASE_URL}/officialtimetable/${uploadedEmpId}`, officialTimeGetConfig(true)).catch(() => null);
+          if (refreshed?.data?.length > 0) { stampServerRecords(refreshed.data); setRecords(deepClone(refreshed.data)); setFound(true); }
+        }
+      }
+      showToast(`Upload complete! Inserted: ${response.data.inserted} rows.`);
+      setFile(null);
+      notifyScheduleSaved();
+    } catch (error) {
+      const d = error.response?.data || {};
+      setWarningMessage(d.message || error.message || "Upload failed.");
+      setWarningOverlap(d.overlap || null);
+      setShowWarningModal(true);
+      setShowAnalyzeModal(false);
+      setUploadAcknowledgeChecked(false);
+    } finally {
+      setConfirming(false);
+    }
+  }, [file, confirming, uploadAcknowledgeChecked, employeeID, showToast, stampServerRecords, canUploadExcel, notifyScheduleSaved]);
+
+  // ── Department-scoped upload handlers ──
+  const handleAnalyzeDeptFile = useCallback(async () => {
+    if (!deptFile || !deptUploadDepartment || deptAnalyzing || !canUploadExcel) return;
+    const formData = new FormData();
+    formData.append("file", deptFile);
+    formData.append("department", deptUploadDepartment);
+    setDeptUploadAcknowledgeChecked(false);
+    setDeptAnalyzeEmployeeNames({});
+    setDeptAnalyzing(true);
+    try {
+      const res = await axios.post(
+        `${API_BASE_URL}/upload-excel-faculty-official-time-by-department/validate`,
+        formData,
+        { headers: { Authorization: `Bearer ${localStorage.getItem("token") || ""}` } },
+      );
+      setDeptAnalyzeResult({ ok: true, ...res.data });
+      setShowDeptAnalyzeModal(true);
+
+      // [CHANGE I] Same Excel-Name-first, lookup-fallback pattern as the
+      // single-employee upload above. Department scoping/matching itself is
+      // untouched — it's still resolved by employeeID against the system.
+      const schedulesData = res.data.schedules || [];
+      const idsNeedingLookup = [...new Set(
+        schedulesData
+          .filter((s) => !s.name || !String(s.name).trim())
+          .map((s) => String(s.employeeID)),
+      )];
+      const namesMap = {};
+      await Promise.all(
+        idsNeedingLookup.map(async (id) => {
+          try {
+            const r = await axios.get(
+              `${API_BASE_URL}/Remittance/employees/search?q=${encodeURIComponent(id)}`,
+              { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } },
+            );
+            const match = (r.data || []).find((emp) => String(emp.employeeNumber) === id);
+            namesMap[id] = match?.name || "—";
+          } catch {
+            namesMap[id] = "—";
+          }
+        }),
+      );
+      setDeptAnalyzeEmployeeNames(namesMap);
+    } catch (error) {
+      const d = error.response?.data || {};
+      setDeptAnalyzeResult({
+        ok: false,
+        message: d.message || error.message || "Validation failed.",
+        timeErrors: d.timeErrors || [],
+        allErrors: d.allErrors || [],
+        skippedRows: d.skippedRows || [],
+        warnings: d.warnings || [],
+        overlap: d.overlap || null,
+      });
+      setShowDeptAnalyzeModal(true);
+    } finally {
+      setDeptAnalyzing(false);
+    }
+  }, [deptFile, deptUploadDepartment, deptAnalyzing, canUploadExcel]);
+
+  const handleConfirmDeptUpload = useCallback(async () => {
+    if (!deptFile || !deptUploadDepartment || deptConfirming || !deptUploadAcknowledgeChecked) return;
+    const formData = new FormData();
+    formData.append("file", deptFile);
+    formData.append("department", deptUploadDepartment);
+    setDeptConfirming(true);
+    try {
+      const response = await axios.post(
+        `${API_BASE_URL}/upload-excel-faculty-official-time-by-department`,
+        formData,
+        { headers: { Authorization: `Bearer ${localStorage.getItem("token") || ""}` } },
+      );
+      setShowDeptAnalyzeModal(false);
+      setDeptAnalyzeResult(null);
+      setDeptAnalyzeEmployeeNames({});
+      setDeptUploadAcknowledgeChecked(false);
+      setDeptFile(null);
+      showToast(`Upload complete! Inserted: ${response.data.inserted} rows for "${deptUploadDepartment}".`);
+      await fetchAllUsers();
+      notifyScheduleSaved();
+    } catch (error) {
+      const d = error.response?.data || {};
+      setWarningMessage(d.message || error.message || "Upload failed.");
+      setWarningOverlap(d.overlap || null);
+      setShowWarningModal(true);
+      setShowDeptAnalyzeModal(false);
+      setDeptUploadAcknowledgeChecked(false);
+    } finally {
+      setDeptConfirming(false);
+    }
+  }, [deptFile, deptUploadDepartment, deptConfirming, deptUploadAcknowledgeChecked, showToast, fetchAllUsers, notifyScheduleSaved]);
+
+  // ── Employment-Category-scoped upload handlers — mirrors the
+  // Department-scoped handlers 1:1, posting to the
+  // /upload-excel-faculty-official-time-by-category routes with
+  // employmentCategory (the employment_type_config.id) instead of department.
+  const handleAnalyzeCatFile = useCallback(async () => {
+    if (!catFile || !catUploadCategory || catAnalyzing) return;
+    const formData = new FormData();
+    formData.append("file", catFile);
+    formData.append("employmentCategory", catUploadCategory);
+    setCatUploadAcknowledgeChecked(false);
+    setCatAnalyzeEmployeeNames({});
+    setCatAnalyzing(true);
+    try {
+      const res = await axios.post(
+        `${API_BASE_URL}/upload-excel-faculty-official-time-by-category/validate`,
+        formData,
+        { headers: { Authorization: `Bearer ${localStorage.getItem("token") || ""}` } },
+      );
+      setCatAnalyzeResult({ ok: true, ...res.data });
+      setShowCatAnalyzeModal(true);
+
+      // [CHANGE I] Same Excel-Name-first, lookup-fallback pattern as the
+      // single-employee upload above. Category scoping/matching itself is
+      // untouched — it's still resolved by employeeID against the system.
+      const schedulesData = res.data.schedules || [];
+      const idsNeedingLookup = [...new Set(
+        schedulesData
+          .filter((s) => !s.name || !String(s.name).trim())
+          .map((s) => String(s.employeeID)),
+      )];
+      const namesMap = {};
+      await Promise.all(
+        idsNeedingLookup.map(async (id) => {
+          try {
+            const r = await axios.get(
+              `${API_BASE_URL}/Remittance/employees/search?q=${encodeURIComponent(id)}`,
+              { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } },
+            );
+            const match = (r.data || []).find((emp) => String(emp.employeeNumber) === id);
+            namesMap[id] = match?.name || "—";
+          } catch {
+            namesMap[id] = "—";
+          }
+        }),
+      );
+      setCatAnalyzeEmployeeNames(namesMap);
+    } catch (error) {
+      const d = error.response?.data || {};
+      setCatAnalyzeResult({
+        ok: false,
+        message: d.message || error.message || "Validation failed.",
+        timeErrors: d.timeErrors || [],
+        allErrors: d.allErrors || [],
+        skippedRows: d.skippedRows || [],
+        warnings: d.warnings || [],
+        overlap: d.overlap || null,
+      });
+      setShowCatAnalyzeModal(true);
+    } finally {
+      setCatAnalyzing(false);
+    }
+  }, [catFile, catUploadCategory, catAnalyzing]);
+
+  const handleConfirmCatUpload = useCallback(async () => {
+    if (!catFile || !catUploadCategory || catConfirming || !catUploadAcknowledgeChecked) return;
+    const formData = new FormData();
+    formData.append("file", catFile);
+    formData.append("employmentCategory", catUploadCategory);
+    setCatConfirming(true);
+    try {
+      const response = await axios.post(
+        `${API_BASE_URL}/upload-excel-faculty-official-time-by-category`,
+        formData,
+        { headers: { Authorization: `Bearer ${localStorage.getItem("token") || ""}` } },
+      );
+      setShowCatAnalyzeModal(false);
+      setCatAnalyzeResult(null);
+      setCatAnalyzeEmployeeNames({});
+      setCatUploadAcknowledgeChecked(false);
+      setCatFile(null);
+      const catLabel = employmentCategoryList.find((c) => String(c.id) === String(catUploadCategory))?.label || catUploadCategory;
+      showToast(`Upload complete! Inserted: ${response.data.inserted} rows for "${catLabel}".`);
+      await fetchAllUsers();
+      notifyScheduleSaved();
+    } catch (error) {
+      const d = error.response?.data || {};
+      setWarningMessage(d.message || error.message || "Upload failed.");
+      setWarningOverlap(d.overlap || null);
+      setShowWarningModal(true);
+      setShowCatAnalyzeModal(false);
+      setCatUploadAcknowledgeChecked(false);
+    } finally {
+      setCatConfirming(false);
+    }
+  }, [catFile, catUploadCategory, catConfirming, catUploadAcknowledgeChecked, showToast, fetchAllUsers, employmentCategoryList, notifyScheduleSaved]);
+
+  // ── All Users — fetch on view switch ──
+  useEffect(() => { if (showAllUsers) { fetchAllUsers(); setSelectedUsers(new Set()); } }, [showAllUsers, fetchAllUsers]);
+
+  const socketRefresh = useCallback(() => {
+    fetchMonthCoverage();
+    if (showAllUsers) { fetchAllUsers(); return; }
+    if (employeeID && hasSearched) { handleRestoreFromServer(); }
+  }, [showAllUsers, employeeID, hasSearched, fetchAllUsers, handleRestoreFromServer, fetchMonthCoverage]);
+
+  useAttendanceRealtimeRefresh(socketRefresh, { personId: employeeID, requireDateRange: false, matchMode: "loose" });
+
+  // ── Derived filter option lists ──
+  const academicYearOptions = useMemo(() => {
+    const set = new Set(allUsers.map((u) => u.academicYear).filter(Boolean));
+    return [...set].sort();
+  }, [allUsers]);
+
+  const filteredAllUsers = useMemo(() => {
+    let list = allUsers;
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      list = list.filter(
+        (u) =>
+          (u.fullName || "").toLowerCase().includes(q) ||
+          (u.employeeNumber || "").toLowerCase().includes(q),
+      );
+    }
+
+    if (filterDepartment) {
+      list = list.filter((u) => u.department === filterDepartment);
+    }
+
+    // [NEW] Employment Category filter — independent from Department filter above
+    if (filterEmploymentCategory) {
+      list = list.filter((u) => String(u.employmentCategoryId || "") === String(filterEmploymentCategory));
+    }
+
+    if (filterStatus) {
+      list = list.filter((u) =>
+        filterStatus === "active" ? u.hasDefaultOfficialTime : !u.hasDefaultOfficialTime,
+      );
+    }
+
+    if (filterAcademicYear) {
+      list = list.filter((u) => u.academicYear === filterAcademicYear);
+    }
+
+    if (filterStartDate) {
+      list = list.filter((u) => u.startDate && normalizeDateStr(u.startDate) >= filterStartDate);
+    }
+
+    if (filterEndDate) {
+      list = list.filter((u) => u.endDate && normalizeDateStr(u.endDate) <= filterEndDate);
+    }
+
+    return sortEmployeesByLastName(list, (u) => u.fullName || u);
+  }, [
+    allUsers,
+    searchQuery,
+    filterDepartment,
+    filterEmploymentCategory,
+    filterStatus,
+    filterAcademicYear,
+    filterStartDate,
+    filterEndDate,
   ]);
 
-  let conn;
-  // #1: Transaction
-  try {
-    conn = await getConnectionAsync(db);
-    await beginTransaction(conn);
-    await queryAsync(
-      conn,
-      "UPDATE officialtime SET status = 'inactive' WHERE employeeID = ?",
-      [employeeID],
-    );
-    const result = await queryAsync(
-      conn,
-      `
-      INSERT INTO officialtime (
-        employeeID, academicYear, startDate, endDate, day,
-        officialTimeIN, officialBreaktimeIN, officialBreaktimeOUT, officialTimeOUT,
-        officialHonorariumTimeIN, officialHonorariumTimeOUT,
-        officialServiceCreditTimeIN, officialServiceCreditTimeOUT,
-        officialOverTimeIN, officialOverTimeOUT, status, breaktime
-      ) VALUES ?`,
-      [values],
-    );
-    await commitTransaction(conn);
-
-    if (saveSupervisorHistory === true) {
-      try {
-        await saveSupervisorOfficialTimeSnapshot({
-          user: req.user,
-          employeeID,
-          startDate: normDate(startDate),
-          endDate: normDate(endDate),
-        });
-      } catch (historyErr) {
-        console.error("Error saving supervisor official-time snapshot:", historyErr);
-      }
-    }
-
-    let autoAttendance = { inserted: 0, skipped: 0, errors: [] };
-    try {
-      autoAttendance = await fillExemptAttendance({
-        startDate: normDate(startDate),
-        endDate: normDate(endDate),
-        employeeIDs: [employeeID],
-      });
-    } catch (autoErr) {
-      autoAttendance.errors = [
-        `Auto-attendance trigger failed: ${autoErr.message}`,
-      ];
-    }
-
-    res.json({
-      message: "Official time records saved successfully",
-      inserted: result.affectedRows,
-      autoAttendance: {
-        inserted: autoAttendance.inserted,
-        skipped: autoAttendance.skipped,
-      },
-      warnings: autoAttendance.errors.length
-        ? autoAttendance.errors
-        : undefined,
-    });
-    notifyAttendanceChanged("official-time-updated", {
-      scope: "officialtime",
-      personID: employeeID,
-      startDate: normDate(startDate),
-      endDate: normDate(endDate),
-    });
-  } catch (err) {
-    await rollbackTransaction(conn);
-    console.error("Error creating schedule version:", err);
-    if (
-      err.code === "ER_DUP_ENTRY" ||
-      (err.message && err.message.includes("Duplicate"))
-    )
-      return res.status(409).json({
-        message: "A schedule already exists for this employee and day.",
-      });
-    res.status(500).json({ error: err.message || "Database error" });
-  } finally {
-    releaseConnection(conn);
-  }
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// EXCEL UPLOAD — VALIDATE FIRST (single-employee / unrestricted upload)
-// ─────────────────────────────────────────────────────────────────────────────
-
-router.post(
-  "/upload-excel-faculty-official-time/validate",
-  authenticateToken,
-  upload.single("file"),
-  async (req, res) => {
-    if (!req.file)
-      return res.status(400).json({ message: "No file uploaded." });
-    const filePath = req.file.path;
-
-    const supervisorStatus = await ensureActiveSupervisorAssignment(req, res);
-if (!supervisorStatus) { safeUnlink(filePath); return; }
-
-    try {
-      if (req.file.size > MAX_UPLOAD_BYTES)
-        return res.status(400).json({
-          message: `File too large. Maximum allowed size is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`,
-        });
-
-      const sheet = readWorkbookSheet(filePath);
-
-      if (!sheet.length)
-        return res.status(400).json({ message: "Excel file is empty." });
-
-      const cleanedSheet = sheet.map(normaliseRow);
-      const { groups, skippedRows, timeErrors } =
-        parseSheetIntoGroups(cleanedSheet);
-
-      if (timeErrors.length > 0)
-        return res.status(400).json({
-          message: `Invalid time format(s) found in Excel.`,
-          timeErrors,
-        });
-
-      const scheduleList = Array.from(groups.values()).filter(
-        (g) => g.rows.length > 0,
-      );
-
-      if (scheduleList.length === 0)
-        return res.status(400).json({
-          message:
-            "No valid schedule blocks found. Ensure each row has employeeID, day, startDate, and endDate.",
-          skippedRows,
-        });
-
-      if (
-        !(await assertEmployeesInSupervisorScope(
-          res,
-          supervisorStatus,
-          scheduleList.map((s) => s.employeeID),
-        ))
-      )
-        return;
-
-      const validationErrors = await validateScheduleList(scheduleList);
-      if (validationErrors.length > 0) {
-        const first = validationErrors[0];
-        return res.status(400).json({
-          message: first.message,
-          overlap: first.overlap || null,
-          allErrors: validationErrors,
-        });
-      }
-
-      const statusWarnings = scheduleList.flatMap((s) =>
-        s.rows
-          .filter(
-            (r) =>
-              r._statusFromFile &&
-              String(r._statusFromFile).toLowerCase() !== "active",
-          )
-          .map(
-            (r) =>
-              `Row for employee ${s.employeeID} day ${r.day} had status="${r._statusFromFile}" in Excel — will be inserted as "active".`,
-          ),
-      );
-
-      const existingScheduleMap = await getActiveSchedulesForEmployees(
-        scheduleList.map((s) => s.employeeID),
-      );
-      const existingScheduleWarnings = [];
-      for (const s of scheduleList) {
-        const existing = existingScheduleMap.get(String(s.employeeID)) || [];
-        for (const ex of existing) {
-          existingScheduleWarnings.push(
-            `Employee ${s.employeeID} already has an active schedule (${ex.startDate} – ${ex.endDate}) that will be set to Inactive once this upload is confirmed.`,
-          );
-        }
-      }
-
-      return res.json({
-        message: "Validation passed. No overlaps detected.",
-        schedules: scheduleList.map((s) => ({
-          employeeID: s.employeeID,
-          // [NEW] Display-only, from the Excel "Name" column if present.
-          name: s.employeeName || null,
-          academicYear: s.academicYear,
-          startDate: s.startDate,
-          endDate: s.endDate,
-          rows: s.rows.length,
-        })),
-        warnings: [
-          ...skippedRows.map((r) => `Row ${r.row} skipped: ${r.reason}`),
-          ...existingScheduleWarnings,
-          ...statusWarnings,
-        ],
-      });
-    } catch (error) {
-      console.error("Error validating Excel file:", error);
-      return res.status(500).json({
-        message: "Error validating Excel file.",
-        detail: error.message,
-      });
-    } finally {
-      safeUnlink(filePath); // #12
-    }
-  },
-);
-
-// ─────────────────────────────────────────────────────────────────────────────
-// EXCEL UPLOAD — ACTUAL INSERT (single-employee / unrestricted upload)
-// ─────────────────────────────────────────────────────────────────────────────
-
-router.post(
-  "/upload-excel-faculty-official-time",
-  authenticateToken,
-  upload.single("file"),
-  async (req, res) => {
-    if (!req.file)
-      return res.status(400).json({ message: "No file uploaded." });
-    const filePath = req.file.path;
-  const supervisorStatus = await ensureActiveSupervisorAssignment(req, res);
-if (!supervisorStatus) { safeUnlink(filePath); return; }
-    try {
-      if (req.file.size > MAX_UPLOAD_BYTES)
-        return res.status(400).json({
-          message: `File too large. Maximum allowed size is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`,
-        });
-
-      const sheet = readWorkbookSheet(filePath);
-
-      if (!sheet.length)
-        return res.status(400).json({ message: "Excel file is empty." });
-
-      const cleanedSheet = sheet.map(normaliseRow);
-      const { groups, skippedRows, timeErrors } =
-        parseSheetIntoGroups(cleanedSheet);
-
-      if (timeErrors.length > 0)
-        return res.status(400).json({
-          message: "Invalid time format(s) found in Excel.",
-          timeErrors,
-        });
-
-      const scheduleList = Array.from(groups.values()).filter(
-        (g) => g.rows.length > 0,
-      );
-      if (scheduleList.length === 0)
-        return res
-          .status(400)
-          .json({ message: "No valid schedule blocks found.", skippedRows });
-
-      if (
-        !(await assertEmployeesInSupervisorScope(
-          res,
-          supervisorStatus,
-          scheduleList.map((s) => s.employeeID),
-        ))
-      )
-        return;
-
-      const validationErrors = await validateScheduleList(scheduleList);
-      if (validationErrors.length > 0) {
-        const first = validationErrors[0];
-        return res.status(400).json({
-          message: first.message,
-          overlap: first.overlap || null,
-          allErrors: validationErrors,
-        });
-      }
-
-      const existingScheduleMap = await getActiveSchedulesForEmployees(
-        scheduleList.map((s) => s.employeeID),
-      );
-      const existingScheduleWarnings = [];
-      for (const s of scheduleList) {
-        const existing = existingScheduleMap.get(String(s.employeeID)) || [];
-        for (const ex of existing) {
-          existingScheduleWarnings.push(
-            `Employee ${s.employeeID}: existing active schedule (${ex.startDate} – ${ex.endDate}) was set to Inactive by this upload.`,
-          );
-        }
-      }
-
-      let insertedCount = 0;
-      let autoAttendanceInserted = 0;
-      let autoAttendanceSkipped = 0;
-      const processedRecords = [];
-      const insertWarnings = [...existingScheduleWarnings];
-
-      for (const s of scheduleList) {
-        let conn;
-        try {
-          conn = await getConnectionAsync(db);
-          await beginTransaction(conn);
-
-          await queryAsync(
-            conn,
-            "UPDATE officialtime SET status = 'inactive' WHERE employeeID = ?",
-            [s.employeeID],
-          );
-
-          const values = s.rows.map((row) => [
-            s.employeeID,
-            s.academicYear,
-            s.startDate,
-            s.endDate,
-            row.day ?? null,
-            row.officialTimeIN ?? null,
-            row.officialBreaktimeIN ?? null,
-            row.officialBreaktimeOUT ?? null,
-            row.officialTimeOUT ?? null,
-            row.officialHonorariumTimeIN ?? null,
-            row.officialHonorariumTimeOUT ?? null,
-            row.officialServiceCreditTimeIN ?? null,
-            row.officialServiceCreditTimeOUT ?? null,
-            row.officialOverTimeIN ?? null,
-            row.officialOverTimeOUT ?? null,
-            "active",
-            row.breaktime ?? null,
-          ]);
-
-          const result = await queryAsync(
-            conn,
-            `
-          INSERT INTO officialtime (
-            employeeID, academicYear, startDate, endDate, day,
-            officialTimeIN, officialBreaktimeIN, officialBreaktimeOUT, officialTimeOUT,
-            officialHonorariumTimeIN, officialHonorariumTimeOUT,
-            officialServiceCreditTimeIN, officialServiceCreditTimeOUT,
-            officialOverTimeIN, officialOverTimeOUT, status, breaktime
-          ) VALUES ?`,
-            [values],
-          );
-
-          await commitTransaction(conn);
-
-          insertedCount += result.affectedRows || 0;
-
-          // [NEW] Save a supervisor officialtime_history snapshot for this
-          // block, so Excel-uploaded schedules show up in "Past Periods" /
-          // "Employees Changed" the same way manual create/edit does.
-          try {
-            await saveSupervisorOfficialTimeSnapshot({
-              user: req.user,
-              employeeID: s.employeeID,
-              startDate: s.startDate,
-              endDate: s.endDate,
-            });
-          } catch (histErr) {
-            console.error(
-              `[officialtime] History snapshot failed for ${s.employeeID}:`,
-              histErr.message,
-            );
-            insertWarnings.push(
-              `Employee ${s.employeeID}: history snapshot not saved (${histErr.message}).`,
-            );
-          }
-
-          try {
-            const autoResult = await fillExemptAttendance({
-              startDate: normDate(s.startDate),
-              endDate: normDate(s.endDate),
-              employeeIDs: [s.employeeID],
-            });
-            autoAttendanceInserted += autoResult.inserted;
-            autoAttendanceSkipped += autoResult.skipped;
-            if (autoResult.errors.length > 0)
-              insertWarnings.push(...autoResult.errors);
-          } catch (autoErr) {
-            insertWarnings.push(
-              `Employee ${s.employeeID}: Auto-attendance trigger failed. Reason: ${autoErr.message}`,
-            );
-          }
-
-          for (const row of s.rows) {
-            if (
-              row._statusFromFile &&
-              String(row._statusFromFile).toLowerCase() !== "active"
-            )
-              insertWarnings.push(
-                `Employee ${s.employeeID} day ${row.day}: Excel status "${row._statusFromFile}" ignored — inserted as "active".`,
-              );
-
-            processedRecords.push({
-              employeeID: s.employeeID,
-              academicYear: s.academicYear,
-              startDate: s.startDate,
-              endDate: s.endDate,
-              day: row.day,
-              status: "active",
-              officialTimeIN: row.officialTimeIN,
-              officialBreaktimeIN: row.officialBreaktimeIN,
-              officialBreaktimeOUT: row.officialBreaktimeOUT,
-              officialTimeOUT: row.officialTimeOUT,
-              officialHonorariumTimeIN: row.officialHonorariumTimeIN,
-              officialHonorariumTimeOUT: row.officialHonorariumTimeOUT,
-              officialServiceCreditTimeIN: row.officialServiceCreditTimeIN,
-              officialServiceCreditTimeOUT: row.officialServiceCreditTimeOUT,
-              officialOverTimeIN: row.officialOverTimeIN,
-              officialOverTimeOUT: row.officialOverTimeOUT,
-              breaktime: row.breaktime,
-            });
-          }
-        } catch (empErr) {
-          await rollbackTransaction(conn);
-          console.error(
-            `[officialtime] Upload failed for employee ${s.employeeID}:`,
-            empErr.message,
-          );
-          insertWarnings.push(
-            `Employee ${s.employeeID}: Insert failed and was rolled back — existing schedule remains active. Reason: ${empErr.message}`,
-          );
-        } finally {
-          releaseConnection(conn);
-        }
-      }
-
-      if (!insertedCount)
-        return res.status(400).json({
-          message: "Upload parsed successfully but no records were inserted.",
-          warnings: insertWarnings,
-          skippedRows,
-        });
-
-      const affectedEmployees = normalizeEmployeeList(
-        scheduleList.map((s) => s.employeeID),
-      );
-      const failedCount = scheduleList.filter((s) =>
-        insertWarnings.some((w) =>
-          w.includes(`Employee ${s.employeeID}: Insert failed`),
-        ),
-      ).length;
-      try {
-        logAudit(
-          req.user,
-          `Upload official time via Excel (${insertedCount} rows)`,
-          "Official Time",
-          null,
-          affectedEmployees.length === 1 ? affectedEmployees[0] : null,
-          buildOfficialTimeActionAuditDetails({
-            source: "excel-upload",
-            status: failedCount > 0 ? "partial" : "success",
-            affectedEmployeeNumbers: affectedEmployees,
-            blockCount: scheduleList.length,
-            rowCount: scheduleList.reduce(
-              (sum, s) => sum + (s.rows?.length || 0),
-              0,
-            ),
-            insertedCount,
-            skippedCount: skippedRows.length,
-            failedCount,
-            notes:
-              insertWarnings.length > 0
-                ? `${insertWarnings.length} warning(s) during upload.`
-                : null,
-          }),
-        );
-      } catch (e) {
-        console.error("Audit log error:", e);
-      }
-
-      const allWarnings = [
-        ...skippedRows.map((r) => `Row ${r.row} skipped: ${r.reason}`),
-        ...insertWarnings,
-      ];
-
-      res.json({
-        message:
-          "Upload complete. Uploaded schedules are set to Active. Previous active schedules have been set to Inactive.",
-        inserted: insertedCount,
-        updated: 0,
-        autoAttendance: {
-          inserted: autoAttendanceInserted,
-          skipped: autoAttendanceSkipped,
-        },
-        records: processedRecords,
-        warnings: allWarnings.length > 0 ? allWarnings : undefined,
-      });
-      if (affectedEmployees.length > 0) {
-        notifyAttendanceChanged("official-time-updated", {
-          scope: "officialtime",
-          personIDs: affectedEmployees,
-        });
-      }
-    } catch (error) {
-      console.error("Error processing Excel file:", error);
-      res.status(500).json({
-        message: "Error processing Excel file.",
-        detail: error.message,
-      });
-    } finally {
-      safeUnlink(filePath); // #12: always clean up temp file
-    }
-  },
-);
-
-// ─────────────────────────────────────────────────────────────────────────────
-// DEPARTMENT-SCOPED EXCEL UPLOAD
-// ─────────────────────────────────────────────────────────────────────────────
-
-function getDepartmentEmployeeIDs(department) {
-  return new Promise((resolve, reject) => {
-    if (!department) return resolve(null); // null = no restriction
-    db.query(
-      `SELECT da.employeeNumber AS employeeID
-       FROM department_assignment da
-       INNER JOIN department_table dt ON da.code = dt.code
-       WHERE dt.description = ?`,
-      [department],
-      (err, rows) => {
-        if (err) return reject(err);
-        resolve(new Set((rows || []).map((r) => String(r.employeeID))));
-      },
-    );
-  });
-}
-
-router.get("/officialtime/departments", authenticateToken, async (req, res) => {
-  try {
-    if (!isOfficialTimeAdminRole(req.user)) {
-      const supervisorEmployeeNumber =
-        req.user?.employeeNumber || req.user?.employeeID || req.user?.id;
-      const departments = await getCoveringSupervisorDepartments(
-        supervisorEmployeeNumber,
-      );
-      const labels = [
-        ...new Set(
-          departments
-            .map((d) => d.description || d.code)
-            .filter((v) => v != null && String(v).trim() !== ""),
-        ),
-      ];
-      return res.json(labels);
-    }
-
-    db.query(
-      `SELECT DISTINCT dt.description AS department
-       FROM department_table dt
-       INNER JOIN department_assignment da ON da.code = dt.code
-       WHERE dt.description IS NOT NULL AND dt.description <> ''
-       ORDER BY dt.description`,
-      (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json((rows || []).map((r) => r.department));
-      },
-    );
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-router.get(
-  "/officialtime/supervisor-assignment-status",
-  authenticateToken,
-  async (req, res) => {
-    try {
-      if (isOfficialTimeAdminRole(req.user)) {
-        return res.json(adminOfficialTimeBypassStatus(req.user));
-      }
-      const supervisorEmployeeNumber =
-        req.user?.employeeNumber || req.user?.employeeID || req.user?.id;
-      const status = await getSupervisorAssignmentStatus(
-        supervisorEmployeeNumber,
-      );
-      res.json(await attachSupervisorDepartments(status, supervisorEmployeeNumber));
-    } catch (err) {
-      res.status(500).json({ error: err.message });
-    }
-  },
-);
-
-// #23: Employment Category dropdown source — mirrors /officialtime/departments
-// but reads employment_type_config directly (isActive=1). This is the source of
-// truth the frontend uses to populate both the All Users filter and the
-// category-scoped upload's target dropdown.
-router.get(
-  "/officialtime/employment-categories",
-  authenticateToken,
-  (req, res) => {
-    db.query(
-      `SELECT id, parentGroup, typeName
-     FROM employment_type_config
-     WHERE isActive = 1
-     ORDER BY parentGroup ASC, typeName ASC`,
-      (err, rows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json(
-          (rows || []).map((r) => ({
-            id: r.id,
-            label: `${r.parentGroup} | ${r.typeName}`,
-            parentGroup: r.parentGroup,
-            typeName: r.typeName,
-          })),
-        );
-      },
-    );
-  },
-);
-
-// ─────────────────────────────────────────────────────────────────────────────
-// NOTE on Department/Employment-Category-scoped uploads below:
-// The Excel files for these routes do NOT contain Department or Employment
-// Category columns (per spec) — parseSheetIntoGroups() never looks for them.
-// Instead, each employeeID parsed from the file is matched against the
-// SYSTEM's Department/Employment Category (via getEmployeeDepartmentMap() /
-// getEmployeeCategoryMap(), both keyed by employeeID/employeeNumber) to
-// decide whether that row belongs to the selected target scope. The Excel
-// file is only ever used as a source of (employeeID, day, times, ...) rows;
-// scope membership is always determined from the system of record.
-// ─────────────────────────────────────────────────────────────────────────────
-
-router.post(
-  "/upload-excel-faculty-official-time-by-department/validate",
-  authenticateToken,
-  upload.single("file"),
-  async (req, res) => {
-    if (!req.file)
-      return res.status(400).json({ message: "No file uploaded." });
-    const filePath = req.file.path;
-
-    const supervisorStatus = await ensureActiveSupervisorAssignment(req, res);
-    if (!supervisorStatus) {
-      safeUnlink(filePath);
-      return;
-    }
-
-    const { department } = req.body || {};
-
-    if (!department)
-      return res
-        .status(400)
-        .json({ message: "department is required for this upload route." });
-
-    if (!assertSupervisorOwnsDepartment(res, supervisorStatus, department))
-      return;
-
-    try {
-      if (req.file.size > MAX_UPLOAD_BYTES)
-        return res.status(400).json({
-          message: `File too large. Maximum allowed size is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`,
-        });
-
-      const deptEmployeeIDs = await getDepartmentEmployeeIDs(department);
-
-      const sheet = readWorkbookSheet(filePath);
-      if (!sheet.length)
-        return res.status(400).json({ message: "Excel file is empty." });
-
-      const cleanedSheet = sheet.map(normaliseRow);
-      const { groups, skippedRows, timeErrors } =
-        parseSheetIntoGroups(cleanedSheet);
-
-      if (timeErrors.length > 0)
-        return res
-          .status(400)
-          .json({
-            message: "Invalid time format(s) found in Excel.",
-            timeErrors,
-          });
-
-      let scheduleList = Array.from(groups.values()).filter(
-        (g) => g.rows.length > 0,
-      );
-
-      const allEmployeeIDsInFile = [
-        ...new Set(scheduleList.map((s) => String(s.employeeID))),
-      ];
-      const employeeDeptMap =
-        await getEmployeeDepartmentMap(allEmployeeIDsInFile);
-      const distinctDeptsInFile = [
-        ...new Set(
-          allEmployeeIDsInFile
-            .map((id) => employeeDeptMap.get(id) || null)
-            .filter(Boolean),
-        ),
-      ];
-      const multiDeptWarnings = [];
-      if (distinctDeptsInFile.length > 1) {
-        const otherDepts = distinctDeptsInFile.filter((d) => d !== department);
-        multiDeptWarnings.push(
-          `This file contains employees from multiple departments (${distinctDeptsInFile.join(", ")}). Only rows for employees in "${department}" will be processed — rows for ${otherDepts.length ? otherDepts.join(", ") : "other departments"} will be skipped.`,
-        );
-      }
-
-      const outOfDeptWarnings = [];
-      if (deptEmployeeIDs) {
-        const before = scheduleList.length;
-        scheduleList = scheduleList.filter((s) => {
-          const inDept = deptEmployeeIDs.has(String(s.employeeID));
-          if (!inDept) {
-            const actualDept = employeeDeptMap.get(String(s.employeeID));
-            outOfDeptWarnings.push(
-              `Employee ${s.employeeID}${actualDept ? ` (belongs to "${actualDept}")` : ""} is not assigned to department "${department}" — skipped. Use the regular upload if you intended to include them.`,
-            );
-          }
-          return inDept;
-        });
-        if (before > 0 && scheduleList.length === 0)
-          return res.status(400).json({
-            message: `None of the employees in this file belong to department "${department}".`,
-            warnings: [...multiDeptWarnings, ...outOfDeptWarnings],
-          });
-      }
-
-      if (scheduleList.length === 0)
-        return res.status(400).json({
-          message: "No valid schedule blocks found for this department.",
-          skippedRows,
-        });
-
-      if (
-        !(await assertEmployeesInSupervisorScope(
-          res,
-          supervisorStatus,
-          scheduleList.map((s) => s.employeeID),
-        ))
-      )
-        return;
-
-      const validationErrors = await validateScheduleList(scheduleList);
-      if (validationErrors.length > 0) {
-        const first = validationErrors[0];
-        return res.status(400).json({
-          message: first.message,
-          overlap: first.overlap || null,
-          allErrors: validationErrors,
-        });
-      }
-
-      const statusWarnings = scheduleList.flatMap((s) =>
-        s.rows
-          .filter(
-            (r) =>
-              r._statusFromFile &&
-              String(r._statusFromFile).toLowerCase() !== "active",
-          )
-          .map(
-            (r) =>
-              `Row for employee ${s.employeeID} day ${r.day} had status="${r._statusFromFile}" in Excel — will be inserted as "active".`,
-          ),
-      );
-
-      const existingScheduleMap = await getActiveSchedulesForEmployees(
-        scheduleList.map((s) => s.employeeID),
-      );
-      const existingScheduleWarnings = [];
-      for (const s of scheduleList) {
-        const existing = existingScheduleMap.get(String(s.employeeID)) || [];
-        for (const ex of existing) {
-          existingScheduleWarnings.push(
-            `Employee ${s.employeeID} already has an active schedule (${ex.startDate} – ${ex.endDate}) that will be set to Inactive once this upload is confirmed.`,
-          );
-        }
-      }
-
-      return res.json({
-        message: `Validation passed for department "${department}". No overlaps detected.`,
-        department,
-        schedules: scheduleList.map((s) => ({
-          employeeID: s.employeeID,
-          // [NEW] Display-only, from the Excel "Name" column if present.
-          name: s.employeeName || null,
-          academicYear: s.academicYear,
-          startDate: s.startDate,
-          endDate: s.endDate,
-          rows: s.rows.length,
-        })),
-        warnings: [
-          ...skippedRows.map((r) => `Row ${r.row} skipped: ${r.reason}`),
-          ...multiDeptWarnings,
-          ...outOfDeptWarnings,
-          ...existingScheduleWarnings,
-          ...statusWarnings,
-        ],
-      });
-    } catch (error) {
-      console.error("Error validating department Excel file:", error);
-      return res
-        .status(500)
-        .json({
-          message: "Error validating Excel file.",
-          detail: error.message,
-        });
-    } finally {
-      safeUnlink(filePath);
-    }
-  },
-);
-
-router.post(
-  "/upload-excel-faculty-official-time-by-department",
-  authenticateToken,
-  upload.single("file"),
-  async (req, res) => {
-    if (!req.file)
-      return res.status(400).json({ message: "No file uploaded." });
-    const filePath = req.file.path;
-    const supervisorStatus = await ensureActiveSupervisorAssignment(req, res);
-if (!supervisorStatus) { safeUnlink(filePath); return; }
-    const { department } = req.body || {};
-
-    if (!department)
-      return res
-        .status(400)
-        .json({ message: "department is required for this upload route." });
-
-    if (!assertSupervisorOwnsDepartment(res, supervisorStatus, department))
-      return;
-
-    try {
-      if (req.file.size > MAX_UPLOAD_BYTES)
-        return res.status(400).json({
-          message: `File too large. Maximum allowed size is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`,
-        });
-
-      const deptEmployeeIDs = await getDepartmentEmployeeIDs(department);
-
-      const sheet = readWorkbookSheet(filePath);
-      if (!sheet.length)
-        return res.status(400).json({ message: "Excel file is empty." });
-
-      const cleanedSheet = sheet.map(normaliseRow);
-      const { groups, skippedRows, timeErrors } =
-        parseSheetIntoGroups(cleanedSheet);
-
-      if (timeErrors.length > 0)
-        return res
-          .status(400)
-          .json({
-            message: "Invalid time format(s) found in Excel.",
-            timeErrors,
-          });
-
-      let scheduleList = Array.from(groups.values()).filter(
-        (g) => g.rows.length > 0,
-      );
-
-      const allEmployeeIDsInFile = [
-        ...new Set(scheduleList.map((s) => String(s.employeeID))),
-      ];
-      const employeeDeptMap =
-        await getEmployeeDepartmentMap(allEmployeeIDsInFile);
-      const distinctDeptsInFile = [
-        ...new Set(
-          allEmployeeIDsInFile
-            .map((id) => employeeDeptMap.get(id) || null)
-            .filter(Boolean),
-        ),
-      ];
-      const multiDeptWarnings = [];
-      if (distinctDeptsInFile.length > 1) {
-        const otherDepts = distinctDeptsInFile.filter((d) => d !== department);
-        multiDeptWarnings.push(
-          `This file contained employees from multiple departments (${distinctDeptsInFile.join(", ")}). Only rows for "${department}" were processed — rows for ${otherDepts.length ? otherDepts.join(", ") : "other departments"} were skipped.`,
-        );
-      }
-
-      const outOfDeptWarnings = [];
-      if (deptEmployeeIDs) {
-        scheduleList = scheduleList.filter((s) => {
-          const inDept = deptEmployeeIDs.has(String(s.employeeID));
-          if (!inDept) {
-            const actualDept = employeeDeptMap.get(String(s.employeeID));
-            outOfDeptWarnings.push(
-              `Employee ${s.employeeID}${actualDept ? ` (belongs to "${actualDept}")` : ""} is not assigned to department "${department}" — skipped.`,
-            );
-          }
-          return inDept;
-        });
-      }
-
-      if (scheduleList.length === 0)
-        return res.status(400).json({
-          message: `No valid schedule blocks found for department "${department}".`,
-          skippedRows,
-        });
-
-      if (
-        !(await assertEmployeesInSupervisorScope(
-          res,
-          supervisorStatus,
-          scheduleList.map((s) => s.employeeID),
-        ))
-      )
-        return;
-
-      const validationErrors = await validateScheduleList(scheduleList);
-      if (validationErrors.length > 0) {
-        const first = validationErrors[0];
-        return res.status(400).json({
-          message: first.message,
-          overlap: first.overlap || null,
-          allErrors: validationErrors,
-        });
-      }
-
-      const existingScheduleMap = await getActiveSchedulesForEmployees(
-        scheduleList.map((s) => s.employeeID),
-      );
-      const existingScheduleWarnings = [];
-      for (const s of scheduleList) {
-        const existing = existingScheduleMap.get(String(s.employeeID)) || [];
-        for (const ex of existing) {
-          existingScheduleWarnings.push(
-            `Employee ${s.employeeID}: existing active schedule (${ex.startDate} – ${ex.endDate}) was set to Inactive by this upload.`,
-          );
-        }
-      }
-
-      let insertedCount = 0;
-      let autoAttendanceInserted = 0;
-      let autoAttendanceSkipped = 0;
-      const processedRecords = [];
-      const insertWarnings = [
-        ...multiDeptWarnings,
-        ...outOfDeptWarnings,
-        ...existingScheduleWarnings,
-      ];
-
-      for (const s of scheduleList) {
-        let conn;
-        try {
-          conn = await getConnectionAsync(db);
-          await beginTransaction(conn);
-
-          await queryAsync(
-            conn,
-            "UPDATE officialtime SET status = 'inactive' WHERE employeeID = ?",
-            [s.employeeID],
-          );
-
-          const values = s.rows.map((row) => [
-            s.employeeID,
-            s.academicYear,
-            s.startDate,
-            s.endDate,
-            row.day ?? null,
-            row.officialTimeIN ?? null,
-            row.officialBreaktimeIN ?? null,
-            row.officialBreaktimeOUT ?? null,
-            row.officialTimeOUT ?? null,
-            row.officialHonorariumTimeIN ?? null,
-            row.officialHonorariumTimeOUT ?? null,
-            row.officialServiceCreditTimeIN ?? null,
-            row.officialServiceCreditTimeOUT ?? null,
-            row.officialOverTimeIN ?? null,
-            row.officialOverTimeOUT ?? null,
-            "active",
-            row.breaktime ?? null,
-          ]);
-
-          const result = await queryAsync(
-            conn,
-            `
-          INSERT INTO officialtime (
-            employeeID, academicYear, startDate, endDate, day,
-            officialTimeIN, officialBreaktimeIN, officialBreaktimeOUT, officialTimeOUT,
-            officialHonorariumTimeIN, officialHonorariumTimeOUT,
-            officialServiceCreditTimeIN, officialServiceCreditTimeOUT,
-            officialOverTimeIN, officialOverTimeOUT, status, breaktime
-          ) VALUES ?`,
-            [values],
-          );
-
-          await commitTransaction(conn);
-          insertedCount += result.affectedRows || 0;
-
-          // [NEW] Save a supervisor officialtime_history snapshot for this
-          // block, so department-scoped Excel uploads show up in "Past
-          // Periods" / "Employees Changed" the same way manual edit does.
-          try {
-            await saveSupervisorOfficialTimeSnapshot({
-              user: req.user,
-              employeeID: s.employeeID,
-              startDate: s.startDate,
-              endDate: s.endDate,
-            });
-          } catch (histErr) {
-            console.error(
-              `[officialtime] History snapshot failed for ${s.employeeID}:`,
-              histErr.message,
-            );
-            insertWarnings.push(
-              `Employee ${s.employeeID}: history snapshot not saved (${histErr.message}).`,
-            );
-          }
-
-          try {
-            const autoResult = await fillExemptAttendance({
-              startDate: normDate(s.startDate),
-              endDate: normDate(s.endDate),
-              employeeIDs: [s.employeeID],
-            });
-            autoAttendanceInserted += autoResult.inserted;
-            autoAttendanceSkipped += autoResult.skipped;
-            if (autoResult.errors.length > 0)
-              insertWarnings.push(...autoResult.errors);
-          } catch (autoErr) {
-            insertWarnings.push(
-              `Employee ${s.employeeID}: Auto-attendance trigger failed. Reason: ${autoErr.message}`,
-            );
-          }
-
-          for (const row of s.rows) {
-            if (
-              row._statusFromFile &&
-              String(row._statusFromFile).toLowerCase() !== "active"
-            )
-              insertWarnings.push(
-                `Employee ${s.employeeID} day ${row.day}: Excel status "${row._statusFromFile}" ignored — inserted as "active".`,
-              );
-
-            processedRecords.push({
-              employeeID: s.employeeID,
-              academicYear: s.academicYear,
-              startDate: s.startDate,
-              endDate: s.endDate,
-              day: row.day,
-              status: "active",
-              officialTimeIN: row.officialTimeIN,
-              officialBreaktimeIN: row.officialBreaktimeIN,
-              officialBreaktimeOUT: row.officialBreaktimeOUT,
-              officialTimeOUT: row.officialTimeOUT,
-              officialHonorariumTimeIN: row.officialHonorariumTimeIN,
-              officialHonorariumTimeOUT: row.officialHonorariumTimeOUT,
-              officialServiceCreditTimeIN: row.officialServiceCreditTimeIN,
-              officialServiceCreditTimeOUT: row.officialServiceCreditTimeOUT,
-              officialOverTimeIN: row.officialOverTimeIN,
-              officialOverTimeOUT: row.officialOverTimeOUT,
-              breaktime: row.breaktime,
-            });
-          }
-        } catch (empErr) {
-          await rollbackTransaction(conn);
-          insertWarnings.push(
-            `Employee ${s.employeeID}: Insert failed and was rolled back — existing schedule remains active. Reason: ${empErr.message}`,
-          );
-        } finally {
-          releaseConnection(conn);
-        }
-      }
-
-      if (!insertedCount)
-        return res.status(400).json({
-          message: "Upload parsed successfully but no records were inserted.",
-          warnings: insertWarnings,
-          skippedRows,
-        });
-
-      const affectedEmployees = normalizeEmployeeList(
-        scheduleList.map((s) => s.employeeID),
-      );
-      try {
-        logAudit(
-          req.user,
-          `Upload official time via Excel for department "${department}" (${insertedCount} rows)`,
-          "Official Time",
-          null,
-          null,
-          buildOfficialTimeActionAuditDetails({
-            source: "excel-upload-by-department",
-            affectedEmployeeNumbers: affectedEmployees,
-            blockCount: scheduleList.length,
-            rowCount: scheduleList.reduce(
-              (sum, s) => sum + (s.rows?.length || 0),
-              0,
-            ),
-            insertedCount,
-            skippedCount: skippedRows.length,
-            notes: `department=${department}`,
-          }),
-        );
-      } catch (e) {
-        console.error("Audit log error:", e);
-      }
-
-      res.json({
-        message: `Upload complete for department "${department}". Uploaded schedules are Active; previous active schedules for affected employees set to Inactive.`,
-        inserted: insertedCount,
-        autoAttendance: {
-          inserted: autoAttendanceInserted,
-          skipped: autoAttendanceSkipped,
-        },
-        records: processedRecords,
-        warnings: [
-          ...skippedRows.map((r) => `Row ${r.row} skipped: ${r.reason}`),
-          ...insertWarnings,
-        ],
-      });
-      if (affectedEmployees.length > 0) {
-        notifyAttendanceChanged("official-time-updated", {
-          scope: "officialtime",
-          personIDs: affectedEmployees,
-        });
-      }
-    } catch (error) {
-      console.error("Error processing department Excel file:", error);
-      res
-        .status(500)
-        .json({
-          message: "Error processing Excel file.",
-          detail: error.message,
-        });
-    } finally {
-      safeUnlink(filePath);
-    }
-  },
-);
-
-// ─────────────────────────────────────────────────────────────────────────────
-// #26 EMPLOYMENT-CATEGORY-SCOPED EXCEL UPLOAD
-//
-// Identical pipeline to the Department-scoped upload above, but restricts
-// processing to employees whose employment_category.employmentCategory
-// matches the selected employment_type_config.id (e.g. "Non-Teaching |
-// General Administration"). Department and Employment Category are
-// independent axes — an admin might want to bulk-upload "College of
-// Engineering" (department) OR "Non-Teaching | General Administration"
-// (employment category), so this route mirrors the department one 1:1.
-// Just like the department route, membership is resolved from the SYSTEM
-// via employeeID — the Excel file never carries a category column.
-// ─────────────────────────────────────────────────────────────────────────────
-
-router.post(
-  "/upload-excel-faculty-official-time-by-category/validate",
-  authenticateToken,
-  upload.single("file"),
-  async (req, res) => {
-    if (!req.file)
-      return res.status(400).json({ message: "No file uploaded." });
-    const filePath = req.file.path;
-    const supervisorStatus = await ensureActiveSupervisorAssignment(req, res);
-if (!supervisorStatus) { safeUnlink(filePath); return; }
-    const { employmentCategory } = req.body || {};
-    const categoryId = employmentCategory
-      ? parseInt(employmentCategory, 10)
-      : null;
-
-    if (!categoryId)
-      return res
-        .status(400)
-        .json({
-          message: "employmentCategory is required for this upload route.",
-        });
-
-    try {
-      if (req.file.size > MAX_UPLOAD_BYTES)
-        return res.status(400).json({
-          message: `File too large. Maximum allowed size is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`,
-        });
-
-      const categoryLabel = await getEmploymentCategoryLabel(categoryId);
-      if (!categoryLabel)
-        return res
-          .status(404)
-          .json({ message: "Employment category not found." });
-
-      const categoryEmployeeIDs = await getCategoryEmployeeIDs(categoryId);
-
-      const sheet = readWorkbookSheet(filePath);
-      if (!sheet.length)
-        return res.status(400).json({ message: "Excel file is empty." });
-
-      const cleanedSheet = sheet.map(normaliseRow);
-      const { groups, skippedRows, timeErrors } =
-        parseSheetIntoGroups(cleanedSheet);
-
-      if (timeErrors.length > 0)
-        return res
-          .status(400)
-          .json({
-            message: "Invalid time format(s) found in Excel.",
-            timeErrors,
-          });
-
-      let scheduleList = Array.from(groups.values()).filter(
-        (g) => g.rows.length > 0,
-      );
-
-      // Cross-category detection — evaluated against the FULL, unfiltered
-      // list so every category actually present in the file can be named
-      // before any rows get filtered out below.
-      const allEmployeeIDsInFile = [
-        ...new Set(scheduleList.map((s) => String(s.employeeID))),
-      ];
-      const employeeCatMap = await getEmployeeCategoryMap(allEmployeeIDsInFile);
-      const distinctCategoriesInFile = [
-        ...new Set(
-          allEmployeeIDsInFile
-            .map((id) => employeeCatMap.get(id)?.categoryLabel || null)
-            .filter(Boolean),
-        ),
-      ];
-      const multiCategoryWarnings = [];
-      if (distinctCategoriesInFile.length > 1) {
-        const otherCats = distinctCategoriesInFile.filter(
-          (c) => c !== categoryLabel,
-        );
-        multiCategoryWarnings.push(
-          `This file contains employees from multiple employment categories (${distinctCategoriesInFile.join(", ")}). Only rows for employees in "${categoryLabel}" will be processed — rows for ${otherCats.length ? otherCats.join(", ") : "other categories"} will be skipped.`,
-        );
-      }
-
-      // Filter out employees not in the selected employment category
-      const outOfCategoryWarnings = [];
-      if (categoryEmployeeIDs) {
-        const before = scheduleList.length;
-        scheduleList = scheduleList.filter((s) => {
-          const inCategory = categoryEmployeeIDs.has(String(s.employeeID));
-          if (!inCategory) {
-            const actualCat = employeeCatMap.get(
-              String(s.employeeID),
-            )?.categoryLabel;
-            outOfCategoryWarnings.push(
-              `Employee ${s.employeeID}${actualCat ? ` (belongs to "${actualCat}")` : " (no employment category assigned)"} is not assigned to employment category "${categoryLabel}" — skipped. Use the regular upload if you intended to include them.`,
-            );
-          }
-          return inCategory;
-        });
-        if (before > 0 && scheduleList.length === 0)
-          return res.status(400).json({
-            message: `None of the employees in this file belong to employment category "${categoryLabel}".`,
-            warnings: [...multiCategoryWarnings, ...outOfCategoryWarnings],
-          });
-      }
-
-      {
-        const scoped = await filterScheduleListToSupervisorScope(
-          supervisorStatus,
-          scheduleList,
-        );
-        const outOfScopeWarnings = scoped.skipped.map(
-          (id) =>
-            `Employee ${id} is outside your assigned department(s) — skipped.`,
-        );
-        scheduleList = scoped.scheduleList;
-        outOfCategoryWarnings.push(...outOfScopeWarnings);
-        if (scheduleList.length === 0 && scoped.skipped.length)
-          return res.status(400).json({
-            message:
-              "None of the employees in this file belong to your assigned department(s).",
-            warnings: [...multiCategoryWarnings, ...outOfCategoryWarnings],
-          });
-      }
-
-      if (scheduleList.length === 0)
-        return res.status(400).json({
-          message:
-            "No valid schedule blocks found for this employment category.",
-          skippedRows,
-        });
-
-      const validationErrors = await validateScheduleList(scheduleList);
-      if (validationErrors.length > 0) {
-        const first = validationErrors[0];
-        return res.status(400).json({
-          message: first.message,
-          overlap: first.overlap || null,
-          allErrors: validationErrors,
-        });
-      }
-
-      const statusWarnings = scheduleList.flatMap((s) =>
-        s.rows
-          .filter(
-            (r) =>
-              r._statusFromFile &&
-              String(r._statusFromFile).toLowerCase() !== "active",
-          )
-          .map(
-            (r) =>
-              `Row for employee ${s.employeeID} day ${r.day} had status="${r._statusFromFile}" in Excel — will be inserted as "active".`,
-          ),
-      );
-
-      const existingScheduleMap = await getActiveSchedulesForEmployees(
-        scheduleList.map((s) => s.employeeID),
-      );
-      const existingScheduleWarnings = [];
-      for (const s of scheduleList) {
-        const existing = existingScheduleMap.get(String(s.employeeID)) || [];
-        for (const ex of existing) {
-          existingScheduleWarnings.push(
-            `Employee ${s.employeeID} already has an active schedule (${ex.startDate} – ${ex.endDate}) that will be set to Inactive once this upload is confirmed.`,
-          );
-        }
-      }
-
-      return res.json({
-        message: `Validation passed for employment category "${categoryLabel}". No overlaps detected.`,
-        employmentCategory: categoryId,
-        employmentCategoryLabel: categoryLabel,
-        schedules: scheduleList.map((s) => ({
-          employeeID: s.employeeID,
-          // [NEW] Display-only, from the Excel "Name" column if present.
-          name: s.employeeName || null,
-          academicYear: s.academicYear,
-          startDate: s.startDate,
-          endDate: s.endDate,
-          rows: s.rows.length,
-        })),
-        warnings: [
-          ...skippedRows.map((r) => `Row ${r.row} skipped: ${r.reason}`),
-          ...multiCategoryWarnings,
-          ...outOfCategoryWarnings,
-          ...existingScheduleWarnings,
-          ...statusWarnings,
-        ],
-      });
-    } catch (error) {
-      console.error("Error validating employment category Excel file:", error);
-      return res
-        .status(500)
-        .json({
-          message: "Error validating Excel file.",
-          detail: error.message,
-        });
-    } finally {
-      safeUnlink(filePath);
-    }
-  },
-);
-
-router.post(
-  "/upload-excel-faculty-official-time-by-category",
-  authenticateToken,
-  upload.single("file"),
-  async (req, res) => {
-    if (!req.file)
-      return res.status(400).json({ message: "No file uploaded." });
-    const filePath = req.file.path;
-    const supervisorStatus = await ensureActiveSupervisorAssignment(req, res);
-if (!supervisorStatus) { safeUnlink(filePath); return; }
-    const { employmentCategory } = req.body || {};
-    const categoryId = employmentCategory
-      ? parseInt(employmentCategory, 10)
-      : null;
-
-    if (!categoryId)
-      return res
-        .status(400)
-        .json({
-          message: "employmentCategory is required for this upload route.",
-        });
-
-    try {
-      if (req.file.size > MAX_UPLOAD_BYTES)
-        return res.status(400).json({
-          message: `File too large. Maximum allowed size is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`,
-        });
-
-      const categoryLabel = await getEmploymentCategoryLabel(categoryId);
-      if (!categoryLabel)
-        return res
-          .status(404)
-          .json({ message: "Employment category not found." });
-
-      const categoryEmployeeIDs = await getCategoryEmployeeIDs(categoryId);
-
-      const sheet = readWorkbookSheet(filePath);
-      if (!sheet.length)
-        return res.status(400).json({ message: "Excel file is empty." });
-
-      const cleanedSheet = sheet.map(normaliseRow);
-      const { groups, skippedRows, timeErrors } =
-        parseSheetIntoGroups(cleanedSheet);
-
-      if (timeErrors.length > 0)
-        return res
-          .status(400)
-          .json({
-            message: "Invalid time format(s) found in Excel.",
-            timeErrors,
-          });
-
-      let scheduleList = Array.from(groups.values()).filter(
-        (g) => g.rows.length > 0,
-      );
-
-      const allEmployeeIDsInFile = [
-        ...new Set(scheduleList.map((s) => String(s.employeeID))),
-      ];
-      const employeeCatMap = await getEmployeeCategoryMap(allEmployeeIDsInFile);
-      const distinctCategoriesInFile = [
-        ...new Set(
-          allEmployeeIDsInFile
-            .map((id) => employeeCatMap.get(id)?.categoryLabel || null)
-            .filter(Boolean),
-        ),
-      ];
-      const multiCategoryWarnings = [];
-      if (distinctCategoriesInFile.length > 1) {
-        const otherCats = distinctCategoriesInFile.filter(
-          (c) => c !== categoryLabel,
-        );
-        multiCategoryWarnings.push(
-          `This file contained employees from multiple employment categories (${distinctCategoriesInFile.join(", ")}). Only rows for "${categoryLabel}" were processed — rows for ${otherCats.length ? otherCats.join(", ") : "other categories"} were skipped.`,
-        );
-      }
-
-      const outOfCategoryWarnings = [];
-      if (categoryEmployeeIDs) {
-        scheduleList = scheduleList.filter((s) => {
-          const inCategory = categoryEmployeeIDs.has(String(s.employeeID));
-          if (!inCategory) {
-            const actualCat = employeeCatMap.get(
-              String(s.employeeID),
-            )?.categoryLabel;
-            outOfCategoryWarnings.push(
-              `Employee ${s.employeeID}${actualCat ? ` (belongs to "${actualCat}")` : " (no employment category assigned)"} is not assigned to employment category "${categoryLabel}" — skipped.`,
-            );
-          }
-          return inCategory;
-        });
-      }
-
-      {
-        const scoped = await filterScheduleListToSupervisorScope(
-          supervisorStatus,
-          scheduleList,
-        );
-        const outOfScopeWarnings = scoped.skipped.map(
-          (id) =>
-            `Employee ${id} is outside your assigned department(s) — skipped.`,
-        );
-        scheduleList = scoped.scheduleList;
-        outOfCategoryWarnings.push(...outOfScopeWarnings);
-      }
-
-      if (scheduleList.length === 0)
-        return res.status(400).json({
-          message: `No valid schedule blocks found for employment category "${categoryLabel}".`,
-          skippedRows,
-        });
-
-      const validationErrors = await validateScheduleList(scheduleList);
-      if (validationErrors.length > 0) {
-        const first = validationErrors[0];
-        return res.status(400).json({
-          message: first.message,
-          overlap: first.overlap || null,
-          allErrors: validationErrors,
-        });
-      }
-
-      const existingScheduleMap = await getActiveSchedulesForEmployees(
-        scheduleList.map((s) => s.employeeID),
-      );
-      const existingScheduleWarnings = [];
-      for (const s of scheduleList) {
-        const existing = existingScheduleMap.get(String(s.employeeID)) || [];
-        for (const ex of existing) {
-          existingScheduleWarnings.push(
-            `Employee ${s.employeeID}: existing active schedule (${ex.startDate} – ${ex.endDate}) was set to Inactive by this upload.`,
-          );
-        }
-      }
-
-      let insertedCount = 0;
-      let autoAttendanceInserted = 0;
-      let autoAttendanceSkipped = 0;
-      const processedRecords = [];
-      const insertWarnings = [
-        ...multiCategoryWarnings,
-        ...outOfCategoryWarnings,
-        ...existingScheduleWarnings,
-      ];
-
-      for (const s of scheduleList) {
-        let conn;
-        try {
-          conn = await getConnectionAsync(db);
-          await beginTransaction(conn);
-
-          await queryAsync(
-            conn,
-            "UPDATE officialtime SET status = 'inactive' WHERE employeeID = ?",
-            [s.employeeID],
-          );
-
-          const values = s.rows.map((row) => [
-            s.employeeID,
-            s.academicYear,
-            s.startDate,
-            s.endDate,
-            row.day ?? null,
-            row.officialTimeIN ?? null,
-            row.officialBreaktimeIN ?? null,
-            row.officialBreaktimeOUT ?? null,
-            row.officialTimeOUT ?? null,
-            row.officialHonorariumTimeIN ?? null,
-            row.officialHonorariumTimeOUT ?? null,
-            row.officialServiceCreditTimeIN ?? null,
-            row.officialServiceCreditTimeOUT ?? null,
-            row.officialOverTimeIN ?? null,
-            row.officialOverTimeOUT ?? null,
-            "active",
-            row.breaktime ?? null,
-          ]);
-
-          const result = await queryAsync(
-            conn,
-            `
-          INSERT INTO officialtime (
-            employeeID, academicYear, startDate, endDate, day,
-            officialTimeIN, officialBreaktimeIN, officialBreaktimeOUT, officialTimeOUT,
-            officialHonorariumTimeIN, officialHonorariumTimeOUT,
-            officialServiceCreditTimeIN, officialServiceCreditTimeOUT,
-            officialOverTimeIN, officialOverTimeOUT, status, breaktime
-          ) VALUES ?`,
-            [values],
-          );
-
-          await commitTransaction(conn);
-          insertedCount += result.affectedRows || 0;
-
-          // [NEW] Save a supervisor officialtime_history snapshot for this
-          // block, so category-scoped Excel uploads show up in "Past
-          // Periods" / "Employees Changed" the same way manual edit does.
-          try {
-            await saveSupervisorOfficialTimeSnapshot({
-              user: req.user,
-              employeeID: s.employeeID,
-              startDate: s.startDate,
-              endDate: s.endDate,
-            });
-          } catch (histErr) {
-            console.error(
-              `[officialtime] History snapshot failed for ${s.employeeID}:`,
-              histErr.message,
-            );
-            insertWarnings.push(
-              `Employee ${s.employeeID}: history snapshot not saved (${histErr.message}).`,
-            );
-          }
-
-          try {
-            const autoResult = await fillExemptAttendance({
-              startDate: normDate(s.startDate),
-              endDate: normDate(s.endDate),
-              employeeIDs: [s.employeeID],
-            });
-            autoAttendanceInserted += autoResult.inserted;
-            autoAttendanceSkipped += autoResult.skipped;
-            if (autoResult.errors.length > 0)
-              insertWarnings.push(...autoResult.errors);
-          } catch (autoErr) {
-            insertWarnings.push(
-              `Employee ${s.employeeID}: Auto-attendance trigger failed. Reason: ${autoErr.message}`,
-            );
-          }
-
-          for (const row of s.rows) {
-            if (
-              row._statusFromFile &&
-              String(row._statusFromFile).toLowerCase() !== "active"
-            )
-              insertWarnings.push(
-                `Employee ${s.employeeID} day ${row.day}: Excel status "${row._statusFromFile}" ignored — inserted as "active".`,
-              );
-
-            processedRecords.push({
-              employeeID: s.employeeID,
-              academicYear: s.academicYear,
-              startDate: s.startDate,
-              endDate: s.endDate,
-              day: row.day,
-              status: "active",
-              officialTimeIN: row.officialTimeIN,
-              officialBreaktimeIN: row.officialBreaktimeIN,
-              officialBreaktimeOUT: row.officialBreaktimeOUT,
-              officialTimeOUT: row.officialTimeOUT,
-              officialHonorariumTimeIN: row.officialHonorariumTimeIN,
-              officialHonorariumTimeOUT: row.officialHonorariumTimeOUT,
-              officialServiceCreditTimeIN: row.officialServiceCreditTimeIN,
-              officialServiceCreditTimeOUT: row.officialServiceCreditTimeOUT,
-              officialOverTimeIN: row.officialOverTimeIN,
-              officialOverTimeOUT: row.officialOverTimeOUT,
-              breaktime: row.breaktime,
-            });
-          }
-        } catch (empErr) {
-          await rollbackTransaction(conn);
-          insertWarnings.push(
-            `Employee ${s.employeeID}: Insert failed and was rolled back — existing schedule remains active. Reason: ${empErr.message}`,
-          );
-        } finally {
-          releaseConnection(conn);
-        }
-      }
-
-      if (!insertedCount)
-        return res.status(400).json({
-          message: "Upload parsed successfully but no records were inserted.",
-          warnings: insertWarnings,
-          skippedRows,
-        });
-
-      const affectedEmployees = normalizeEmployeeList(
-        scheduleList.map((s) => s.employeeID),
-      );
-      try {
-        logAudit(
-          req.user,
-          `Upload official time via Excel for employment category "${categoryLabel}" (${insertedCount} rows)`,
-          "Official Time",
-          null,
-          null,
-          buildOfficialTimeActionAuditDetails({
-            source: "excel-upload-by-category",
-            affectedEmployeeNumbers: affectedEmployees,
-            blockCount: scheduleList.length,
-            rowCount: scheduleList.reduce(
-              (sum, s) => sum + (s.rows?.length || 0),
-              0,
-            ),
-            insertedCount,
-            skippedCount: skippedRows.length,
-            notes: `employmentCategory=${categoryLabel}`,
-          }),
-        );
-      } catch (e) {
-        console.error("Audit log error:", e);
-      }
-
-      res.json({
-        message: `Upload complete for employment category "${categoryLabel}". Uploaded schedules are Active; previous active schedules for affected employees set to Inactive.`,
-        inserted: insertedCount,
-        autoAttendance: {
-          inserted: autoAttendanceInserted,
-          skipped: autoAttendanceSkipped,
-        },
-        records: processedRecords,
-        warnings: [
-          ...skippedRows.map((r) => `Row ${r.row} skipped: ${r.reason}`),
-          ...insertWarnings,
-        ],
-      });
-      if (affectedEmployees.length > 0) {
-        notifyAttendanceChanged("official-time-updated", {
-          scope: "officialtime",
-          personIDs: affectedEmployees,
-        });
-      }
-    } catch (error) {
-      console.error("Error processing employment category Excel file:", error);
-      res
-        .status(500)
-        .json({
-          message: "Error processing Excel file.",
-          detail: error.message,
-        });
-    } finally {
-      safeUnlink(filePath);
-    }
-  },
-);
-
-// ─────────────────────────────────────────────────────────────────────────────
-// GET all users with their official time status
-// #24: now also returns employmentCategoryId / employmentCategoryLabel
-// (joined via employment_category → employment_type_config) alongside the
-// existing department info, so the frontend can filter/display both.
-// ─────────────────────────────────────────────────────────────────────────────
-
-router.get("/officialtime/users-status", authenticateToken, (req, res) => {
-  const loggedInEmployeeNumber = req.user.employeeNumber;
-
-  const sql = `
-    SELECT
-      u.employeeNumber,
-      u.email,
-      u.role,
-      p.firstName,
-      p.middleName,
-      p.lastName,
-      p.nameExtension,
-
-      dt.description AS department,
-
-      etc2.id AS employmentCategoryId,
-      etc2.parentGroup AS employmentCategoryGroup,
-      etc2.typeName AS employmentCategoryType,
-
-      latest_ot.academicYear,
-      latest_ot.startDate,
-      latest_ot.endDate,
-
-      CASE
-        WHEN COALESCE(active_days.dayCount, 0) >= 7
-        THEN 1
-        ELSE 0
-      END AS hasDefaultOfficialTime,
-
-      COALESCE(active_days.dayCount, 0) AS officialTimeDaysCount
-
-    FROM users u
-
-    LEFT JOIN person_table p
-      ON u.employeeNumber = p.agencyEmployeeNum
-
-    LEFT JOIN department_assignment da
-      ON u.employeeNumber = da.employeeNumber
-
-    LEFT JOIN department_table dt
-      ON da.code = dt.code
-
-    LEFT JOIN employment_category ec2
-      ON u.employeeNumber = ec2.employeeNumber
-
-    LEFT JOIN employment_type_config etc2
-      ON ec2.employmentCategory = etc2.id
-
-    LEFT JOIN (
-      SELECT
-        employeeID,
-        COUNT(DISTINCT day) AS dayCount
-      FROM officialtime
-      WHERE status = 'active'
-         OR status IS NULL
-      GROUP BY employeeID
-    ) active_days
-      ON u.employeeNumber = active_days.employeeID
-
-    LEFT JOIN (
-      SELECT
-        o.employeeID,
-        o.academicYear,
-        o.startDate,
-        o.endDate
-      FROM officialtime o
-
-      INNER JOIN (
-        SELECT
-          employeeID,
-          MAX(startDate) AS maxStart
-        FROM officialtime
-        WHERE status = 'active'
-        GROUP BY employeeID
-      ) m
-        ON o.employeeID = m.employeeID
-       AND o.startDate = m.maxStart
-
-      WHERE o.status = 'active'
-
-      GROUP BY
-        o.employeeID,
-        o.academicYear,
-        o.startDate,
-        o.endDate
-    ) latest_ot
-      ON u.employeeNumber = latest_ot.employeeID
-
-    WHERE
-      (
-        /* ==========================================
-           SUPERADMIN / TECHNICAL / ADMINISTRATOR
-           Can see ALL employees
-           ========================================== */
-        EXISTS (
-          SELECT 1
-          FROM users currentUser
-          WHERE currentUser.employeeNumber = ?
-            AND LOWER(currentUser.role) IN (
-              'superadmin',
-              'technical',
-              'administrator',
-              'admin'
-            )
-        )
-
-        OR
-
-        /* ==========================================
-           SUPERVISOR
-           Can VIEW employees in assigned department(s),
-           including after the assignment window expired.
-           Writes are still blocked separately by
-           ensureActiveSupervisorAssignment().
-           Assignment title is display-only.
-           ========================================== */
-        EXISTS (
-          SELECT 1
-          FROM supervisor_assignment sa
-          WHERE sa.supervisorEmployeeNumber = ?
-            AND sa.departmentCode = da.code
-        )
-      )
-
-    GROUP BY
-      u.employeeNumber,
-      u.email,
-      u.role,
-      p.firstName,
-      p.middleName,
-      p.lastName,
-      p.nameExtension,
-      dt.description,
-      etc2.id,
-      etc2.parentGroup,
-      etc2.typeName,
-      latest_ot.academicYear,
-      latest_ot.startDate,
-      latest_ot.endDate,
-      active_days.dayCount
-
-    ORDER BY
-      p.lastName,
-      p.firstName
-  `;
-
-  db.query(
-    sql,
-    [
-      loggedInEmployeeNumber,
-      loggedInEmployeeNumber,
-    ],
-    (err, results) => {
-      if (err) {
-        console.error("Error fetching users:", err);
-
-        return res.status(500).json({
-          error: err.message,
-        });
-      }
-
-      try {
-        logAudit(
-          req.user,
-          "View",
-          "Official Time Users Status",
-          null,
-          null,
-          buildOfficialTimeActionAuditDetails({
-            source: "view-users-status",
-            rowCount: (results || []).length,
-          }),
-        );
-      } catch (e) {
-        console.error("Audit log error:", e);
-      }
-
-      res.json(
-        (results || []).map((row) => ({
-          employeeNumber: row.employeeNumber,
-          email: row.email,
-          role: row.role,
-
-          firstName: row.firstName || "",
-          middleName: row.middleName || "",
-          lastName: row.lastName || "",
-          nameExtension: row.nameExtension || "",
-
-          fullName:
-            `${row.firstName || ""} ${
-              row.middleName ? row.middleName + " " : ""
-            }${row.lastName || ""}${
-              row.nameExtension ? " " + row.nameExtension : ""
-            }`.trim(),
-
-          department: row.department || "",
-
-          employmentCategoryId:
-            row.employmentCategoryId || null,
-
-          employmentCategoryLabel:
-            row.employmentCategoryGroup &&
-            row.employmentCategoryType
-              ? `${row.employmentCategoryGroup} | ${row.employmentCategoryType}`
-              : null,
-
-          academicYear: row.academicYear || null,
-
-          startDate: row.startDate
-            ? toDateOnlyString(row.startDate)
-            : null,
-
-          endDate: row.endDate
-            ? toDateOnlyString(row.endDate)
-            : null,
-
-          hasDefaultOfficialTime:
-            row.hasDefaultOfficialTime === 1,
-
-          officialTimeDaysCount:
-            row.officialTimeDaysCount || 0,
-        })),
-      );
-    },
+  const clearAllFilters = useCallback(() => {
+    setSearchQuery("");
+    setFilterDepartment("");
+    setFilterEmploymentCategory(""); // [NEW]
+    setFilterStatus("");
+    setFilterAcademicYear("");
+    setFilterStartDate("");
+    setFilterEndDate("");
+    setAllUsersPage(0);
+  }, []);
+
+  const activeFilterCount = [
+    filterDepartment,
+    filterEmploymentCategory, // [NEW]
+    filterStatus,
+    filterAcademicYear,
+    filterStartDate,
+    filterEndDate,
+  ].filter(Boolean).length;
+
+  const paginatedAllUsers = useMemo(
+    () => filteredAllUsers.slice(allUsersPage * allUsersRowsPerPage, (allUsersPage + 1) * allUsersRowsPerPage),
+    [filteredAllUsers, allUsersPage, allUsersRowsPerPage],
   );
-});
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET employees with a checked / not-yet status for one calendar month.
-// "Covered" means an active official-time schedule overlaps that month, so
-// payroll users can see who was already set up without opening each person.
-// Visibility matches /officialtime/users-status.
-// ─────────────────────────────────────────────────────────────────────────────
-router.get("/officialtime/month-coverage", authenticateToken, (req, res) => {
-  const loggedInEmployeeNumber = req.user.employeeNumber;
-  const year = parseInt(req.query.year, 10);
-  const month = parseInt(req.query.month, 10);
+  const openBulkModalForSelected = useCallback(() => {
+    if (selectedUsers.size === 0) { showToast("Please select at least one user."); return; }
+    setBulkScheduleBlocks([{ id: Date.now(), academicYear: "", semester: "", startDate: "", endDate: "" }]);
+    setBulkTargetEmployees(Array.from(selectedUsers));
+    setShowBulkBlocksModal(true);
+  }, [selectedUsers, showToast]);
 
-  if (
-    !Number.isInteger(year) ||
-    year < 2000 ||
-    year > 2100 ||
-    !Number.isInteger(month) ||
-    month < 1 ||
-    month > 12
-  ) {
-    return res.status(400).json({ error: "A valid year and month are required." });
-  }
+  const openBulkModalForAllMissing = useCallback(() => {
+    const missing = allUsers.filter((u) => !u.hasDefaultOfficialTime).map((u) => u.employeeNumber);
+    if (missing.length === 0) { showToast("All users already have default official time."); return; }
+    setBulkScheduleBlocks([{ id: Date.now(), academicYear: "", semester: "", startDate: "", endDate: "" }]);
+    setBulkTargetEmployees(missing);
+    setShowBulkBlocksModal(true);
+  }, [allUsers, showToast]);
 
-  const monthStart = `${year}-${String(month).padStart(2, "0")}-01`;
-  const monthEnd = `${year}-${String(month).padStart(2, "0")}-${String(lastDayOfMonth(year, month)).padStart(2, "0")}`;
+  const handleConfirmBulkBlocks = useCallback(() => {
+    const block = bulkScheduleBlocks[0];
+    if (!block) return;
+    if (!block.academicYear || !block.startDate || !block.endDate) { showToast("Please complete all required fields."); return; }
+    setIsBulkSchedule(true);
+    setDraftAcademicYear(block.academicYear);
+    setDraftSemester(block.semester);
+    setDraftStartDate(block.startDate);
+    setDraftEndDate(block.endDate);
+    const empId = String(bulkTargetEmployees[0] || "");
+    setEmployeeID(empId);
+    setModalRecords(DAYS_ORDER.map((day) => makeDefaultRow(empId, day)));
+    setModalScheduleView("workDays");
+    setShowBulkBlocksModal(false);
+    setShowScheduleModal(true);
+  }, [bulkScheduleBlocks, bulkTargetEmployees, showToast]);
 
-  const sql = `
-    SELECT
-      u.employeeNumber,
-      p.firstName,
-      p.middleName,
-      p.lastName,
-      p.nameExtension,
-      MAX(dt.description) AS department,
-      MAX(overlap.academicYear) AS academicYear,
-      MAX(overlap.startDate) AS startDate,
-      MAX(overlap.endDate) AS endDate,
-      CASE
-        WHEN MAX(overlap.employeeID) IS NOT NULL THEN 1
-        ELSE 0
-      END AS covered
-    FROM users u
-    LEFT JOIN person_table p
-      ON u.employeeNumber = p.agencyEmployeeNum
-    LEFT JOIN department_assignment da
-      ON u.employeeNumber = da.employeeNumber
-    LEFT JOIN department_table dt
-      ON da.code = dt.code
-    LEFT JOIN (
-      SELECT
-        employeeID,
-        MAX(academicYear) AS academicYear,
-        MAX(startDate) AS startDate,
-        MAX(endDate) AS endDate
-      FROM officialtime
-      WHERE (status = 'active' OR status IS NULL)
-        AND startDate <= ?
-        AND (endDate IS NULL OR endDate = '' OR endDate >= ?)
-      GROUP BY employeeID
-    ) overlap
-      ON u.employeeNumber = overlap.employeeID
-    WHERE
-      (
-        EXISTS (
-          SELECT 1
-          FROM users currentUser
-          WHERE currentUser.employeeNumber = ?
-            AND LOWER(currentUser.role) IN (
-              'superadmin',
-              'technical',
-              'administrator',
-              'admin'
-            )
-        )
-        OR
-        EXISTS (
-          SELECT 1
-          FROM supervisor_assignment sa
-          WHERE sa.supervisorEmployeeNumber = ?
-            AND sa.departmentCode = da.code
-        )
-      )
-    GROUP BY
-      u.employeeNumber,
-      p.firstName,
-      p.middleName,
-      p.lastName,
-      p.nameExtension
-    ORDER BY
-      p.lastName,
-      p.firstName
-  `;
+  const shiftStatusMonth = useCallback((delta) => {
+    const next = new Date(statusYear, statusMonth - 1 + delta, 1);
+    setStatusYear(next.getFullYear());
+    setStatusMonth(next.getMonth() + 1);
+  }, [statusYear, statusMonth]);
 
-  db.query(
-    sql,
-    [`${monthEnd} 23:59:59`, monthStart, loggedInEmployeeNumber, loggedInEmployeeNumber],
-    (err, results) => {
-      if (err) {
-        console.error("Error fetching official time month coverage:", err);
-        return res.status(500).json({ error: err.message });
-      }
+  const monthStatusDepartments = useMemo(() => {
+    return [...new Set(monthStatusRows.map((r) => r.department).filter(Boolean))].sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: "base" }),
+    );
+  }, [monthStatusRows]);
 
-      res.json({
-        year,
-        month,
-        monthStart,
-        monthEnd,
-        employees: (results || []).map((row) => ({
-          employeeNumber: row.employeeNumber,
-          firstName: row.firstName || "",
-          middleName: row.middleName || "",
-          lastName: row.lastName || "",
-          nameExtension: row.nameExtension || "",
-          fullName:
-            `${row.firstName || ""} ${
-              row.middleName ? row.middleName + " " : ""
-            }${row.lastName || ""}${
-              row.nameExtension ? " " + row.nameExtension : ""
-            }`.trim(),
-          department: row.department || "",
-          academicYear: row.academicYear || null,
-          startDate: row.startDate ? toDateOnlyString(row.startDate) : null,
-          endDate: row.endDate ? toDateOnlyString(row.endDate) : null,
-          covered: row.covered === 1,
-        })),
-      });
-    },
-  );
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// POST set default official time for selected users
-// ─────────────────────────────────────────────────────────────────────────────
-
-router.post(
-  "/officialtime/set-default-for-users",
-  authenticateToken,
-  async (req, res) => {
-    const supervisorStatus = await ensureActiveSupervisorAssignment(req, res);
-    if (!supervisorStatus) return;
-
-    const { employeeNumbers } = req.body;
-    if (!supervisorStatus.bypassed) {
-      if (
-        !employeeNumbers ||
-        !Array.isArray(employeeNumbers) ||
-        employeeNumbers.length === 0
-      ) {
-        return res.status(403).json({
-          message:
-            "You can only set default official time for employees in your assigned department(s).",
-        });
-      }
-      if (
-        !(await assertEmployeesInSupervisorScope(
-          res,
-          supervisorStatus,
-          employeeNumbers,
-        ))
-      )
-        return;
-    }
-    const defaultTimes = {
-      officialTimeIN: "08:00:00 AM",
-      officialBreaktimeIN: "00:00:00 AM",
-      officialBreaktimeOUT: "00:00:00 AM",
-      officialTimeOUT: "05:00:00 PM",
-      officialHonorariumTimeIN: "00:00:00 AM",
-      officialHonorariumTimeOUT: "00:00:00 AM",
-      officialServiceCreditTimeIN: "00:00:00 AM",
-      officialServiceCreditTimeOUT: "00:00:00 AM",
-      officialOverTimeIN: "00:00:00 AM",
-      officialOverTimeOUT: "00:00:00 AM",
-      breaktime: "",
+  const monthStatusSummary = useMemo(() => {
+    const scoped = monthStatusDepartment
+      ? monthStatusRows.filter((r) => r.department === monthStatusDepartment)
+      : monthStatusRows;
+    return {
+      total: scoped.length,
+      done: scoped.filter((r) => r.covered).length,
     };
-    const days = DAYS_ORDER;
+  }, [monthStatusRows, monthStatusDepartment]);
 
-    let userQuery = "SELECT employeeNumber FROM users";
-    let queryParams = [];
-    if (
-      employeeNumbers &&
-      Array.isArray(employeeNumbers) &&
-      employeeNumbers.length > 0
-    ) {
-      userQuery += ` WHERE employeeNumber IN (${employeeNumbers.map(() => "?").join(",")})`;
-      queryParams = employeeNumbers;
+  const visibleMonthStatusRows = useMemo(() => {
+    let list = monthStatusRows;
+    if (monthStatusDepartment) list = list.filter((r) => r.department === monthStatusDepartment);
+    if (monthStatusFilter === "done") list = list.filter((r) => r.covered);
+    if (monthStatusFilter === "missing") list = list.filter((r) => !r.covered);
+    if (monthStatusQuery.trim()) {
+      const q = monthStatusQuery.trim().toLowerCase();
+      list = list.filter(
+        (r) =>
+          (r.fullName || "").toLowerCase().includes(q) ||
+          String(r.employeeNumber || "").toLowerCase().includes(q),
+      );
     }
+    return sortEmployeesByLastName(list);
+  }, [monthStatusRows, monthStatusDepartment, monthStatusFilter, monthStatusQuery]);
 
-    db.query(userQuery, queryParams, (err, users) => {
-      if (err) {
-        console.error("Error fetching users:", err);
-        return res.status(500).json({ error: err.message });
-      }
-
-      let processedCount = 0,
-        insertedCount = 0,
-        skippedCount = 0;
-      const errors = [];
-
-      const processUser = (user, callback) => {
-        const employeeID = user.employeeNumber;
-        db.query(
-          "SELECT COUNT(*) as count FROM officialtime WHERE employeeID = ?",
-          [employeeID],
-          (checkErr, checkResult) => {
-            if (checkErr) {
-              errors.push(`Error checking ${employeeID}: ${checkErr.message}`);
-              return callback();
-            }
-            if ((checkResult[0]?.count || 0) > 0) {
-              skippedCount++;
-              processedCount++;
-              return callback();
-            }
-
-            const values = days.map((day) => [
-              employeeID,
-              null,
-              "1970-01-01",
-              "2099-12-31",
-              day,
-              defaultTimes.officialTimeIN,
-              defaultTimes.officialBreaktimeIN,
-              defaultTimes.officialBreaktimeOUT,
-              defaultTimes.officialTimeOUT,
-              defaultTimes.officialHonorariumTimeIN,
-              defaultTimes.officialHonorariumTimeOUT,
-              defaultTimes.officialServiceCreditTimeIN,
-              defaultTimes.officialServiceCreditTimeOUT,
-              defaultTimes.officialOverTimeIN,
-              defaultTimes.officialOverTimeOUT,
-              "active",
-              defaultTimes.breaktime,
-            ]);
-
-            db.query(
-              `INSERT INTO officialtime (employeeID, academicYear, startDate, endDate, day, officialTimeIN, officialBreaktimeIN, officialBreaktimeOUT, officialTimeOUT, officialHonorariumTimeIN, officialHonorariumTimeOUT, officialServiceCreditTimeIN, officialServiceCreditTimeOUT, officialOverTimeIN, officialOverTimeOUT, status, breaktime) VALUES ?`,
-              [values],
-              (insertErr, insertResult) => {
-                if (insertErr)
-                  errors.push(
-                    `Error setting default for ${employeeID}: ${insertErr.message}`,
-                  );
-                else insertedCount += insertResult.affectedRows || 0;
-                processedCount++;
-                callback();
-              },
-            );
-          },
-        );
-      };
-
-      let currentIndex = 0;
-      const processNext = () => {
-        if (currentIndex >= users.length) {
-          try {
-            const affectedEmployees = normalizeEmployeeList(
-              Array.isArray(employeeNumbers) && employeeNumbers.length > 0
-                ? employeeNumbers
-                : users.map((u) => u.employeeNumber),
-            );
-            logAudit(
-              req.user,
-              `Set default official time for ${processedCount} users`,
-              "Official Time",
-              null,
-              affectedEmployees.length === 1 ? affectedEmployees[0] : null,
-              buildOfficialTimeActionAuditDetails({
-                source: "set-default-for-users",
-                status: errors.length > 0 ? "partial" : "success",
-                affectedEmployeeNumbers: affectedEmployees,
-                insertedCount,
-                skippedCount,
-                failedCount: errors.length,
-                notes:
-                  errors.length > 0
-                    ? `${errors.length} error(s) occurred while setting defaults.`
-                    : null,
-              }),
-            );
-          } catch (e) {
-            console.error("Audit log error:", e);
-          }
-          return res.json({
-            message: "Default official time set successfully",
-            processed: processedCount,
-            inserted: insertedCount,
-            insertedUsers: Math.floor((insertedCount || 0) / 7),
-            skipped: skippedCount,
-            errors: errors.length > 0 ? errors : undefined,
-          });
-        }
-        processUser(users[currentIndex], () => {
-          currentIndex++;
-          processNext();
-        });
-      };
-
-      if (users.length === 0)
-        return res.json({
-          message: "No users found",
-          processed: 0,
-          inserted: 0,
-        });
-      processNext();
+  const openEmployeeFromStatus = useCallback((row) => {
+    if (viewMode !== "single") setViewMode("single");
+    const monthStart = `${statusYear}-${String(statusMonth).padStart(2, "0")}-01`;
+    const last = new Date(statusYear, statusMonth, 0).getDate();
+    const monthEnd = `${statusYear}-${String(statusMonth).padStart(2, "0")}-${String(last).padStart(2, "0")}`;
+    handleEmployeeSelect({
+      employeeNumber: row.employeeNumber,
+      name: row.fullName || row.employeeNumber,
+      department: row.department || "",
     });
-  },
-);
-
-// ─────────────────────────────────────────────────────────────────────────────
-// POST bulk create schedules for multiple employees
-// #3: Per-employee transaction for atomicity
-// ─────────────────────────────────────────────────────────────────────────────
-
-router.post(
-  "/officialtime/bulk-schedules",
-  authenticateToken,
-  async (req, res) => {
-    const supervisorStatus = await ensureActiveSupervisorAssignment(req, res);
-    if (!supervisorStatus) return;
-
-    const { employeeIDs, blocks, records } = req.body || {};
-
-    if (!employeeIDs || !Array.isArray(employeeIDs) || !employeeIDs.length)
-      return res.status(400).json({
-        message: "employeeIDs is required and must be a non-empty array.",
-      });
-    if (
-      !(await assertEmployeesInSupervisorScope(
-        res,
-        supervisorStatus,
-        employeeIDs,
-      ))
-    )
-      return;
-    if (!blocks || !Array.isArray(blocks) || !blocks.length)
-      return res.status(400).json({
-        message:
-          "blocks is required and must contain at least one schedule block.",
-      });
-    if (!records || !Array.isArray(records) || !records.length)
-      return res.status(400).json({
-        message: "records is required and must contain at least one day row.",
-      });
-
-    // Validate time overlaps in the template rows
-    for (const row of records) {
-      const segments = getSegmentsForDayRow(row);
-      const overlap = findOverlapInSegments(segments);
-      if (overlap)
-        return res.status(400).json({
-          message: formatTimeOverlapMessage({
-            day: row.day,
-            employeeID: "multiple",
-            segA: overlap.a,
-            segB: overlap.b,
-          }),
-          overlap: buildTimeOverlapPayload({
-            day: row.day,
-            employeeID: "multiple",
-            segA: overlap.a,
-            segB: overlap.b,
-          }),
-        });
+    if (!row.covered) {
+      setDraftStartDate(monthStart);
+      setDraftEndDate(monthEnd);
     }
+  }, [viewMode, statusYear, statusMonth, handleEmployeeSelect]);
 
-    // #7: Duplicate day in template
-    const dupDay = hasDuplicateDay(records);
-    if (dupDay)
-      return res.status(400).json({
-        message: `Duplicate day "${dupDay}" found in records. Each day must appear only once.`,
-      });
-
-    for (const b of blocks) {
-      if (!b || !b.startDate || !b.endDate)
-        return res
-          .status(400)
-          .json({ message: "Each block must have startDate and endDate." });
-      if (new Date(b.startDate) > new Date(b.endDate))
-        return res.status(400).json({
-          message: `Block startDate must be on or before endDate (${b.startDate} > ${b.endDate}).`,
-        });
-    }
-
-    const results = [];
-
-    for (const empIdRaw of employeeIDs) {
-      const employeeID = String(empIdRaw || "").trim();
-      if (!employeeID) continue;
-
-      const empResult = { employeeID, inserted: 0, errors: [] };
-
-      // Pre-check all blocks for this employee (#2: active-only)
-      const blockOverlaps = [];
-      for (const b of blocks) {
-        const overlaps = await hasOverlappingRange(
-          db,
-          employeeID,
-          b.startDate,
-          b.endDate,
-        );
-        if (overlaps)
-          blockOverlaps.push(
-            `Overlap for ${employeeID} on ${b.startDate}–${b.endDate}`,
-          );
-      }
-      if (blockOverlaps.length === blocks.length) {
-        empResult.errors = blockOverlaps;
-        results.push(empResult);
-        continue;
-      }
-
-      // #3: Per-employee transaction
-      let conn;
-      try {
-        conn = await getConnectionAsync(db);
-        await beginTransaction(conn);
-        await queryAsync(
-          conn,
-          "UPDATE officialtime SET status = 'inactive' WHERE employeeID = ?",
-          [employeeID],
-        );
-
-        for (const b of blocks) {
-          const overlaps = await hasOverlappingRange(
-            conn,
-            employeeID,
-            b.startDate,
-            b.endDate,
-          );
-          if (overlaps) {
-            empResult.errors.push(
-              `Overlap for ${employeeID} on ${b.startDate}–${b.endDate}`,
-            );
-            continue;
-          }
-
-          const academicYearVal = (() => {
-            const ay = b.academicYear
-              ? autoFormatAcademicYear(String(b.academicYear).trim())
-              : ""; // #14
-            const sem = b.semester ? String(b.semester).trim() : "";
-            if (ay && sem) return `${ay} ${sem}`.trim();
-            return ay || sem || null;
-          })();
-
-          const values = records.map((r) => [
-            employeeID,
-            academicYearVal,
-            b.startDate,
-            b.endDate,
-            r.day ?? null,
-            r.officialTimeIN ?? null,
-            r.officialBreaktimeIN ?? null,
-            r.officialBreaktimeOUT ?? null,
-            r.officialTimeOUT ?? null,
-            r.officialHonorariumTimeIN ?? null,
-            r.officialHonorariumTimeOUT ?? null,
-            r.officialServiceCreditTimeIN ?? null,
-            r.officialServiceCreditTimeOUT ?? null,
-            r.officialOverTimeIN ?? null,
-            r.officialOverTimeOUT ?? null,
-            "active",
-            r.breaktime ?? null,
-          ]);
-
-          const insertResult = await queryAsync(
-            conn,
-            `
-          INSERT INTO officialtime (
-            employeeID, academicYear, startDate, endDate, day,
-            officialTimeIN, officialBreaktimeIN, officialBreaktimeOUT, officialTimeOUT,
-            officialHonorariumTimeIN, officialHonorariumTimeOUT,
-            officialServiceCreditTimeIN, officialServiceCreditTimeOUT,
-            officialOverTimeIN, officialOverTimeOUT, status, breaktime
-          ) VALUES ?`,
-            [values],
-          );
-
-          empResult.inserted += insertResult.affectedRows || 0;
-        }
-
-        await commitTransaction(conn);
-      } catch (e) {
-        await rollbackTransaction(conn); // #3: full rollback — employee's old schedules restored
-        empResult.errors.push(
-          `Transaction failed and was rolled back: ${e.message}`,
-        );
-        empResult.inserted = 0;
-      } finally {
-        releaseConnection(conn);
-      }
-
-      results.push(empResult);
-    }
-
-    const totalInserted = results.reduce(
-      (sum, r) => sum + (r.inserted || 0),
-      0,
-    );
-
-    try {
-      const affectedEmployees = normalizeEmployeeList(employeeIDs);
-      const failedCount = results.filter(
-        (r) => Array.isArray(r.errors) && r.errors.length > 0,
-      ).length;
-      logAudit(
-        req.user,
-        `Bulk create official time (${employeeIDs.length} employees)`,
-        "Official Time",
-        null,
-        affectedEmployees.length === 1 ? affectedEmployees[0] : null,
-        buildOfficialTimeActionAuditDetails({
-          source: "bulk-create",
-          status: failedCount > 0 ? "partial" : "success",
-          affectedEmployeeNumbers: affectedEmployees,
-          blockCount: Array.isArray(blocks) ? blocks.length : null,
-          rowCount:
-            (Array.isArray(records) ? records.length : 0) *
-            (Array.isArray(blocks) ? blocks.length : 0),
-          insertedCount: totalInserted,
-          failedCount,
-          notes:
-            failedCount > 0
-              ? `${failedCount} employee(s) had errors during bulk create.`
-              : null,
-        }),
-      );
-    } catch (e) {
-      console.error("Audit log error:", e);
-    }
-
-    res.json({ message: "Bulk schedules processed.", totalInserted, results });
-    const notified = normalizeEmployeeList(employeeIDs);
-    if (notified.length > 0) {
-      notifyAttendanceChanged("official-time-updated", {
-        scope: "officialtime",
-        personIDs: notified,
-      });
-    }
-  },
-);
-
-// ─────────────────────────────────────────────────────────────────────────────
-// DELETE — remove an inactive official-time period only.
-// Active schedules are refused. Matches the period by employee + start/end.
-// ─────────────────────────────────────────────────────────────────────────────
-router.delete(
-  "/officialtimetable/:employeeID",
-  authenticateToken,
-  async (req, res) => {
-    const supervisorStatus = await ensureActiveSupervisorAssignment(req, res);
-    if (!supervisorStatus) return;
-
-    const { employeeID } = req.params;
-    if (
-      !(await assertEmployeesInSupervisorScope(res, supervisorStatus, [
-        employeeID,
-      ]))
-    )
-      return;
-
-    const startDate = normDate(req.query.startDate || req.body?.startDate);
-    const endDate = normDate(req.query.endDate || req.body?.endDate);
-    if (!startDate || !endDate) {
-      return res.status(400).json({
-        message: "startDate and endDate are required.",
-      });
-    }
-
-    try {
-      const rows = await new Promise((resolve, reject) => {
-        db.query(
-          `SELECT status, COUNT(*) AS cnt
-           FROM officialtime
-           WHERE employeeID = ?
-             AND DATE(startDate) = ?
-             AND DATE(endDate) = ?
-           GROUP BY status`,
-          [employeeID, startDate, endDate],
-          (err, result) => (err ? reject(err) : resolve(result || [])),
-        );
-      });
-
-      if (!rows.length) {
-        return res.status(404).json({
-          message: "No official time schedule found for that period.",
-        });
-      }
-
-      const activeCount = rows
-        .filter((r) => String(r.status || "").toLowerCase() === "active")
-        .reduce((sum, r) => sum + Number(r.cnt || 0), 0);
-      if (activeCount > 0) {
-        return res.status(409).json({
-          message:
-            "Only inactive official time can be deleted. Set this schedule inactive first, or delete a different period.",
-        });
-      }
-
-      const result = await new Promise((resolve, reject) => {
-        db.query(
-          `DELETE FROM officialtime
-           WHERE employeeID = ?
-             AND DATE(startDate) = ?
-             AND DATE(endDate) = ?
-             AND LOWER(status) = 'inactive'`,
-          [employeeID, startDate, endDate],
-          (err, deleteResult) => (err ? reject(err) : resolve(deleteResult)),
-        );
-      });
-
-      const deletedCount = Number(result?.affectedRows || 0);
-      if (!deletedCount) {
-        return res.status(404).json({
-          message: "No inactive official time was deleted for that period.",
-        });
-      }
-
-      try {
-        logAudit(
-          req.user,
-          "Delete",
-          "Official Time",
-          employeeID,
-          null,
-          buildOfficialTimeActionAuditDetails({
-            source: "delete-inactive-schedule",
-            employeeID,
-            affectedEmployeeNumbers: [employeeID],
-            startDate,
-            endDate,
-            rowCount: deletedCount,
-            notes: "Deleted inactive official time period",
-          }),
-        );
-      } catch (e) {
-        console.error("Audit log error:", e);
-      }
-
-      notifyAttendanceChanged("official-time-updated", {
-        scope: "officialtime",
-        personID: employeeID,
-        startDate,
-        endDate,
-      });
-
-      return res.json({
-        message: "Inactive official time deleted.",
-        deletedCount,
-        startDate,
-        endDate,
-      });
-    } catch (err) {
-      console.error("Error deleting inactive official time:", err);
-      return res.status(500).json({ error: err.message || "Database error" });
-    }
-  },
-);
-
-// ─────────────────────────────────────────────────────────────────────────────
-// PUT — edit an existing active schedule
-// [FIX] No longer silently falls back to "whatever is currently active" when
-// origEndDate is missing or doesn't match. origEndDate is now required, and
-// the update only proceeds if that exact (startDate, endDate) pair is still
-// the active schedule in the DB — otherwise it returns a clear error instead
-// of quietly redirecting the edit onto a different period.
-//
-// #28 [NEW]: Also now requires an ACTIVE supervisor assignment, exactly like
-// the POST route above and the Excel-upload routes. Previously this route
-// had no assignment-status check, so an expired supervisor could still edit
-// schedules by calling the API directly even with the "Edit Schedule"
-// button hidden client-side.
-// ─────────────────────────────────────────────────────────────────────────────
-
-router.put(
-  "/officialtimetable/:employeeID",
-  authenticateToken,
-  async (req, res) => {
-    // [NEW #28] Block if the caller's supervisor_assignment window isn't
-    // currently active. ensureActiveSupervisorAssignment() sends the 403
-    // response itself when blocked.
-    const supervisorStatus = await ensureActiveSupervisorAssignment(req, res);
-    if (!supervisorStatus) return;
-
-    const { employeeID } = req.params;
-    if (
-      !(await assertEmployeesInSupervisorScope(res, supervisorStatus, [
-        employeeID,
-      ]))
-    )
-      return;
-    const { startDate, endDate, origEndDate, records, saveSupervisorHistory } = req.body || {};
-
-    if (!startDate)
-      return res.status(400).json({ message: "startDate is required." });
-    if (!endDate)
-      return res.status(400).json({ message: "endDate is required." });
-    if (new Date(startDate) > new Date(endDate))
-      return res
-        .status(400)
-        .json({ message: "endDate cannot be before startDate." });
-    if (!records || !Array.isArray(records) || !records.length)
-      return res.status(400).json({ message: "No records provided." });
-
-    const normalizedStartDate = normDate(startDate);
-    const normalizedEndDate = normDate(endDate);
-    const normalizedOrigEndDate = origEndDate ? normDate(origEndDate) : null;
-
-    if (!normalizedStartDate)
-      return res.status(400).json({ message: "Invalid startDate format." });
-    if (!normalizedEndDate)
-      return res.status(400).json({ message: "Invalid endDate format." });
-    if (origEndDate && normalizedOrigEndDate === null)
-      return res.status(400).json({ message: "Invalid origEndDate format." });
-
-    // [FIX] origEndDate is now mandatory — it's the only reliable way to
-    // identify exactly which schedule block the client meant to edit.
-    // Falling back to "whatever endDate happens to be active for this
-    // startDate" is what let edits land on the wrong period.
-    if (!normalizedOrigEndDate) {
-      return res.status(400).json({
-        message:
-          "origEndDate is required to identify which schedule period to update.",
-      });
-    }
-
-    for (const row of records) {
-      const segments = getSegmentsForDayRow(row);
-      const overlap = findOverlapInSegments(segments);
-      if (overlap)
-        return res.status(422).json({
-          message: formatTimeOverlapMessage({
-            day: row.day,
-            employeeID,
-            segA: overlap.a,
-            segB: overlap.b,
-          }),
-          overlap: buildTimeOverlapPayload({
-            day: row.day,
-            employeeID,
-            segA: overlap.a,
-            segB: overlap.b,
-          }),
-        });
-    }
-
-    const lookupEndDate = normalizedOrigEndDate;
-
-    try {
-      // [FIX] Strict existence check: the (startDate, lookupEndDate) pair
-      // must currently be the ACTIVE schedule for this employee. If it
-      // isn't — e.g. it was superseded by a newer schedule, or the client
-      // opened a stale/non-active block — fail loudly instead of silently
-      // updating a different period.
-      const matchCheck = await new Promise((resolve, reject) => {
-        db.query(
-          `SELECT COUNT(*) AS cnt FROM officialtime
-           WHERE employeeID = ? AND startDate = ? AND endDate = ? AND status = 'active'`,
-          [employeeID, normalizedStartDate, lookupEndDate],
-          (err, rows) => (err ? reject(err) : resolve(rows || [])),
-        );
-      });
-
-      if (!matchCheck.length || Number(matchCheck[0].cnt) === 0) {
-        return res.status(404).json({
-          message: `This schedule (startDate ${normalizedStartDate}, endDate ${lookupEndDate}) is not currently the active period for employee ${employeeID}, so it can't be edited. It may already have been superseded by a newer schedule — refresh and try again.`,
-        });
-      }
-
-      let updatedCount = 0;
-      for (const r of records) {
-        const result = await new Promise((resolve, reject) => {
-          db.query(
-            `UPDATE officialtime SET endDate=?, officialTimeIN=?, officialBreaktimeIN=?, officialBreaktimeOUT=?, officialTimeOUT=?, officialHonorariumTimeIN=?, officialHonorariumTimeOUT=?, officialServiceCreditTimeIN=?, officialServiceCreditTimeOUT=?, officialOverTimeIN=?, officialOverTimeOUT=?, breaktime=?
-           WHERE employeeID=? AND startDate=? AND endDate=? AND day=? AND status='active'`,
-            [
-              normalizedEndDate,
-              r.officialTimeIN ?? null,
-              r.officialBreaktimeIN ?? null,
-              r.officialBreaktimeOUT ?? null,
-              r.officialTimeOUT ?? null,
-              r.officialHonorariumTimeIN ?? null,
-              r.officialHonorariumTimeOUT ?? null,
-              r.officialServiceCreditTimeIN ?? null,
-              r.officialServiceCreditTimeOUT ?? null,
-              r.officialOverTimeIN ?? null,
-              r.officialOverTimeOUT ?? null,
-              r.breaktime ?? null,
-              employeeID,
-              normalizedStartDate,
-              lookupEndDate,
-              r.day ?? null,
-            ],
-            (err, result) => (err ? reject(err) : resolve(result)),
-          );
-        });
-        updatedCount += result.affectedRows || 0;
-      }
-
-      if (!updatedCount) {
-        return res.status(404).json({
-          message: `No active rows were updated for employee ${employeeID}. Ensure the selected schedule still exists and is active.`,
-        });
-      }
-
-      if (saveSupervisorHistory === true) {
-        try {
-          await saveSupervisorOfficialTimeSnapshot({
-            user: req.user,
-            employeeID,
-            startDate: normalizedStartDate,
-            endDate: normalizedEndDate,
-          });
-        } catch (historyErr) {
-          console.error("Error saving supervisor official-time snapshot:", historyErr);
-        }
-      }
-
-      let autoAttendance = { inserted: 0, skipped: 0, errors: [] };
-      try {
-        autoAttendance = await fillExemptAttendance({
-          startDate: normalizedStartDate,
-          endDate: normalizedEndDate,
-          employeeIDs: [employeeID],
-        });
-      } catch (autoErr) {
-        autoAttendance.errors = [
-          `Auto-attendance trigger failed: ${autoErr.message}`,
-        ];
-      }
-
-      res.json({
-        message: "Official time updated successfully.",
-        updated: updatedCount,
-        autoAttendance: {
-          inserted: autoAttendance.inserted,
-          skipped: autoAttendance.skipped,
-        },
-        warnings: autoAttendance.errors.length
-          ? autoAttendance.errors
-          : undefined,
-      });
-      notifyAttendanceChanged("official-time-updated", {
-        scope: "officialtime",
-        personID: employeeID,
-        startDate: normalizedStartDate,
-        endDate: normalizedEndDate,
-      });
-    } catch (err) {
-      console.error("Error updating official time:", err);
-      res.status(500).json({ error: err.message || "Database error" });
-    }
-  },
-);
-
-router.get("/officialtime/past-periods", authenticateToken, (req, res) => {
-  const supervisorEmployeeNumber =
-    req.user?.employeeNumber || req.user?.employeeID || req.user?.id;
-
-  db.query(
-    `SELECT sa.id, sa.departmentCode, dt.description AS department, sa.start, sa.end, sa.status
-     FROM supervisor_assignment sa
-     LEFT JOIN department_table dt ON dt.code = sa.departmentCode
-     WHERE sa.supervisorEmployeeNumber = ?
-     ORDER BY COALESCE(sa.updatedAt, sa.createdAt) DESC,
-              sa.createdAt DESC,
-              sa.id DESC`,
-    [supervisorEmployeeNumber],
-    (err, rows) => {
-      if (err) return res.status(500).json({ error: err.message });
-
-      const now = new Date();
-      res.json(
-        (rows || []).map((r) => {
-          const s = toDateTime(r.start);
-          const e = toDateTime(r.end);
-          const isCurrentlyActive =
-            Number(r.status) === 0 && (!s || s <= now) && (!e || e >= now);
-          return {
-            id: r.id,
-            department: r.department || r.departmentCode,
-            startDate: r.start,
-            endDate: r.end,
-            active: isCurrentlyActive,
-          };
-        }),
-      );
-    },
+  const monthStatusCard = (
+    <MonthSetupStatusCard
+      year={statusYear}
+      month={statusMonth}
+      onShiftMonth={shiftStatusMonth}
+      rows={visibleMonthStatusRows}
+      loading={monthStatusLoading}
+      error={monthStatusError}
+      filter={monthStatusFilter}
+      onFilter={setMonthStatusFilter}
+      query={monthStatusQuery}
+      onQuery={setMonthStatusQuery}
+      department={monthStatusDepartment}
+      onDepartment={setMonthStatusDepartment}
+      departments={monthStatusDepartments}
+      onSelectEmployee={openEmployeeFromStatus}
+      selectedEmployeeNumber={employeeID}
+      doneCount={monthStatusSummary.done}
+      totalCount={monthStatusSummary.total}
+      embedded={embedded}
+    />
   );
-});
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PAST PERIODS — supervisor_assignment history + audit_log cross-reference
-// ─────────────────────────────────────────────────────────────────────────────
+  const dialogHeaderSx = {
+    bgcolor: T.accent, px: 3, py: 2,
+    display: "flex", alignItems: "center", justifyContent: "space-between",
+  };
+  const dialogCloseBtn = (onClose, disabled) => (
+    <IconButton size="small" onClick={onClose} disabled={disabled} sx={{ color: "#fff", ml: 1, flexShrink: 0, "&:hover": { bgcolor: "rgba(255,255,255,0.15)" } }} aria-label="Close">
+      <Close fontSize="small" />
+    </IconButton>
+  );
 
-// GET /officialtime/past-periods/:id/changed-employees
-// :id = supervisor_assignment.id. Resolves that assignment's department,
-// then finds distinct employees whose Official Time audit entry contains
-// this supervisor_assignment ID.
-router.get(
-  "/officialtime/past-periods/:id/changed-employees",
-  authenticateToken,
-  (req, res) => {
-    const { id } = req.params;
-
-    db.query(
-      `SELECT sa.departmentCode, sa.start, sa.end
-       FROM supervisor_assignment sa
-       WHERE sa.id = ? LIMIT 1`,
-      [id],
-      (err, saRows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        if (!saRows.length)
-          return res.status(404).json({ error: "Period not found." });
-
-        const { departmentCode } = saRows[0];
-
-        db.query(
-          `SELECT h.employeeID AS employeeNumber,
-                  COUNT(*) AS changeCount,
-                  CONCAT_WS(' ', p.firstName, p.middleName, p.lastName, p.nameExtension) AS name
-           FROM officialtime_history h
-           LEFT JOIN person_table p
-             ON p.agencyEmployeeNum = h.employeeID
-           WHERE h.supervisor_assignment_id = ?
-             AND h.employeeID IS NOT NULL
-             AND h.employeeID <> ''
-             AND EXISTS (
-               SELECT 1
-               FROM department_assignment da
-               WHERE TRIM(CAST(da.employeeNumber AS CHAR)) = TRIM(CAST(h.employeeID AS CHAR))
-                 AND da.code = ?
-             )
-           GROUP BY h.employeeID, name
-           ORDER BY name IS NULL, name ASC`,
-          [Number(id), departmentCode],
-          (err2, rows) => {
-            if (err2) return res.status(500).json({ error: err2.message });
-            res.json(
-              (rows || []).map((row) => ({
-                employeeNumber: row.employeeNumber,
-                name: row.name && row.name.trim() ? row.name.trim() : `Employee ${row.employeeNumber}`,
-                changeCount: Number(row.changeCount) || 0,
-              })),
-            );
-          },
-        );
-      },
+  if (accessLoading) return <OfficialTimeWireframe />;
+  if (hasAccess === false)
+    return (
+      <AccessDenied
+        title="Access Denied"
+        message="You do not have permission to access Official Time Form."
+        returnPath="/admin-home"
+        returnButtonText="Return to Home"
+      />
     );
-  },
-);
 
-// GET /officialtime/past-periods/:id/employees/:employeeNumber/changes
-// Returns that employee's current officialtime day-rows (best-effort — see
-// note below) plus a changedFields list parsed from audit_log.details_json
-// when possible.
-router.get(
-  "/officialtime/past-periods/:id/employees/:employeeNumber/changes",
-  authenticateToken,
-  (req, res) => {
-    const { id, employeeNumber } = req.params;
+  // ─────────────────────────────────────────────────────────────────────────
+  // RENDER
+  // ─────────────────────────────────────────────────────────────────────────
+  return (
+    <>
+      <style>{shimmerKf}</style>
+      {tamperDetected && <TamperWarningBanner onRestore={handleRestoreFromServer} />}
 
-    db.query(
-      `SELECT sa.departmentCode, sa.start, sa.end
-       FROM supervisor_assignment sa
-       WHERE sa.id = ? LIMIT 1`,
-      [id],
-      (err, saRows) => {
-        if (err) return res.status(500).json({ error: err.message });
-        if (!saRows.length)
-          return res.status(404).json({ error: "Period not found." });
+      <LoadingOverlay
+        open={loading || checkingOverlap || saving || uploading}
+        message={checkingOverlap ? "Checking for conflicts…" : uploading ? "Uploading…" : saving ? "Saving…" : "Loading…"}
+      />
 
-        const { start, end } = saRows[0];
-        const periodStart = toDateTime(start);
-        const periodEnd = toDateTime(end);
-
-        // Pull every audit_log row for this employee, most recent first, and
-        // retain only entries belonging to this supervisor assignment.
-        db.query(
-          `SELECT logID, action, timestamp, record_id, details_json
-           FROM audit_log
-           WHERE table_name = 'Official Time'
-             AND targetEmployeeNumber = ?
-           ORDER BY timestamp DESC`,
-          [employeeNumber],
-          (err2, auditRows) => {
-            if (err2) return res.status(500).json({ error: err2.message });
-
-            const filteredAuditRows = (auditRows || []).filter((row) => {
-              const timestamp = toDateTime(row.timestamp);
-              return (
-                timestamp &&
-                periodStart &&
-                periodEnd &&
-                timestamp >= periodStart &&
-                timestamp <= periodEnd
-              );
-            });
-
-            // Best-effort field-level diff extraction. details_json's exact
-            // schema isn't confirmed yet — this tries a couple of likely
-            // shapes and silently skips anything it can't parse. Tighten
-            // this once the real details_json structure is confirmed.
-            const changedFields = [];
-            for (const row of filteredAuditRows) {
-              let parsed;
-              try {
-                parsed = JSON.parse(row.details_json || "{}");
-              } catch {
-                continue;
-              }
-              // Shape A: { records: [{ day, officialTimeIN, ... }] }
-              if (Array.isArray(parsed.records)) {
-                for (const rec of parsed.records) {
-                  if (!rec.day) continue;
-                  Object.keys(rec).forEach((k) => {
-                    if (k !== "day") changedFields.push({ day: rec.day, field: k });
-                  });
+      <Fade in timeout={embedded ? 0 : 400}>
+        <Box
+          sx={
+            embedded
+              ? {
+                  height: "100%",
+                  width: "100%",
+                  maxWidth: "100%",
+                  p: 1.75,
+                  boxSizing: "border-box",
+                  display: "flex",
+                  flexDirection: "column",
+                  overflow: "hidden",
+                  minHeight: 0,
+                  bgcolor: "#f7f8fa",
                 }
-              }
-              // Shape B: { changedFields: [{ day, field }] }
-              if (Array.isArray(parsed.changedFields)) {
-                changedFields.push(...parsed.changedFields);
-              }
-              // Shape C: { day, field } flat (single-field edit)
-              if (parsed.day && parsed.field) {
-                changedFields.push({ day: parsed.day, field: parsed.field });
-              }
-            }
+              : {
+                  py: { xs: 1, md: 2 },
+                  mt: tamperDetected ? "56px" : { xs: 0, md: -2 },
+                  mb: { xs: 1, md: 2 },
+                  width: "100vw",
+                  maxWidth: "100%",
+                  position: "relative",
+                  left: "55%",
+                  transform: "translateX(-53%)",
+                  px: { xs: 2, sm: 3, md: 6 },
+                  transition: "margin-top 0.2s ease",
+                }
+          }
+        >
+          {/* ══ PAGE HEADER ══ */}
+          <SectionCard sx={{ mb: embedded ? 1.5 : 2, flexShrink: 0 }}>
+            <Box
+              sx={{
+                px: embedded ? 2.5 : 4,
+                py: embedded ? 2 : 3,
+                background: "linear-gradient(135deg, #fdf5f5 0%, #f0dede 100%)",
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                position: "relative", overflow: "hidden", gap: 1.5,
+              }}
+            >
+              <Box sx={{ position: "absolute", top: -50, right: -50, width: 200, height: 200, borderRadius: "50%", background: "radial-gradient(circle,rgba(109,35,35,0.10) 0%,transparent 70%)", pointerEvents: "none" }} />
+              <Box sx={{ display: "flex", alignItems: "center", gap: embedded ? 1.5 : 2.5, position: "relative", zIndex: 1, minWidth: 0 }}>
+                <Schedule sx={{ fontSize: embedded ? 24 : 30, color: T.accent, flexShrink: 0 }} />
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography sx={{ fontSize: embedded ? "1.05rem" : "1.2rem", fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.25 }}>
+                    Official Time Schedule
+                  </Typography>
+                  <Typography sx={{ fontSize: embedded ? "0.72rem" : "0.78rem", color: T.accentMid, fontWeight: 600 }}>
+                    {embedded
+                      ? "Manage schedules without leaving Daily Time Record"
+                      : "Search an employee to view and manage their official time schedules"}
+                  </Typography>
+                </Box>
+              </Box>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, position: "relative", zIndex: 1, flexShrink: 0 }}>
+                {lastSaved && (
+                  <Box sx={{ px: 2, py: 0.6, borderRadius: 5, bgcolor: alpha("#4caf50", 0.12), border: "1px solid rgba(76,175,80,0.25)" }}>
+                    <Typography sx={{ fontSize: "0.72rem", color: "#2e7d32", fontWeight: 700 }}>
+                      Saved {lastSaved.toLocaleTimeString()}
+                    </Typography>
+                  </Box>
+                )}
+                {!embedded && <ViewToggle value={viewMode} onChange={setViewMode} />}
+                {embedded && typeof onClose === "function" && (
+                  <Tooltip title="Close panel">
+                    <IconButton
+                      onClick={onClose}
+                      aria-label="Close official time panel"
+                      sx={{
+                        color: "#fff",
+                        bgcolor: T.accent,
+                        width: 34,
+                        height: 34,
+                        border: `1px solid ${T.accentDark}`,
+                        boxShadow: `0 2px 6px ${alpha(T.accent, 0.35)}`,
+                        "&:hover": { bgcolor: T.accentDark },
+                      }}
+                    >
+                      <Close sx={{ fontSize: 18 }} />
+                    </IconButton>
+                  </Tooltip>
+                )}
+              </Box>
+            </Box>
+          </SectionCard>
 
-            // Use the newest schedule snapshot captured while this
-            // supervisor assignment was active. Do not read live officialtime
-            // rows here because later edits would overwrite this period's view.
-            db.query(
-              `SELECT snapshot_data
-               FROM officialtime_history
-               WHERE employeeID = ? AND supervisor_assignment_id = ?
-               ORDER BY id DESC
-               LIMIT 1`,
-              [employeeNumber, Number(id)],
-              (err3, snapshotRows) => {
-                if (err3) return res.status(500).json({ error: err3.message });
+          {/* ══ SINGLE EMPLOYEE VIEW ══ */}
+          {showSingleView && (
+            <Fade in timeout={embedded ? 0 : 400} key="single-view">
+              <Box
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: { xs: "1fr", lg: "340px minmax(0, 1fr) 300px" },
+                  gap: 2,
+                  alignItems: "stretch",
+                  ...(embedded
+                    ? { flex: 1, minHeight: 0, overflow: "hidden", height: "100%" }
+                    : { height: { lg: "calc(100vh - 295px)" }, minHeight: { lg: "calc(100vh - 295px)" }, maxHeight: { lg: "calc(100vh - 295px)" } }),
+                }}
+              >
+                {/* ─── LEFT PANEL ─── */}
+                <SectionCard sx={{ height: embedded ? "100%" : { lg: "calc(100vh - 295px)" }, minHeight: embedded ? 0 : { lg: "calc(100vh - 295px)" }, maxHeight: embedded ? "100%" : { lg: "calc(100vh - 295px)" }, display: "flex", flexDirection: "column", overflowY: "auto", overflowX: "hidden", boxSizing: "border-box" }}>
+                  <PanelHeader icon={Person} title="Step 1 — Search employee" />
+                  <Box sx={{ p: 2.5 }}>
+                    <EmployeeSearchField onSelect={handleEmployeeSelect} selectedEmployee={selectedEmployee} onClear={handleEmployeeClear} />
+                    {selectedEmployee ? (
+                      <Box sx={{ mt: 1.5, display: "flex", alignItems: "center", gap: 1.25, px: 1.75, py: 1.25, borderRadius: 2, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
+                        <Avatar sx={{ width: 32, height: 32, bgcolor: alpha(T.accent, 0.15), color: T.accent, fontSize: "0.78rem", fontWeight: 700, flexShrink: 0 }}>
+                          {selectedEmployee.name?.charAt(0)?.toUpperCase() || "?"}
+                        </Avatar>
+                        <Box sx={{ flex: 1, minWidth: 0 }}>
+                          <Typography sx={{ fontSize: "0.85rem", fontWeight: 700, color: T.text, lineHeight: 1.2 }} noWrap>{selectedEmployee.name}</Typography>
+                          <Typography sx={{ fontSize: "0.72rem", color: T.muted }}>#{selectedEmployee.employeeNumber}{selectedEmployee.department ? ` · ${selectedEmployee.department}` : ""}</Typography>
+                        </Box>
+                      </Box>
+                    ) : (
+                      <Box sx={{ mt: 1.5, display: "flex", alignItems: "center", justifyContent: "center", border: `1.5px dashed ${T.accentBorder}`, borderRadius: 2, py: 1.75, bgcolor: alpha(T.accent, 0.02) }}>
+                        <Typography sx={{ fontSize: "0.75rem", color: T.faint, fontStyle: "italic" }}>No employee selected — type to search above</Typography>
+                      </Box>
+                    )}
+                  </Box>
 
-                let records = [];
-                if (snapshotRows?.[0]?.snapshot_data) {
+                  <Divider sx={{ borderColor: T.divider }} />
+
+                  <PanelHeader icon={Add} title="Create new schedule" rightContent={<Typography sx={{ fontSize: "0.7rem", color: "#2e7d32", fontWeight: 700 }}>Status: Active</Typography>} />
+                  <Box sx={{ p: 2.5 }}>
+                    <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5, mb: 1.5 }}>
+                      <AcademicYearAutocomplete value={draftAcademicYear} onChange={setDraftAcademicYear} />
+                      <Autocomplete
+                        freeSolo
+                        options={["1st Semester","2nd Semester","Summer","Vacation","Christmas break","Midyear","Enrollment period"]}
+                        value={draftSemester || null}
+                        onInputChange={(_, v) => setDraftSemester(v ?? "")}
+                        onChange={(_, v) => setDraftSemester(typeof v === "string" ? v : "")}
+                        renderInput={(params) => (
+                          <TextField {...params} size="small" label="Semester" placeholder="e.g. 1st Semester"
+                            sx={{ bgcolor: "#fff", "& .MuiOutlinedInput-root": { borderRadius: "8px", "&:hover fieldset": { borderColor: T.accent }, "&.Mui-focused fieldset": { borderColor: T.accent } }, "& label.Mui-focused": { color: T.accent } }}
+                          />
+                        )}
+                      />
+                      <ModernTextField fullWidth size="small" label="Status" value="Active" disabled />
+                      <ModernTextField fullWidth size="small" label="Start Date" type="date" InputLabelProps={{ shrink: true }} value={draftStartDate} onChange={(e) => setDraftStartDate(e.target.value)} />
+                      <ModernTextField fullWidth size="small" label="End Date" type="date" InputLabelProps={{ shrink: true }} value={draftEndDate} onChange={(e) => setDraftEndDate(e.target.value)} />
+                    </Box>
+
+                    {/* [NEW #K] Pattern picker — optional, only row added to this panel */}
+                    {patterns.length > 0 ? (
+                      <Box sx={{ display: "flex", alignItems: "flex-end", gap: 1, mb: 1.5 }}>
+                        <ModernTextField
+                          select fullWidth size="small" label="Pattern (optional)"
+                          value={selectedPatternId}
+                          onChange={(e) => setSelectedPatternId(e.target.value)}
+                          SelectProps={{
+                            renderValue: (val) => {
+                              if (!val) return <Typography sx={{ fontSize: "0.875rem", color: T.text }}>No pattern — start blank</Typography>;
+                              const found = patterns.find((p) => p.id === val);
+                              if (!found) return val;
+                              return (
+                                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                                  <Box sx={{ width: 9, height: 9, borderRadius: "3px", bgcolor: found.color || T.accent, flexShrink: 0 }} />
+                                  <Typography sx={{ fontSize: "0.875rem" }}>{found.name}</Typography>
+                                </Box>
+                              );
+                            },
+                          }}
+                        >
+                          <MenuItem value="">No pattern — start blank</MenuItem>
+                          {patterns.map((p) => (
+                            <MenuItem key={p.id} value={p.id}>
+                              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                                <Box sx={{ width: 9, height: 9, borderRadius: "3px", bgcolor: p.color || T.accent, flexShrink: 0 }} />
+                                <Typography sx={{ fontSize: "0.875rem" }}>{p.name}</Typography>
+                              </Box>
+                            </MenuItem>
+                          ))}
+                        </ModernTextField>
+                        <Tooltip title="Manage patterns">
+                          <IconButton
+                            size="small"
+                            onClick={() => setShowPatternManager(true)}
+                            sx={{ border: `1px solid ${T.accentBorder}`, color: T.accent, borderRadius: 1.5, height: 36, width: 36, flexShrink: 0 }}
+                          >
+                            <Edit sx={{ fontSize: 14 }} />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
+                    ) : (
+                      <Button
+                        size="small" variant="text" onClick={() => setShowPatternManager(true)}
+                        sx={{ mb: 1.5, textTransform: "none", color: T.accent, fontWeight: 700, fontSize: "0.76rem", justifyContent: "flex-start", px: 0 }}
+                      >
+                        + Save a pattern (optional shortcut)
+                      </Button>
+                    )}
+
+                    <Button
+                      fullWidth variant="contained"
+                      onClick={openCreateScheduleModal}
+                      disabled={!selectedEmployee || !draftAcademicYear || !draftStartDate || !draftEndDate}
+                      startIcon={<Schedule sx={{ fontSize: 16 }} />}
+                      sx={{ bgcolor: T.accent, color: "#fff", borderRadius: "8px", fontWeight: 600, textTransform: "none", py: 1, boxShadow: `0 2px 10px ${alpha(T.accent, 0.35)}`, "&:hover": { bgcolor: T.accentDark }, "&.Mui-disabled": { bgcolor: "#c0a0a0", color: "#fff" } }}
+                    >
+                      Create Schedule
+                    </Button>
+                  </Box>
+
+                  <Divider sx={{ borderColor: T.divider }} />
+
+                  <PanelHeader icon={CloudUploadIcon} title="Excel upload" rightContent={<Typography sx={{ fontSize: "0.7rem", color: T.faint, fontStyle: "italic" }}>optional</Typography>} />
+                  <Box sx={{ p: 2.5 }}>
+                    {uploadRestrictionMessage && <UploadRestrictionNotice message={uploadRestrictionMessage} />}
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
+                      <input type="file" accept=".xlsx,.xls" id="upload-button" style={{ display: "none" }}
+                        disabled={!canUploadExcel}
+                        onChange={(e) => setFile(e.target.files[0] || null)} />
+                      <label htmlFor="upload-button">
+                        <Button variant="outlined" component="span" size="small" startIcon={<CloudUploadIcon />}
+                          disabled={!canUploadExcel}
+                          sx={{ borderColor: T.accentBorder, color: T.accent, textTransform: "none", fontWeight: 600, "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent } }}>
+                          Choose file
+                        </Button>
+                      </label>
+                      {file && (
+                        <Typography variant="body2" sx={{ color: T.muted, bgcolor: T.accentFaint, border: `0.5px solid ${T.accentBorder}`, borderRadius: 1.5, px: 1.25, py: 0.5, fontSize: "0.8rem" }}>
+                          {file.name}
+                        </Typography>
+                      )}
+                      <Button variant="contained" size="small" onClick={handleAnalyzeFile}
+                        disabled={!file || analyzing || confirming || !canUploadExcel}
+                        startIcon={analyzing ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : <SearchIcon />}
+                        sx={{ bgcolor: T.accent, color: "#fff", textTransform: "none", fontWeight: 600, "&:hover": { bgcolor: T.accentDark } }}>
+                        {analyzing ? "Validating…" : "Validate"}
+                      </Button>
+                    </Box>
+                    {file && !analyzing && (
+                      <Typography sx={{ mt: 1, fontSize: "0.71rem", color: T.faint }}>
+                        Click <strong>Validate</strong> to preview before uploading.
+                      </Typography>
+                    )}
+                    {/* [CHANGE I] Readability note for the optional Name column */}
+                    <Typography sx={{ mt: 1, fontSize: "0.7rem", color: T.faint, fontStyle: "italic" }}>
+                      An optional "Name" column is supported for readability only — matching is always done by Employee Number.
+                    </Typography>
+                  </Box>
+                </SectionCard>
+
+                {/* ─── CENTER PANEL ─── */}
+                <SectionCard sx={{ height: embedded ? "100%" : { lg: "calc(100vh - 295px)" }, minHeight: embedded ? 0 : { lg: "calc(100vh - 295px)" }, maxHeight: embedded ? "100%" : { lg: "calc(100vh - 295px)" }, display: "flex", flexDirection: "column", overflow: "hidden", boxSizing: "border-box" }}>
+                  {!selectedEmployee ? (
+                    <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, minHeight: 0, gap: 2, p: 4, textAlign: "center" }}>
+                      <Box sx={{ width: 72, height: 72, borderRadius: "50%", bgcolor: T.accentFaint, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <Schedule sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
+                      </Box>
+                      <Box>
+                        <Typography sx={{ fontSize: "1rem", fontWeight: 700, color: T.accent, mb: 0.5 }}>No employee selected</Typography>
+                        <Typography sx={{ fontSize: "0.82rem", color: T.faint }}>Search for an employee on the left to view their official time schedule.</Typography>
+                      </Box>
+                    </Box>
+                  ) : loading ? (
+                    <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", flex: 1, minHeight: 0, gap: 1.5 }}>
+                      <CircularProgress size={22} sx={{ color: T.accent }} />
+                      <Typography sx={{ fontSize: "0.88rem", color: T.muted }}>Loading schedules…</Typography>
+                    </Box>
+                  ) : !activeBlockData ? (
+                    <Box sx={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", flex: 1, minHeight: 0, gap: 2, p: 4, textAlign: "center" }}>
+                      <Box sx={{ width: 72, height: 72, borderRadius: "50%", bgcolor: T.accentFaint, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <Schedule sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
+                      </Box>
+                      <Box>
+                        <Typography sx={{ fontSize: "1rem", fontWeight: 700, color: T.accent, mb: 0.5 }}>No schedules yet</Typography>
+                        <Typography sx={{ fontSize: "0.82rem", color: T.faint, mb: 1.5 }}>Fill the schedule details on the left and click "Create Schedule".</Typography>
+                        <Chip label={selectedEmployee.name} size="small" sx={{ bgcolor: T.accentFaint, color: T.accent, border: `0.5px solid ${T.accentBorder}`, fontWeight: 600 }} />
+                      </Box>
+                    </Box>
+                  ) : (
+                    <>
+                      <PanelHeader
+                        icon={Schedule}
+                        title={`${activeBlockData.academicYear || "Schedule"}`}
+                        rightContent={
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                            <StatusBadge active={String(activeBlockData.status || "active").toLowerCase() === "active"} />
+                            {(String(activeBlockData.status || "active").toLowerCase() === "active" || isOfficialTimeAdmin) && (
+                              <Tooltip title="Edit this schedule">
+                                <IconButton
+                                  size="small"
+                                  onClick={() => {
+                                    const normStart = normalizeDateStr(activeBlockData.startDate);
+                                    const normEnd = normalizeDateStr(activeBlockData.endDate);
+                                    const rows = [...records.filter((r) => normalizeDateStr(r.startDate) === normStart && normalizeDateStr(r.endDate) === normEnd)].sort((a, b) => DAYS_ORDER.indexOf(a.day) - DAYS_ORDER.indexOf(b.day));
+                                    setViewScheduleInfo({ academicYear: activeBlockData.academicYear, startDate: activeBlockData.startDate, endDate: activeBlockData.endDate, status: activeBlockData.status });
+                                    setViewScheduleRecords(rows);
+                                    setViewScheduleView("workDays");
+                                    setIsEditingViewSchedule(false);
+                                    setEditViewRecords([]);
+                                    setEditViewEndDate("");
+                                    setShowViewScheduleModal(true);
+                                  }}
+                                  sx={{ width: 26, height: 26, border: `0.5px solid ${T.accentBorder}`, borderRadius: 1.5, color: T.faint, "&:hover": { borderColor: T.accent, color: T.accent, bgcolor: T.accentFaint } }}
+                                >
+                                  <Edit sx={{ fontSize: 13 }} />
+                                </IconButton>
+                              </Tooltip>
+                            )}
+                          </Box>
+                        }
+                      />
+
+                      <Box sx={{ px: 3, py: 2, flex: 1, minHeight: 0, overflow: "auto" }}>
+                        <Box sx={{ display: "flex", flexWrap: "wrap", gap: 3, mb: 2.5, p: 2, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, borderRadius: "10px", alignItems: "center" }}>
+                          {[
+                            { label: "Employee", value: selectedEmployee.name },
+                            { label: "Employee No.", value: `#${employeeID}` },
+                            { label: "Start Date", value: formatDateLong(activeBlockData.startDate) || formatDateOnly(activeBlockData.startDate) },
+                            { label: "End Date", value: formatDateLong(activeBlockData.endDate) || formatDateOnly(activeBlockData.endDate) },
+                          ].map(({ label, value }) => (
+                            <Box key={label}>
+                              <Typography sx={{ fontSize: "0.65rem", fontWeight: 700, color: T.accent, textTransform: "uppercase", letterSpacing: "0.04em" }}>{label}</Typography>
+                              <Typography sx={{ fontWeight: 600, color: T.text, fontSize: "0.85rem", mt: 0.25 }}>{value}</Typography>
+                            </Box>
+                          ))}
+                          <Box sx={{ ml: "auto", alignSelf: "flex-start" }}>
+                            <Box component="span" sx={{ display: "inline-flex", alignItems: "center", fontSize: "0.68rem", fontWeight: 700, bgcolor: alpha(T.accent, 0.1), color: T.accent, border: `0.5px solid ${T.accentBorder}`, borderRadius: "9px", px: 0.9, py: 0.2, whiteSpace: "nowrap" }}>
+                              {scheduleBlocks.length} schedule{scheduleBlocks.length === 1 ? "" : "s"}
+                            </Box>
+                          </Box>
+                        </Box>
+
+                        <Box sx={{ mb: 1.75, border: `1px solid ${T.accentBorder}`, borderRadius: 1.5, overflow: "hidden", bgcolor: alpha(T.accent, 0.02) }}>
+                          <Box sx={{ px: 1.5, py: 0.75, display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${T.accentBorder}`, bgcolor: "#fff" }}>
+                            <Typography sx={{ fontSize: "0.75rem", color: T.accent, fontWeight: 700, letterSpacing: "0.03em", textTransform: "uppercase" }}>Existing schedules</Typography>
+                            <Box component="span" sx={{ fontSize: "0.68rem", fontWeight: 700, bgcolor: alpha("#2e7d32", 0.1), color: "#2e7d32", border: "0.5px solid rgba(46,125,50,0.3)", borderRadius: "9px", px: 1, py: 0.25 }}>
+                              {scheduleBlocks.length}
+                            </Box>
+                          </Box>
+                          <Box sx={{ maxHeight: 148, overflowY: "auto", "&::-webkit-scrollbar": { width: "6px" }, "&::-webkit-scrollbar-thumb": { background: "#d0b8b8", borderRadius: "4px" } }}>
+                            {scheduleBlockRows.map((row, rowIndex) => (
+                              <Box key={`schedule-row-${rowIndex}`} sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, borderBottom: rowIndex < scheduleBlockRows.length - 1 ? `0.5px solid ${T.accentBorder}` : "none" }}>
+                                {row.map((v, colIndex) => {
+                                  const absoluteIndex = rowIndex * 2 + colIndex;
+                                  const isActive = String(v.status || "active").toLowerCase() === "active";
+                                  const isSelected = activeScheduleKey === v.key || (!activeScheduleKey && absoluteIndex === 0);
+                                  return (
+                                    <Box key={v.key} onClick={() => setActiveScheduleKey(v.key)}
+                                      sx={{ display: "flex", alignItems: "center", gap: 1, px: 1.25, py: 0.65, borderLeft: isActive ? "3px solid #2e7d32" : "3px solid transparent", borderRight: { md: colIndex === 0 ? `0.5px solid ${T.accentBorder}` : "none" }, cursor: "pointer", bgcolor: isSelected ? alpha(T.accent, 0.06) : "transparent", transition: "all 0.15s", "&:hover": { bgcolor: T.accentFaint } }}
+                                    >
+                                      <Box sx={{ width: 7, height: 7, borderRadius: "50%", bgcolor: isActive ? "#2e7d32" : "#b7b7b7", flexShrink: 0 }} />
+                                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                                        <Typography sx={{ fontSize: "0.76rem", fontWeight: 700, color: T.text, lineHeight: 1.2 }} noWrap>{formatScheduleDisplayText(v.academicYear)}</Typography>
+                                        <Typography sx={{ fontSize: "0.68rem", color: T.faint, mt: 0.1 }} noWrap>
+                                          {formatDateLong(v.startDate) || formatDateOnly(v.startDate)} to {formatDateLong(v.endDate) || formatDateOnly(v.endDate)}
+                                        </Typography>
+                                      </Box>
+                                      <Tooltip title="View in modal">
+                                        <IconButton size="small"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            const normStart = normalizeDateStr(v.startDate);
+                                            const normEnd = normalizeDateStr(v.endDate);
+                                            setViewScheduleInfo({ academicYear: v.academicYear, startDate: v.startDate, endDate: v.endDate, status: v.status });
+                                            setViewScheduleRecords([...records.filter((r) => normalizeDateStr(r.startDate) === normStart && normalizeDateStr(r.endDate) === normEnd)].sort((a, b) => DAYS_ORDER.indexOf(a.day) - DAYS_ORDER.indexOf(b.day)));
+                                            setViewScheduleView("workDays");
+                                            setIsEditingViewSchedule(false);
+                                            setEditViewRecords([]);
+                                            setEditViewEndDate("");
+                                            setShowViewScheduleModal(true);
+                                          }}
+                                          sx={{ width: 22, height: 22, border: `0.5px solid ${T.accentBorder}`, borderRadius: 1.25, color: T.faint, "&:hover": { borderColor: T.accent, color: T.accent, bgcolor: T.accentFaint } }}
+                                        >
+                                          <Visibility sx={{ fontSize: 11.5 }} />
+                                        </IconButton>
+                                      </Tooltip>
+                                      {(!isActive || isOfficialTimeAdmin) && (
+                                        <Tooltip title={isActive ? "Delete this ACTIVE schedule (admin)" : "Delete inactive official time"}>
+                                          <IconButton size="small"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              requestDeleteInactiveSchedule(v);
+                                            }}
+                                            sx={{ width: 22, height: 22, border: "0.5px solid rgba(198,40,40,0.35)", borderRadius: 1.25, color: "#c62828", "&:hover": { bgcolor: "rgba(198,40,40,0.08)" } }}
+                                          >
+                                            <Delete sx={{ fontSize: 12 }} />
+                                          </IconButton>
+                                        </Tooltip>
+                                      )}
+                                    </Box>
+                                  );
+                                })}
+                                {row.length === 1 && <Box sx={{ display: { xs: "none", md: "block" } }} />}
+                              </Box>
+                            ))}
+                          </Box>
+                        </Box>
+
+                        <Box sx={{ mb: 2 }}>
+                          <ScheduleTabBar activeTab={scheduleView} setTab={setScheduleView} />
+                        </Box>
+
+                        <PremiumTableContainer>
+                          <Table size="small" stickyHeader>
+                            <ScheduleTimeRows
+                              records={activeBlockRecords.length > 0 ? activeBlockRecords : DAYS_ORDER.map((day) => makeDefaultRow(employeeID, day))}
+                              onChangeRecord={() => {}}
+                              scheduleView={scheduleView}
+                              readOnly
+                            />
+                          </Table>
+                        </PremiumTableContainer>
+                      </Box>
+
+                      <Box sx={{ borderTop: `1px solid ${T.divider}`, bgcolor: "#fafafa", px: 3, py: 1.75, display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 1.5, flexShrink: 0 }}>
+                        <Typography sx={{ fontSize: "0.72rem", color: T.faint, flex: 1 }}>
+                          {isOfficialTimeAdmin
+                            ? "Admin mode — you can edit or delete this schedule regardless of status"
+                            : String(activeBlockData.status || "active").toLowerCase() === "active"
+                              ? "Viewing in read-only mode — click Edit to make changes"
+                              : "This official time is inactive — Delete removes it permanently"}
+                        </Typography>
+                        {(String(activeBlockData.status || "active").toLowerCase() !== "active" || isOfficialTimeAdmin) && (
+                          <Button
+                            variant="outlined" size="small" startIcon={<Delete sx={{ fontSize: 14 }} />}
+                            onClick={() => requestDeleteInactiveSchedule(activeBlockData)}
+                            sx={{ borderColor: "rgba(198,40,40,0.4)", color: "#c62828", textTransform: "none", fontWeight: 700, "&:hover": { bgcolor: "rgba(198,40,40,0.06)", borderColor: "#c62828" } }}
+                          >
+                            Delete
+                          </Button>
+                        )}
+                        {(String(activeBlockData.status || "active").toLowerCase() === "active" || isOfficialTimeAdmin) && (
+                          <Button
+                            variant="outlined" size="small" startIcon={<Edit sx={{ fontSize: 14 }} />}
+                            onClick={() => {
+                              const normStart = normalizeDateStr(activeBlockData.startDate);
+                              const normEnd = normalizeDateStr(activeBlockData.endDate);
+                              const rows = [...records.filter((r) => normalizeDateStr(r.startDate) === normStart && normalizeDateStr(r.endDate) === normEnd)].sort((a, b) => DAYS_ORDER.indexOf(a.day) - DAYS_ORDER.indexOf(b.day));
+                              setViewScheduleInfo({ academicYear: activeBlockData.academicYear, startDate: activeBlockData.startDate, endDate: activeBlockData.endDate, status: activeBlockData.status });
+                              setViewScheduleRecords(rows);
+                              setViewScheduleView("workDays");
+                              setIsEditingViewSchedule(false);
+                              setEditViewRecords([]);
+                              setEditViewEndDate("");
+                              setShowViewScheduleModal(true);
+                            }}
+                            sx={{ borderColor: T.accentBorder, color: T.accent, textTransform: "none", fontWeight: 600, "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent } }}
+                          >
+                            Edit Schedule
+                          </Button>
+                        )}
+                      </Box>
+                    </>
+                  )}
+                </SectionCard>
+                {monthStatusCard}
+              </Box>
+            </Fade>
+          )}
+
+          {/* ══ ALL USERS VIEW ══ */}
+          {showAllUsers && (
+            <Fade in timeout={400} key="all-users-view">
+              <Box
+                sx={{
+                  display: "grid",
+                  gridTemplateColumns: { xs: "1fr", lg: "340px minmax(0, 1fr) 300px" },
+                  gap: 2,
+                  alignItems: "stretch",
+                  height: { lg: "calc(100vh - 295px)" },
+                  minHeight: { lg: "calc(100vh - 295px)" },
+                  maxHeight: { lg: "calc(100vh - 295px)" },
+                }}
+              >
+                {/* ─── LEFT PANEL ─── */}
+                <SectionCard
+                  sx={{
+                    height: { lg: "calc(100vh - 295px)" },
+                    minHeight: { lg: "calc(100vh - 295px)" },
+                    maxHeight: { lg: "calc(100vh - 295px)" },
+                    display: "flex",
+                    flexDirection: "column",
+                    overflowY: "auto",
+                    overflowX: "hidden",
+                    boxSizing: "border-box",
+                  }}
+                >
+                  <PanelHeader icon={PeopleIcon} title="Bulk actions" />
+                  <Box sx={{ p: 2.5, display: "flex", flexDirection: "column", gap: 1.25 }}>
+                    <Button
+                      fullWidth variant="contained" size="small"
+                      onClick={openBulkModalForSelected}
+                      disabled={selectedUsers.size === 0}
+                      startIcon={<CheckCircleIcon sx={{ fontSize: 16 }} />}
+                      sx={{
+                        bgcolor: T.accent, color: "#fff", borderRadius: "8px", fontWeight: 600,
+                        textTransform: "none", py: 1, boxShadow: `0 2px 10px ${alpha(T.accent, 0.35)}`,
+                        "&:hover": { bgcolor: T.accentDark },
+                        "&.Mui-disabled": { bgcolor: "#c0a0a0", color: "#fff" },
+                      }}
+                    >
+                      Bulk Create (Selected: {selectedUsers.size})
+                    </Button>
+                    <Button
+                      fullWidth variant="outlined" size="small"
+                      onClick={openBulkModalForAllMissing}
+                      disabled={allUsers.filter((u) => !u.hasDefaultOfficialTime).length === 0}
+                      sx={{
+                        borderColor: T.accentBorder, color: T.accent, textTransform: "none",
+                        fontWeight: 600, py: 1, borderRadius: "8px",
+                        "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent },
+                      }}
+                    >
+                      Bulk Create (All Missing)
+                    </Button>
+                  </Box>
+
+                  <Divider sx={{ borderColor: T.divider }} />
+
+                  <PanelHeader
+                    icon={CloudUploadIcon}
+                    title="Excel upload by department"
+                    rightContent={<Typography sx={{ fontSize: "0.7rem", color: T.faint, fontStyle: "italic" }}>optional</Typography>}
+                  />
+                  {uploadRestrictionMessage && <UploadRestrictionNotice message={uploadRestrictionMessage} />}
+                  <Box sx={{ p: 2.5 }}>
+                    <Typography sx={{ fontSize: "0.71rem", color: T.faint, mb: 1.5 }}>
+                      Only rows for employees in the selected department will be processed.
+                    </Typography>
+
+                    <ModernTextField
+                      select fullWidth size="small" label="Target department"
+                      value={deptUploadDepartment}
+                      disabled={!canUploadExcel}
+                      onChange={(e) => setDeptUploadDepartment(e.target.value)}
+                      sx={{ mb: 1.5 }}
+                    >
+                      <MenuItem value="">Select department…</MenuItem>
+                      {departmentTableList.map((d) => <MenuItem key={d} value={d}>{d}</MenuItem>)}
+                    </ModernTextField>
+
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
+                      <input type="file" accept=".xlsx,.xls" id="dept-upload-button" style={{ display: "none" }} onChange={(e) => setDeptFile(e.target.files[0] || null)} />
+                      <label htmlFor="dept-upload-button">
+                        <Button
+                          variant="outlined" component="span" size="small" startIcon={<CloudUploadIcon />}
+                          sx={{ borderColor: T.accentBorder, color: T.accent, textTransform: "none", fontWeight: 600, "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent } }}
+                        >
+                          Choose file
+                        </Button>
+                      </label>
+                      <Button
+                        variant="contained" size="small"
+                        onClick={handleAnalyzeDeptFile}
+                        disabled={!deptFile || !deptUploadDepartment || deptAnalyzing || deptConfirming || !canUploadExcel}
+                        startIcon={deptAnalyzing ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : <SearchIcon />}
+                        sx={{ bgcolor: T.accent, color: "#fff", textTransform: "none", fontWeight: 600, "&:hover": { bgcolor: T.accentDark } }}
+                      >
+                        {deptAnalyzing ? "Validating…" : "Validate"}
+                      </Button>
+                    </Box>
+
+                    {deptFile && (
+                      <Typography
+                        variant="body2"
+                        sx={{ mt: 1, color: T.muted, bgcolor: T.accentFaint, border: `0.5px solid ${T.accentBorder}`, borderRadius: 1.5, px: 1.25, py: 0.5, fontSize: "0.8rem", display: "inline-block" }}
+                      >
+                        {deptFile.name}
+                      </Typography>
+                    )}
+                    {deptFile && !deptUploadDepartment && (
+                      <Typography sx={{ mt: 1, fontSize: "0.71rem", color: "#b45309" }}>
+                        Select a target department before validating — rows for other departments will be skipped.
+                      </Typography>
+                    )}
+                    {/* [CHANGE I] Readability note for the optional Name column */}
+                    <Typography sx={{ mt: 1, fontSize: "0.7rem", color: T.faint, fontStyle: "italic" }}>
+                      An optional "Name" column is supported for readability only — Department is always resolved from the system by Employee Number, not from the Excel file.
+                    </Typography>
+                  </Box>
+
+                  <Divider sx={{ borderColor: T.divider }} />
+
+                  {/* Excel upload by Employment Category — mirrors the Department
+                      upload panel above, but scopes rows to a single Employment Category
+                      (e.g. "Non-Teaching | General Administration") instead of a Department.
+                      [CHANGE H] Target dropdown items now show a colorHex dot matching
+                      the type's color from EmploymentCategoryManagement.jsx. */}
+                  <PanelHeader
+                    icon={CloudUploadIcon}
+                    title="Excel upload by employment category"
+                    rightContent={<Typography sx={{ fontSize: "0.7rem", color: T.faint, fontStyle: "italic" }}>optional</Typography>}
+                  />
+                  {uploadRestrictionMessage && <UploadRestrictionNotice message={uploadRestrictionMessage} />}
+                  <Box sx={{ p: 2.5 }}>
+                    <Typography sx={{ fontSize: "0.71rem", color: T.faint, mb: 1.5 }}>
+                      Only rows for employees assigned to the selected employment category will be processed.
+                    </Typography>
+
+                    <ModernTextField
+                      select fullWidth size="small" label="Target employment category"
+                      value={catUploadCategory}
+                      disabled={!canUploadExcel}
+                      onChange={(e) => setCatUploadCategory(e.target.value)}
+                      sx={{ mb: 1.5 }}
+                      SelectProps={{
+                        renderValue: (val) => {
+                          if (!val) return <Typography sx={{ color: T.faint, fontSize: "0.875rem" }}>Select employment category…</Typography>;
+                          const found = employmentCategoryList.find((c) => String(c.id) === String(val));
+                          if (!found) return val;
+                          return (
+                            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                              <Circle sx={{ fontSize: 8, color: found.colorHex || DEFAULT_CATEGORY_COLOR }} />
+                              <Typography sx={{ fontSize: "0.875rem" }}>{found.label}</Typography>
+                            </Box>
+                          );
+                        },
+                      }}
+                    >
+                      <MenuItem value="" disabled>
+                        <Typography sx={{ color: T.faint, fontSize: "0.875rem" }}>Select employment category…</Typography>
+                      </MenuItem>
+                      {employmentCategoryList.map((c) => (
+                        <MenuItem key={c.id} value={String(c.id)}>
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                            <Circle sx={{ fontSize: 8, color: c.colorHex || DEFAULT_CATEGORY_COLOR }} />
+                            <Typography sx={{ fontSize: "0.875rem" }}>{c.label}</Typography>
+                          </Box>
+                        </MenuItem>
+                      ))}
+                    </ModernTextField>
+
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
+                      <input type="file" accept=".xlsx,.xls" id="cat-upload-button" style={{ display: "none" }} onChange={(e) => setCatFile(e.target.files[0] || null)} />
+                      <label htmlFor="cat-upload-button">
+                        <Button
+                          variant="outlined" component="span" size="small" startIcon={<CloudUploadIcon />}
+                          sx={{ borderColor: T.accentBorder, color: T.accent, textTransform: "none", fontWeight: 600, "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent } }}
+                        >
+                          Choose file
+                        </Button>
+                      </label>
+                      <Button
+                        variant="contained" size="small"
+                        onClick={handleAnalyzeCatFile}
+                        disabled={!catFile || !catUploadCategory || catAnalyzing || catConfirming || !canUploadExcel}
+                        startIcon={catAnalyzing ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : <SearchIcon />}
+                        sx={{ bgcolor: T.accent, color: "#fff", textTransform: "none", fontWeight: 600, "&:hover": { bgcolor: T.accentDark } }}
+                      >
+                        {catAnalyzing ? "Validating…" : "Validate"}
+                      </Button>
+                    </Box>
+
+                    {catFile && (
+                      <Typography
+                        variant="body2"
+                        sx={{ mt: 1, color: T.muted, bgcolor: T.accentFaint, border: `0.5px solid ${T.accentBorder}`, borderRadius: 1.5, px: 1.25, py: 0.5, fontSize: "0.8rem", display: "inline-block" }}
+                      >
+                        {catFile.name}
+                      </Typography>
+                    )}
+                    {catFile && !catUploadCategory && (
+                      <Typography sx={{ mt: 1, fontSize: "0.71rem", color: "#b45309" }}>
+                        Select a target employment category before validating — rows for other categories will be skipped.
+                      </Typography>
+                    )}
+                    {/* [CHANGE I] Readability note for the optional Name column */}
+                    <Typography sx={{ mt: 1, fontSize: "0.7rem", color: T.faint, fontStyle: "italic" }}>
+                      An optional "Name" column is supported for readability only — Employment Category is always resolved from the system by Employee Number, not from the Excel file.
+                    </Typography>
+                  </Box>
+                </SectionCard>
+
+                {/* ─── RIGHT PANEL — table card, with Search & Filter bar at the top ─── */}
+                <SectionCard sx={{ height: { lg: "calc(100vh - 295px)" }, minHeight: { lg: "calc(100vh - 295px)" }, maxHeight: { lg: "calc(100vh - 295px)" }, display: "flex", flexDirection: "column", overflow: "hidden", boxSizing: "border-box" }}>
+                  <PanelHeader
+                    icon={PeopleIcon}
+                    title="All Users — Official Time Status"
+                    rightContent={
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                        {activeFilterCount > 0 && (
+                          <Button
+                            size="small"
+                            onClick={clearAllFilters}
+                            sx={{ fontSize: "0.68rem", color: T.accent, textTransform: "none", fontWeight: 700, minWidth: 0, p: 0 }}
+                          >
+                            Clear filters ({activeFilterCount})
+                          </Button>
+                        )}
+                        <Box
+                          component="span"
+                          sx={{
+                            display: "inline-flex", alignItems: "center", fontSize: "0.68rem", fontWeight: 700,
+                            bgcolor: alpha(T.accent, 0.1), color: T.accent, border: `0.5px solid ${T.accentBorder}`,
+                            borderRadius: "9px", px: 0.9, py: 0.2, whiteSpace: "nowrap",
+                          }}
+                        >
+                          {filteredAllUsers.length} user{filteredAllUsers.length === 1 ? "" : "s"}
+                        </Box>
+                      </Box>
+                    }
+                  />
+
+                  {/* ── Search & Filter bar — now lives at the top of the table card ── */}
+                  <Box sx={{ px: 2.5, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: alpha(T.accent, 0.02) }}>
+                    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.25, alignItems: "flex-start" }}>
+                      <ModernTextField
+                        size="small"
+                        placeholder="Search by name or employee number…"
+                        value={searchQuery}
+                        onChange={(e) => { setSearchQuery(e.target.value); setAllUsersPage(0); }}
+                        InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon sx={{ color: T.accentMid, fontSize: 18 }} /></InputAdornment> }}
+                        sx={{ flex: "2 1 240px", minWidth: 220 }}
+                      />
+
+                      <ModernTextField
+                        select size="small" label="Department"
+                        value={filterDepartment}
+                        onChange={(e) => { setFilterDepartment(e.target.value); setAllUsersPage(0); }}
+                        sx={{ flex: "1 1 170px", minWidth: 160 }}
+                      >
+                        <MenuItem value="">All Departments</MenuItem>
+                        {departmentTableList.map((d) => <MenuItem key={d} value={d}>{d}</MenuItem>)}
+                      </ModernTextField>
+
+                      {/* Employment Category filter — independent axis from Department above.
+                          [CHANGE H] color dot added to match module styling. */}
+                      <ModernTextField
+                        select size="small" label="Employment Category"
+                        value={filterEmploymentCategory}
+                        onChange={(e) => { setFilterEmploymentCategory(e.target.value); setAllUsersPage(0); }}
+                        sx={{ flex: "1 1 200px", minWidth: 190 }}
+                        SelectProps={{
+                          renderValue: (val) => {
+                            if (!val) return <Typography sx={{ fontSize: "0.875rem", color: T.faint }}>All Employment Categories</Typography>;
+                            const found = employmentCategoryList.find((c) => String(c.id) === String(val));
+                            if (!found) return val;
+                            return (
+                              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                                <Circle sx={{ fontSize: 8, color: found.colorHex || DEFAULT_CATEGORY_COLOR }} />
+                                <Typography sx={{ fontSize: "0.875rem" }}>{found.label}</Typography>
+                              </Box>
+                            );
+                          },
+                        }}
+                      >
+                        <MenuItem value="">All Employment Categories</MenuItem>
+                        {employmentCategoryList.map((c) => (
+                          <MenuItem key={c.id} value={String(c.id)}>
+                            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                              <Circle sx={{ fontSize: 8, color: c.colorHex || DEFAULT_CATEGORY_COLOR }} />
+                              <Typography sx={{ fontSize: "0.875rem" }}>{c.label}</Typography>
+                            </Box>
+                          </MenuItem>
+                        ))}
+                      </ModernTextField>
+
+                      <ModernTextField
+                        select size="small" label="Status"
+                        value={filterStatus}
+                        onChange={(e) => { setFilterStatus(e.target.value); setAllUsersPage(0); }}
+                        sx={{ flex: "1 1 150px", minWidth: 140 }}
+                      >
+                        <MenuItem value="">All Statuses</MenuItem>
+                        <MenuItem value="active">Has Schedule</MenuItem>
+                        <MenuItem value="inactive">No Schedule</MenuItem>
+                      </ModernTextField>
+
+                      <ModernTextField
+                        select size="small" label="Academic Year"
+                        value={filterAcademicYear}
+                        onChange={(e) => { setFilterAcademicYear(e.target.value); setAllUsersPage(0); }}
+                        sx={{ flex: "1 1 160px", minWidth: 150 }}
+                      >
+                        <MenuItem value="">All Academic Years</MenuItem>
+                        {academicYearOptions.map((y) => <MenuItem key={y} value={y}>{y}</MenuItem>)}
+                      </ModernTextField>
+
+                      <ModernTextField
+                        size="small" label="Start date from" type="date"
+                        InputLabelProps={{ shrink: true }}
+                        value={filterStartDate}
+                        onChange={(e) => { setFilterStartDate(e.target.value); setAllUsersPage(0); }}
+                        sx={{ flex: "1 1 150px", minWidth: 145 }}
+                      />
+
+                      <ModernTextField
+                        size="small" label="End date until" type="date"
+                        InputLabelProps={{ shrink: true }}
+                        value={filterEndDate}
+                        onChange={(e) => { setFilterEndDate(e.target.value); setAllUsersPage(0); }}
+                        sx={{ flex: "1 1 150px", minWidth: 145 }}
+                      />
+                    </Box>
+                  </Box>
+
+                  <Box sx={{ p: 2.5, flex: 1, minHeight: 0, overflow: "auto", display: "flex", flexDirection: "column" }}>
+                    {loadingUsers ? (
+                      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", flex: 1, gap: 1.5, py: 6 }}>
+                        <CircularProgress size={22} sx={{ color: T.accent }} />
+                        <Typography sx={{ fontSize: "0.88rem", color: T.muted }}>Loading users…</Typography>
+                      </Box>
+                    ) : (
+                      <>
+                        <PremiumTableContainer>
+                          <Table stickyHeader>
+                            <TableHead>
+                              <TableRow sx={{ bgcolor: T.accent }}>
+                                <TableCell sx={{ bgcolor: T.accent, py: 1.25 }}>
+                                  <Checkbox
+                                    checked={paginatedAllUsers.length > 0 && paginatedAllUsers.every((u) => selectedUsers.has(u.employeeNumber))}
+                                    indeterminate={paginatedAllUsers.some((u) => selectedUsers.has(u.employeeNumber)) && !paginatedAllUsers.every((u) => selectedUsers.has(u.employeeNumber))}
+                                    onChange={(e) => { if (e.target.checked) setSelectedUsers(new Set(paginatedAllUsers.map((u) => u.employeeNumber))); else setSelectedUsers(new Set()); }}
+                                    sx={{ color: "rgba(255,255,255,0.7)", "&.Mui-checked": { color: "#fff" }, "&.MuiCheckbox-indeterminate": { color: "#fff" } }}
+                                  />
+                                </TableCell>
+                                {["Employee Number","Name","Department","Employment Category","Academic Year","Status","Start Date","End Date"].map((h) => (
+                                  <TableCell key={h} sx={{ color: "#fff", bgcolor: T.accent, fontSize: "0.7rem", letterSpacing: "0.07em", textTransform: "uppercase", fontWeight: 700, py: 1.25 }}>{h}</TableCell>
+                                ))}
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {paginatedAllUsers.map((user) => (
+                                <TableRow key={user.employeeNumber} sx={{ "&:nth-of-type(even)": { bgcolor: T.rowOdd }, "&:hover": { bgcolor: T.rowHover } }}>
+                                  <TableCell>
+                                    <Checkbox
+                                      checked={selectedUsers.has(user.employeeNumber)}
+                                      onChange={() => { setSelectedUsers((prev) => { const n = new Set(prev); if (n.has(user.employeeNumber)) n.delete(user.employeeNumber); else n.add(user.employeeNumber); return n; }); }}
+                                      sx={{ color: T.accentBorder, "&.Mui-checked": { color: T.accent } }}
+                                      size="small"
+                                    />
+                                  </TableCell>
+                                  <TableCell sx={{ fontSize: "0.88rem" }}>{user.employeeNumber}</TableCell>
+                                  <TableCell sx={{ fontSize: "0.88rem" }}>{user.fullName || "N/A"}</TableCell>
+                                  <TableCell sx={{ fontSize: "0.88rem" }}>{user.department || "—"}</TableCell>
+                                  {/* [CHANGE H] Employment Category column now renders a colored
+                                      chip (dot + label) using employmentCategoryColor from the
+                                      backend, matching the Manage Types / Assign Categories tabs
+                                      in EmploymentCategoryManagement.jsx. */}
+                                  <TableCell>
+                                    <EmploymentCategoryChip
+                                      label={user.employmentCategoryLabel}
+                                      colorHex={user.employmentCategoryColor || employmentCategoryColorById.get(String(user.employmentCategoryId))}
+                                    />
+                                  </TableCell>
+                                  <TableCell sx={{ fontSize: "0.88rem" }}>{user.academicYear || "—"}</TableCell>
+                                  <TableCell>
+                                    {user.hasDefaultOfficialTime ? (
+                                      <Chip icon={<CheckCircleIcon sx={{ fontSize: "14px !important" }} />} label="Has Schedule" size="small" sx={{ bgcolor: alpha("#4caf50", 0.1), color: "#2e7d32", border: "1px solid #c8e6c9", fontWeight: 600 }} />
+                                    ) : (
+                                      <Chip icon={<CancelIcon sx={{ fontSize: "14px !important" }} />} label="No Schedule" size="small" sx={{ bgcolor: alpha("#f44336", 0.1), color: "#c62828", border: "1px solid #ffcdd2", fontWeight: 600 }} />
+                                    )}
+                                  </TableCell>
+                                  <TableCell sx={{ fontSize: "0.88rem" }}>{user.startDate ? formatDateOnly(user.startDate) : "—"}</TableCell>
+                                  <TableCell sx={{ fontSize: "0.88rem" }}>{user.endDate ? formatDateOnly(user.endDate) : "—"}</TableCell>
+                                </TableRow>
+                              ))}
+                              {filteredAllUsers.length === 0 && (
+                                <TableRow>
+                                  <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
+                                    <Typography sx={{ color: T.accent }}>{searchQuery ? "No users found matching your search." : "No users found."}</Typography>
+                                  </TableCell>
+                                </TableRow>
+                              )}
+                            </TableBody>
+                          </Table>
+                        </PremiumTableContainer>
+                        <Box sx={{ borderTop: `1px solid ${T.divider}` }}>
+                          <TablePagination
+                            component="div"
+                            count={filteredAllUsers.length}
+                            page={allUsersPage}
+                            onPageChange={(_, p) => setAllUsersPage(p)}
+                            rowsPerPage={allUsersRowsPerPage}
+                            onRowsPerPageChange={(e) => { setAllUsersRowsPerPage(parseInt(e.target.value, 10)); setAllUsersPage(0); }}
+                            rowsPerPageOptions={[10, 20, 30, 50]}
+                          />
+                        </Box>
+                      </>
+                    )}
+                  </Box>
+                </SectionCard>
+                {monthStatusCard}
+              </Box>
+            </Fade>
+          )}
+
+          {/* ══════════════ DIALOGS ══════════════ */}
+
+          {/* ── Create / Bulk Schedule ── */}
+          <Dialog
+            open={showScheduleModal}
+            onClose={() => { if (saving) return; setShowScheduleModal(false); setIsBulkSchedule(false); setBulkTargetEmployees([]); }}
+            maxWidth={false}
+            PaperProps={{ sx: { borderRadius: 2, overflow: "hidden", width: "96vw", maxWidth: "1500px" } }}
+          >
+            <Box sx={dialogHeaderSx}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                <Schedule sx={{ color: "#fff", fontSize: 20 }} />
+                <Box>
+                  <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "1rem", lineHeight: 1.25 }}>
+                    {isBulkSchedule ? "Bulk Schedule — Step 2 of 2" : "Create New Schedule"}
+                  </Typography>
+                  <Typography sx={{ color: "rgba(255,255,255,0.8)", fontSize: "0.78rem", mt: 0.25 }}>
+                    {isBulkSchedule ? `Setting time for ${bulkTargetEmployees.length} employee(s)` : selectedEmployee ? `${selectedEmployee.name} (#${employeeID})` : `Employee #${employeeID}`}
+                  </Typography>
+                </Box>
+              </Box>
+              {dialogCloseBtn(() => { if (saving) return; setShowScheduleModal(false); setIsBulkSchedule(false); setBulkTargetEmployees([]); }, saving)}
+            </Box>
+            <Box sx={{ bgcolor: "#fff", px: 3, pt: 2.5, pb: 0 }}>
+              <Box sx={{ bgcolor: "#f7f0f0", border: `1px solid ${T.accentBorder}`, borderRadius: 1.5, p: 2, mb: 2.5 }}>
+                <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: T.accent, textTransform: "uppercase", letterSpacing: "0.4px", mb: 1.5 }}>
+                  Schedule Period (read-only — set before opening)
+                </Typography>
+                <Grid container spacing={1.5}>
+                  {[
+                    { label: "Academic Year", value: draftAcademicYear },
+                    { label: "Semester", value: draftSemester },
+                    { label: "Start Date", value: formatDateLong(draftStartDate) || draftStartDate },
+                    { label: "End Date", value: formatDateLong(draftEndDate) || draftEndDate },
+                  ].map(({ label, value }) => (
+                    <Grid item xs={6} sm={3} key={label}>
+                      <Typography sx={{ fontSize: "0.65rem", color: "#999", textTransform: "uppercase", letterSpacing: "0.4px", mb: 0.25 }}>{label}</Typography>
+                      <Typography sx={{ fontSize: "0.85rem", fontWeight: 600, color: T.text }}>{value || "—"}</Typography>
+                    </Grid>
+                  ))}
+                </Grid>
+              </Box>
+
+              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 2, gap: 1, flexWrap: "wrap" }}>
+                <ScheduleTabBar activeTab={modalScheduleView} setTab={setModalScheduleView} />
+                <Box sx={{ display: "flex", gap: 1, flexShrink: 0 }}>
+                  <Button size="small" variant="outlined" onClick={handleClearModalTimes} startIcon={<ClearAll fontSize="small" />}
+                    sx={{ borderColor: T.accentBorder, color: T.accent, fontWeight: 600, textTransform: "none", fontSize: "0.78rem", "&:hover": { bgcolor: T.accentFaint } }}
+                  >
+                    Clear Tab
+                  </Button>
+                  <Button size="small" variant="outlined" onClick={handleResetModalToDefault}
+                    sx={{ borderColor: T.accentBorder, color: "#555", fontWeight: 600, textTransform: "none", fontSize: "0.78rem", "&:hover": { bgcolor: "#f5f5f5" } }}
+                  >
+                    Reset Default
+                  </Button>
+                </Box>
+              </Box>
+
+              <TableContainer sx={{ border: `1px solid ${T.divider}`, borderRadius: 1.5, overflow: "auto", mb: 3 }}>
+                <Table size="small">
+                  <ScheduleTimeRows
+                    records={modalRecords}
+                    onChangeRecord={handleModalRecordChange}
+                    scheduleView={modalScheduleView}
+                    readOnly={false}
+                    patterns={patterns}
+                  />
+                </Table>
+              </TableContainer>
+            </Box>
+            <Box sx={{ borderTop: `1px solid ${T.divider}`, bgcolor: "#fafafa", px: 3, py: 2, display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1.5 }}>
+              <Button variant="outlined" onClick={() => { if (saving) return; setShowScheduleModal(false); setIsBulkSchedule(false); setBulkTargetEmployees([]); }} disabled={saving}
+                sx={{ borderColor: "#ccc", color: "#444", fontWeight: 600, textTransform: "none" }}
+              >
+                Cancel
+              </Button>
+              <Button variant="contained" disableElevation onClick={handleSubmitFromModal} disabled={saving}
+                startIcon={saving ? <CircularProgress size={15} sx={{ color: "#fff" }} /> : <SaveIcon />}
+                sx={{ bgcolor: T.accent, color: "#fff", fontWeight: 700, textTransform: "none", minWidth: 140, "&:hover": { bgcolor: T.accentDark }, "&.Mui-disabled": { bgcolor: "#c0a0a0", color: "#fff" } }}
+              >
+                {saving ? "Saving…" : "Save Schedule"}
+              </Button>
+            </Box>
+          </Dialog>
+
+          {/* ── View/Edit Schedule Modal ── */}
+          <Dialog
+            open={showViewScheduleModal}
+            onClose={() => { setShowViewScheduleModal(false); setIsEditingViewSchedule(false); setEditViewRecords([]); setEditViewEndDate(""); }}
+            maxWidth={false}
+            PaperProps={{ sx: { borderRadius: "16px", overflow: "hidden", width: "96vw", maxWidth: "1500px" } }}
+          >
+            <Box sx={dialogHeaderSx}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, minWidth: 0 }}>
+                {isEditingViewSchedule ? <Edit sx={{ color: "#fff", fontSize: 20 }} /> : <Visibility sx={{ color: "#fff", fontSize: 20 }} />}
+                <Box>
+                  <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "0.975rem", lineHeight: 1.25 }}>
+                    {isEditingViewSchedule ? "Edit Official Time Schedule" : "View Official Time Schedule"}
+                  </Typography>
+                  <Typography sx={{ color: "rgba(255,255,255,0.75)", fontSize: "0.78rem", mt: 0.25 }}>
+                    {selectedEmployee ? `${employeeID} — ${selectedEmployee.name}` : `Employee #${employeeID}`}
+                  </Typography>
+                </Box>
+              </Box>
+              {dialogCloseBtn(() => { setShowViewScheduleModal(false); setIsEditingViewSchedule(false); setEditViewRecords([]); setEditViewEndDate(""); })}
+            </Box>
+            <Box sx={{ bgcolor: "#fff", px: 3, pt: 2.5, pb: 0 }}>
+              {viewScheduleInfo && (
+                <>
+                  <Box sx={{ display: "flex", flexWrap: "wrap", gap: 3, mb: 2.5, p: 2, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, borderRadius: "12px", alignItems: "flex-end" }}>
+                    {[
+                      { label: "Academic Year", value: viewScheduleInfo.academicYear || "—" },
+                      { label: "Start Date", value: formatDateLong(viewScheduleInfo.startDate) || formatDateOnly(viewScheduleInfo.startDate) },
+                    ].map(({ label, value }) => (
+                      <Box key={label}>
+                        <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: T.accent, textTransform: "uppercase", letterSpacing: "0.4px" }}>{label}</Typography>
+                        <Typography sx={{ fontWeight: 600, color: T.text, fontSize: "0.88rem", mt: 0.25 }}>{value}</Typography>
+                      </Box>
+                    ))}
+                    <Box>
+                      <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: T.accent, textTransform: "uppercase", letterSpacing: "0.4px", mb: 0.5 }}>
+                        End Date
+                        {isEditingViewSchedule && <Box component="span" sx={{ ml: 0.75, fontSize: "0.65rem", color: "#2e7d32", fontWeight: 600, textTransform: "none" }}>(editable)</Box>}
+                      </Typography>
+                      {isEditingViewSchedule ? (
+                        <TextField size="small" type="date" InputLabelProps={{ shrink: true }} value={editViewEndDate} onChange={(e) => setEditViewEndDate(e.target.value)} inputProps={{ min: normalizeDateStr(viewScheduleInfo.startDate) || undefined }}
+                          sx={{ bgcolor: "#fff", minWidth: 160, "& .MuiOutlinedInput-root": { fontSize: "0.85rem", borderRadius: "8px", "&.Mui-focused fieldset": { borderColor: T.accent } }, "& .MuiOutlinedInput-notchedOutline": { borderColor: T.accent } }}
+                        />
+                      ) : (
+                        <Typography sx={{ fontWeight: 600, color: T.text, fontSize: "0.88rem" }}>
+                          {formatDateLong(viewScheduleInfo.endDate) || formatDateOnly(viewScheduleInfo.endDate)}
+                        </Typography>
+                      )}
+                    </Box>
+                    <Box>
+                      <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: T.accent, textTransform: "uppercase", letterSpacing: "0.4px" }}>Status</Typography>
+                      <Box sx={{ mt: 0.5 }}><StatusBadge active={String(viewScheduleInfo.status || "active").toLowerCase() === "active"} /></Box>
+                    </Box>
+                  </Box>
+                  <Box sx={{ mb: 2 }}>
+                    <ScheduleTabBar
+                      activeTab={isEditingViewSchedule ? editViewScheduleView : viewScheduleView}
+                      setTab={isEditingViewSchedule ? setEditViewScheduleView : setViewScheduleView}
+                    />
+                  </Box>
+                  <TableContainer sx={{ border: `1px solid ${T.divider}`, borderRadius: "10px", overflow: "hidden", mb: 3 }}>
+                    <Table size="small">
+                      {isEditingViewSchedule ? (
+                        <ScheduleTimeRows
+                          records={[...editViewRecords].sort((a, b) => DAYS_ORDER.indexOf(a.day) - DAYS_ORDER.indexOf(b.day))}
+                          onChangeRecord={(index, field, value) => {
+                            const sorted = [...editViewRecords].sort((a, b) => DAYS_ORDER.indexOf(a.day) - DAYS_ORDER.indexOf(b.day));
+                            const day = sorted[index]?.day;
+                            setEditViewRecords((prev) => prev.map((r) => r.day === day ? { ...r, [field]: value } : r));
+                          }}
+                          scheduleView={editViewScheduleView}
+                          readOnly={false}
+                          patterns={patterns}
+                        />
+                      ) : (
+                        <ScheduleTimeRows
+                          records={[...viewScheduleRecords].sort((a, b) => DAYS_ORDER.indexOf(a.day) - DAYS_ORDER.indexOf(b.day))}
+                          onChangeRecord={() => {}}
+                          scheduleView={viewScheduleView}
+                          readOnly
+                        />
+                      )}
+                    </Table>
+                  </TableContainer>
+                </>
+              )}
+            </Box>
+            <Box sx={{ borderTop: `1px solid ${T.divider}`, bgcolor: "#fafafa", px: 3, py: 2, display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 1.5 }}>
+              {isEditingViewSchedule ? (
+                <>
+                  <Button variant="outlined" onClick={handleCancelEditViewSchedule} disabled={editViewSaving} sx={{ fontWeight: 700, textTransform: "none", borderColor: "#ccc", color: "#444", "&:hover": { bgcolor: "#f5f5f5" } }}>Cancel</Button>
+                  <Button variant="contained" disableElevation startIcon={editViewSaving ? <CircularProgress size={15} sx={{ color: "#fff" }} /> : <SaveIcon />} onClick={handleSaveEditedSchedule} disabled={editViewSaving}
+                    sx={{ bgcolor: T.accent, color: "#fff", fontWeight: 700, textTransform: "none", minWidth: 130, "&:hover": { bgcolor: T.accentDark } }}
+                  >
+                    {editViewSaving ? "Saving…" : "Save Changes"}
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button variant="outlined" onClick={() => setShowViewScheduleModal(false)} sx={{ fontWeight: 700, textTransform: "none", borderColor: "#ccc", color: "#444", "&:hover": { bgcolor: "#f5f5f5" } }}>Close</Button>
+                  {viewScheduleInfo && (String(viewScheduleInfo.status || "active").toLowerCase() !== "active" || isOfficialTimeAdmin) && (
+                    <Button variant="outlined" startIcon={<Delete />} onClick={() => requestDeleteInactiveSchedule(viewScheduleInfo)}
+                      sx={{ fontWeight: 700, textTransform: "none", borderColor: "rgba(198,40,40,0.4)", color: "#c62828", "&:hover": { bgcolor: "rgba(198,40,40,0.06)", borderColor: "#c62828" } }}
+                    >
+                      Delete
+                    </Button>
+                  )}
+                  {viewScheduleInfo && (String(viewScheduleInfo.status || "active").toLowerCase() === "active" || isOfficialTimeAdmin) && (
+                    <Button variant="contained" disableElevation startIcon={<Edit />} onClick={handleStartEditViewSchedule}
+                      sx={{ fontWeight: 700, textTransform: "none", bgcolor: T.accent, color: "#fff", "&:hover": { bgcolor: T.accentDark } }}
+                    >
+                      Edit Schedule
+                    </Button>
+                  )}
+                </>
+              )}
+            </Box>
+          </Dialog>
+
+          <Dialog
+            open={Boolean(deleteScheduleTarget)}
+            onClose={() => { if (!deletingSchedule) setDeleteScheduleTarget(null); }}
+            maxWidth="xs"
+            fullWidth
+            PaperProps={{ sx: { borderRadius: "16px", overflow: "hidden" } }}
+          >
+            <Box sx={dialogHeaderSx}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                <Delete sx={{ color: "#fff", fontSize: 20 }} />
+                <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "1rem" }}>
+                  {deleteScheduleTarget?.wasActive ? "Delete ACTIVE official time" : "Delete inactive official time"}
+                </Typography>
+              </Box>
+              {dialogCloseBtn(() => { if (!deletingSchedule) setDeleteScheduleTarget(null); }, deletingSchedule)}
+            </Box>
+            <Box sx={{ bgcolor: "#fff", px: 3, pt: 2.5, pb: 2 }}>
+              {deleteScheduleTarget?.wasActive ? (
+                <Box sx={{ display: "flex", gap: 1, p: 1.5, mb: 1.5, bgcolor: "#fff5f5", border: "1px solid #ffcdd2", borderRadius: "10px" }}>
+                  <WarningAmber sx={{ color: "#c62828", fontSize: 18, mt: "1px", flexShrink: 0 }} />
+                  <Typography sx={{ fontSize: "0.83rem", color: "#7a0000", lineHeight: 1.55 }}>
+                    <strong>This is the employee's currently ACTIVE official time.</strong> You're deleting it as an admin override — once removed, this employee has no active schedule until a new one is created.
+                  </Typography>
+                </Box>
+              ) : (
+                <Typography sx={{ color: T.text, lineHeight: 1.7, fontSize: "0.93rem" }}>
+                  This removes the inactive schedule and cannot be undone. Active official time is not affected.
+                </Typography>
+              )}
+              {deleteScheduleTarget && (
+                <Box sx={{ mt: 1.5, px: 2, py: 1.25, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, borderRadius: "10px" }}>
+                  <Typography sx={{ fontWeight: 700, color: T.accent, fontSize: "0.88rem" }}>
+                    {formatScheduleDisplayText(deleteScheduleTarget.academicYear)}
+                  </Typography>
+                  <Typography sx={{ color: T.muted, fontSize: "0.8rem", mt: 0.35 }}>
+                    {formatDateLong(deleteScheduleTarget.startDate) || formatDateOnly(deleteScheduleTarget.startDate)} — {formatDateLong(deleteScheduleTarget.endDate) || formatDateOnly(deleteScheduleTarget.endDate)}
+                  </Typography>
+                </Box>
+              )}
+            </Box>
+            <Box sx={{ borderTop: `1px solid ${T.divider}`, bgcolor: "#fafafa", px: 3, py: 2, display: "flex", justifyContent: "flex-end", gap: 1.5 }}>
+              <Button variant="outlined" disabled={deletingSchedule} onClick={() => setDeleteScheduleTarget(null)} sx={{ fontWeight: 700, textTransform: "none", borderColor: "#ccc", color: "#444" }}>
+                Cancel
+              </Button>
+              <Button
+                variant="contained"
+                disableElevation
+                disabled={deletingSchedule}
+                onClick={handleConfirmDeleteInactiveSchedule}
+                startIcon={deletingSchedule ? <CircularProgress size={15} sx={{ color: "#fff" }} /> : <Delete />}
+                sx={{ bgcolor: "#c62828", color: "#fff", fontWeight: 700, textTransform: "none", "&:hover": { bgcolor: "#a31f1f" }, "&.Mui-disabled": { bgcolor: "#e0b4b4", color: "#fff" } }}
+              >
+                {deletingSchedule ? "Deleting…" : "Delete"}
+              </Button>
+            </Box>
+          </Dialog>
+
+          {/* ── Date Conflict ── */}
+          <Dialog open={showConflictModal} onClose={() => setShowConflictModal(false)} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: "16px", overflow: "hidden" } }}>
+            <Box sx={dialogHeaderSx}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                <WarningAmber sx={{ color: "#ffd180", fontSize: 20 }} />
+                <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "1rem" }}>Schedule Conflict</Typography>
+              </Box>
+            </Box>
+            <Box sx={{ bgcolor: "#fff", px: 3, pt: 2.5, pb: 2 }}>
+              <Typography sx={{ color: T.text, lineHeight: 1.7, fontSize: "0.93rem" }}>A schedule already exists for this employee during the selected date range.</Typography>
+              <Box sx={{ mt: 1.5, mb: 2, px: 2, py: 1.25, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, borderRadius: "10px", display: "flex", alignItems: "center", gap: 1 }}>
+                <Schedule sx={{ color: T.accent, fontSize: 16 }} />
+                <Typography sx={{ fontWeight: 700, color: T.accent, fontSize: "0.9rem" }}>{formatDateLong(draftStartDate) || draftStartDate} — {formatDateLong(draftEndDate) || draftEndDate}</Typography>
+              </Box>
+              <Typography sx={{ color: "#555", fontSize: "0.88rem", lineHeight: 1.6 }}>Please choose a different date range.</Typography>
+            </Box>
+            <Box sx={{ borderTop: `1px solid ${T.divider}`, bgcolor: "#fafafa", px: 3, py: 2, display: "flex", justifyContent: "flex-end" }}>
+              <Button variant="contained" disableElevation onClick={() => setShowConflictModal(false)} sx={{ bgcolor: T.accent, color: "#fff", fontWeight: 700, textTransform: "none", "&:hover": { bgcolor: T.accentDark } }}>Got It</Button>
+            </Box>
+          </Dialog>
+
+          {/* ── Warning / Error ── */}
+          <Dialog open={showWarningModal} onClose={() => { setShowWarningModal(false); setWarningOverlap(null); }} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: "16px", overflow: "hidden" } }}>
+            <Box sx={dialogHeaderSx}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                <WarningAmber sx={{ color: "#ffd180", fontSize: 20 }} />
+                <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "1rem" }}>{warningOverlap ? "Time Schedule Conflict" : "Cannot Save"}</Typography>
+              </Box>
+            </Box>
+            <Box sx={{ bgcolor: "#fff", px: 3, pt: 2.5, pb: 2 }}>
+              <Typography sx={{ color: T.text, lineHeight: 1.7, fontSize: "0.93rem", whiteSpace: "pre-wrap" }}>{warningMessage}</Typography>
+            </Box>
+            <Box sx={{ borderTop: `1px solid ${T.divider}`, bgcolor: "#fafafa", px: 3, py: 2, display: "flex", justifyContent: "flex-end" }}>
+              <Button variant="contained" disableElevation onClick={() => { setShowWarningModal(false); setWarningOverlap(null); }} sx={{ bgcolor: T.accent, color: "#fff", fontWeight: 700, textTransform: "none", "&:hover": { bgcolor: T.accentDark } }}>OK, Go Back</Button>
+            </Box>
+          </Dialog>
+
+          {/* ── Bulk Schedule Blocks (Step 1) ── */}
+          <Dialog open={showBulkBlocksModal} onClose={() => setShowBulkBlocksModal(false)} maxWidth={false} PaperProps={{ sx: { borderRadius: "16px", overflow: "hidden", width: 680, maxWidth: 680 } }}>
+            <Box sx={dialogHeaderSx}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                <PeopleIcon sx={{ color: "#fff", fontSize: 20 }} />
+                <Box>
+                  <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "0.975rem", lineHeight: 1.25 }}>Bulk Schedule — Step 1 of 2</Typography>
+                  <Typography sx={{ color: "rgba(255,255,255,0.75)", fontSize: "0.78rem", mt: 0.25 }}>Define schedule period for {bulkTargetEmployees.length} employee(s)</Typography>
+                </Box>
+              </Box>
+              {dialogCloseBtn(() => setShowBulkBlocksModal(false))}
+            </Box>
+            <Box sx={{ px: 3, pt: 2.5, pb: 0, bgcolor: "#fff" }}>
+              <Box sx={{ border: `1px solid ${T.accentBorder}`, borderRadius: "10px", overflow: "hidden", mb: 3 }}>
+                <Box sx={{ bgcolor: T.accentFaint, px: 2, py: 1.25, borderBottom: `1px solid ${T.accentBorder}` }}>
+                  <Typography sx={{ fontSize: "0.80rem", fontWeight: 600, color: T.text }}>Period details</Typography>
+                </Box>
+                <Box sx={{ p: 2 }}>
+                  <Grid container spacing={1.5}>
+                    <Grid item xs={6}>
+                      <AcademicYearAutocomplete
+                        value={bulkScheduleBlocks[0]?.academicYear || ""}
+                        onChange={(v) => setBulkScheduleBlocks((prev) => prev.map((b, i) => i === 0 ? { ...b, academicYear: v } : b))}
+                      />
+                    </Grid>
+                    <Grid item xs={6}>
+                      <Autocomplete
+                        freeSolo
+                        options={["1st Semester","2nd Semester","Summer","Vacation","Christmas break","Midyear","Enrollment period"]}
+                        value={bulkScheduleBlocks[0]?.semester || ""}
+                        onInputChange={(_, v) => setBulkScheduleBlocks((prev) => prev.map((b, i) => i === 0 ? { ...b, semester: v ?? "" } : b))}
+                        onChange={(_, v) => setBulkScheduleBlocks((prev) => prev.map((b, i) => i === 0 ? { ...b, semester: typeof v === "string" ? v : "" } : b))}
+                        renderInput={(params) => (
+                          <TextField {...params} size="small" label="Semester"
+                            sx={{ "& .MuiOutlinedInput-root": { borderRadius: "8px", "&:hover fieldset": { borderColor: T.accent }, "&.Mui-focused fieldset": { borderColor: T.accent } }, "& label.Mui-focused": { color: T.accent } }}
+                          />
+                        )}
+                      />
+                    </Grid>
+                    {[{ label: "Start date", key: "startDate" }, { label: "End date", key: "endDate" }].map(({ label, key }) => (
+                      <Grid item xs={6} key={key}>
+                        <TextField fullWidth size="small" label={label} type="date" InputLabelProps={{ shrink: true }}
+                          value={bulkScheduleBlocks[0]?.[key] || ""}
+                          onChange={(e) => setBulkScheduleBlocks((prev) => prev.map((b, i) => i === 0 ? { ...b, [key]: e.target.value } : b))}
+                          sx={{ "& .MuiOutlinedInput-root": { borderRadius: "8px", "&:hover fieldset": { borderColor: T.accent }, "&.Mui-focused fieldset": { borderColor: T.accent } }, "& label.Mui-focused": { color: T.accent } }}
+                        />
+                      </Grid>
+                    ))}
+                  </Grid>
+                </Box>
+              </Box>
+            </Box>
+            <Box sx={{ borderTop: `1px solid ${T.divider}`, bgcolor: "#fafafa", px: 3, py: 2, display: "flex", justifyContent: "flex-end", gap: 1.5 }}>
+              <Button variant="outlined" onClick={() => setShowBulkBlocksModal(false)} sx={{ borderColor: "#ccc", color: "#444", fontWeight: 600, textTransform: "none" }}>Cancel</Button>
+              <Button variant="contained" disableElevation onClick={handleConfirmBulkBlocks}
+                disabled={!bulkScheduleBlocks[0]?.academicYear || !bulkScheduleBlocks[0]?.startDate || !bulkScheduleBlocks[0]?.endDate}
+                endIcon={<ArrowForward fontSize="small" />}
+                sx={{ bgcolor: T.accent, color: "#fff", fontWeight: 700, textTransform: "none", minWidth: 200, "&:hover": { bgcolor: T.accentDark }, "&.Mui-disabled": { bgcolor: "#d0b8b8", color: "#fff" } }}
+              >
+                Next: Set Time Schedule
+              </Button>
+            </Box>
+          </Dialog>
+
+          {/* ── Bulk Confirm ── */}
+          <Dialog open={showBulkConfirmModal} onClose={() => setShowBulkConfirmModal(false)} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: "16px", overflow: "hidden" } }}>
+            <Box sx={dialogHeaderSx}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                <WarningAmber sx={{ color: "#ffd180", fontSize: 20 }} />
+                <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "1rem" }}>Confirm Bulk Schedule</Typography>
+              </Box>
+            </Box>
+            <Box sx={{ bgcolor: "#fff", px: 3, pt: 3, pb: 2 }}>
+              <Typography sx={{ color: T.text, lineHeight: 1.7, fontSize: "0.93rem" }}>
+                You are about to create schedules for <Box component="span" sx={{ fontWeight: 700, color: T.accent }}>{bulkTargetEmployees.length} employee(s)</Box>.
+              </Typography>
+              <Box sx={{ mt: 2, p: 1.5, bgcolor: "#fff9f0", border: "1px solid #f5d89a", borderRadius: "10px" }}>
+                <Typography sx={{ color: "#7a5000", fontSize: "0.82rem", lineHeight: 1.55 }}>⚠ Existing active schedules will be set to inactive.</Typography>
+              </Box>
+            </Box>
+            <Box sx={{ borderTop: `1px solid ${T.divider}`, bgcolor: "#fafafa", px: 3, py: 2, display: "flex", justifyContent: "flex-end", gap: 1.5 }}>
+              <Button variant="outlined" onClick={() => setShowBulkConfirmModal(false)} sx={{ borderColor: "#ccc", color: "#444", fontWeight: 600, textTransform: "none" }}>Cancel</Button>
+              <Button variant="contained" disableElevation
+                onClick={async () => {
+                  setShowBulkConfirmModal(false);
+                  const sevenRows = DAYS_ORDER.map((day) => { const r = modalRecords.find((x) => x.day === day); return r ? { ...r, day } : makeDefaultRow(employeeID, day); });
+                  setSaving(true);
                   try {
-                    records = JSON.parse(snapshotRows[0].snapshot_data) || [];
-                  } catch {
-                    records = [];
+                    const res = await axios.post(`${API_BASE_URL}/officialtime/bulk-schedules`, { employeeIDs: bulkTargetEmployees, blocks: bulkScheduleBlocks, records: sevenRows }, { ...getAuthHeaders(), timeout: 30000 });
+                    showToast(`Bulk schedules processed. Inserted for ${Math.round((res.data.totalInserted || 0) / 7)} users.`);
+                    await fetchAllUsers();
+                    notifyScheduleSaved();
+                  } catch (err) {
+                    setWarningMessage(err.response?.data?.message || err.message || "Error saving bulk schedules.");
+                    setShowWarningModal(true);
+                  } finally {
+                    setSaving(false);
+                    setShowScheduleModal(false);
+                    setIsBulkSchedule(false);
+                    setBulkTargetEmployees([]);
+                    setBulkScheduleBlocks([]);
                   }
-                }
+                }}
+                sx={{ bgcolor: T.accent, color: "#fff", fontWeight: 700, textTransform: "none", minWidth: 120, "&:hover": { bgcolor: T.accentDark } }}
+              >
+                Yes, Proceed
+              </Button>
+            </Box>
+          </Dialog>
 
-                res.json({
-                  records,
-                  changedFields,
-                  auditEntries: filteredAuditRows.map((r) => ({
-                    logID: r.logID,
-                    action: r.action,
-                    timestamp: r.timestamp,
-                  })),
-                });
-              },
-            );
-          },
-        );
-      },
-    );
-  },
-);
+          {/* ── Pattern Manager ── */}
+          {/* [NEW #K] Card-grid layout matching the approved concept preview —
+              colored-dot preset cards up top, a single-row "new pattern" form
+              below (Name / Time In / Time Out / Color, then Working days). */}
+          <Dialog
+            open={showPatternManager}
+            onClose={() => setShowPatternManager(false)}
+            maxWidth="sm"
+            fullWidth
+            PaperProps={{ sx: { borderRadius: "16px", overflow: "hidden" } }}
+          >
+            <Box sx={dialogHeaderSx}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                <Schedule sx={{ color: "#fff", fontSize: 20 }} />
+                <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "1rem" }}>
+                  Day-Pattern Presets
+                </Typography>
+              </Box>
+              {dialogCloseBtn(() => setShowPatternManager(false))}
+            </Box>
 
-module.exports = router;
+            <Box sx={{ bgcolor: "#fff", px: 3, pt: 2.5, pb: 1, maxHeight: "70vh", overflowY: "auto" }}>
+              <Typography sx={{ fontSize: "0.78rem", color: T.muted, mb: 2, lineHeight: 1.5 }}>
+                Save a recurring weekly pattern (e.g. "Mon–Thu 7–6") so creating a
+                schedule is pick-dates + pick-pattern instead of retyping every field.
+                Patterns are optional — for faculty or irregular schedules you can
+                still leave this blank and fill the table manually, same as before.
+              </Typography>
+
+              {/* Preset cards */}
+              {patterns.length > 0 ? (
+                <Box
+                  sx={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+                    gap: 1.25,
+                    mb: 2.5,
+                  }}
+                >
+                  {patterns.map((p) => (
+                    <Box
+                      key={p.id}
+                      sx={{
+                        position: "relative",
+                        border: `1px solid ${T.accentBorder}`,
+                        borderRadius: "10px",
+                        p: 1.5,
+                        bgcolor: "#fff",
+                        transition: "box-shadow 0.15s, border-color 0.15s",
+                        "&:hover": { boxShadow: "0 3px 12px rgba(0,0,0,0.08)", borderColor: p.color || T.accent },
+                      }}
+                    >
+                      <IconButton
+                        size="small"
+                        onClick={() => {
+                          persistPatterns(patterns.filter((x) => x.id !== p.id));
+                          if (selectedPatternId === p.id) setSelectedPatternId("");
+                        }}
+                        sx={{ position: "absolute", top: 4, right: 4, width: 20, height: 20, color: T.faint, "&:hover": { color: "#c62828", bgcolor: "rgba(198,40,40,0.08)" } }}
+                      >
+                        <Close sx={{ fontSize: 13 }} />
+                      </IconButton>
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 0.4 }}>
+                        <Box sx={{ width: 10, height: 10, borderRadius: "3px", bgcolor: p.color || T.accent, flexShrink: 0 }} />
+                        <Typography sx={{ fontSize: "0.85rem", fontWeight: 700, color: T.text, pr: 2, lineHeight: 1.25 }} noWrap>
+                          {p.name}
+                        </Typography>
+                      </Box>
+                      <Typography sx={{ fontSize: "0.7rem", color: T.muted, mb: 0.3 }}>
+                        {p.days.map((d) => d.slice(0, 3)).join(" · ")}
+                      </Typography>
+                      <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: T.text, fontFamily: "monospace" }}>
+                        {(p.timeIn || "").replace(":00 ", " ")} – {(p.timeOut || "").replace(":00 ", " ")}
+                      </Typography>
+                    </Box>
+                  ))}
+                </Box>
+              ) : (
+                <Box sx={{ mb: 2.5, py: 2, textAlign: "center", border: `1.5px dashed ${T.accentBorder}`, borderRadius: 2, bgcolor: T.accentFaint }}>
+                  <Typography sx={{ fontSize: "0.78rem", color: T.faint, fontStyle: "italic" }}>
+                    No patterns saved yet — add your first one below.
+                  </Typography>
+                </Box>
+              )}
+
+              {/* New pattern form */}
+              <Box sx={{ border: `1.5px dashed ${T.accentBorder}`, borderRadius: 2, p: 2, mb: 1 }}>
+                <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap", alignItems: "flex-end", mb: 1.75 }}>
+                  <Box sx={{ flex: "2 1 200px", minWidth: 180 }}>
+                    <Typography sx={{ fontSize: "0.68rem", color: T.muted, mb: 0.5 }}>Name</Typography>
+                    <ModernTextField
+                      fullWidth size="small" placeholder="e.g. Tue–Fri Compensatory"
+                      value={patternDraft.name}
+                      onChange={(e) => setPatternDraft((d) => ({ ...d, name: e.target.value }))}
+                    />
+                  </Box>
+                  <Box sx={{ flex: "1 1 150px", minWidth: 150 }}>
+                    <Typography sx={{ fontSize: "0.68rem", color: T.muted, mb: 0.5 }}>Time In</Typography>
+                    <TimePickerField value={patternDraft.timeIn} onChange={(v) => setPatternDraft((d) => ({ ...d, timeIn: v }))} accentColor={T.accent} />
+                  </Box>
+                  <Box sx={{ flex: "1 1 150px", minWidth: 150 }}>
+                    <Typography sx={{ fontSize: "0.68rem", color: T.muted, mb: 0.5 }}>Time Out</Typography>
+                    <TimePickerField value={patternDraft.timeOut} onChange={(v) => setPatternDraft((d) => ({ ...d, timeOut: v }))} accentColor={T.accent} />
+                  </Box>
+                  <Box sx={{ flex: "0 0 auto" }}>
+                    <Typography sx={{ fontSize: "0.68rem", color: T.muted, mb: 0.5 }}>Color</Typography>
+                    <Box sx={{ display: "flex", gap: 0.6 }}>
+                      {PATTERN_COLORS.map((c) => (
+                        <Box
+                          key={c}
+                          onClick={() => setPatternDraft((d) => ({ ...d, color: c }))}
+                          sx={{
+                            width: 24, height: 24, borderRadius: "6px", bgcolor: c, cursor: "pointer", flexShrink: 0,
+                            border: patternDraft.color === c ? "2px solid #fff" : "2px solid transparent",
+                            boxShadow: patternDraft.color === c ? `0 0 0 2px ${c}` : "none",
+                            transition: "box-shadow 0.12s, border-color 0.12s",
+                          }}
+                        />
+                      ))}
+                    </Box>
+                  </Box>
+                </Box>
+
+                <Box sx={{ mb: 1.75 }}>
+                  <Typography sx={{ fontSize: "0.68rem", color: T.muted, mb: 0.6 }}>Working days</Typography>
+                  <Box sx={{ display: "flex", gap: { xs: 1, sm: 1.75 } }}>
+                    {[
+                      { key: "Sunday", label: "Sun" },
+                      { key: "Monday", label: "Mon" },
+                      { key: "Tuesday", label: "Tue" },
+                      { key: "Wednesday", label: "Wed" },
+                      { key: "Thursday", label: "Thu" },
+                      { key: "Friday", label: "Fri" },
+                      { key: "Saturday", label: "Sat" },
+                    ].map(({ key, label }) => {
+                      const active = patternDraft.days.includes(key);
+                      return (
+                        <Box key={key} sx={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 0.35 }}>
+                          <Typography sx={{ fontSize: "0.65rem", fontWeight: 600, color: active ? T.accent : T.muted }}>{label}</Typography>
+                          <Checkbox
+                            size="small"
+                            checked={active}
+                            onChange={() =>
+                              setPatternDraft((d) => ({
+                                ...d,
+                                days: active ? d.days.filter((x) => x !== key) : [...d.days, key],
+                              }))
+                            }
+                            sx={{ p: 0.4, color: T.accentBorder, "&.Mui-checked": { color: T.accent } }}
+                          />
+                        </Box>
+                      );
+                    })}
+                  </Box>
+                </Box>
+
+                <Button
+                  variant="contained" size="small"
+                  startIcon={<Add sx={{ fontSize: 16 }} />}
+                  disabled={!patternDraft.name.trim() || !patternDraft.days.length || !patternDraft.timeIn || !patternDraft.timeOut}
+                  onClick={() => {
+                    const next = [...patterns, { id: `pat_${Date.now()}`, ...patternDraft, name: patternDraft.name.trim() }];
+                    persistPatterns(next);
+                    setPatternDraft({
+                      name: "",
+                      days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+                      timeIn: "08:00:00 AM",
+                      timeOut: "05:00:00 PM",
+                      color: PATTERN_COLORS[(patterns.length + 1) % PATTERN_COLORS.length],
+                    });
+                  }}
+                  sx={{ bgcolor: T.accent, color: "#fff", fontWeight: 700, textTransform: "none", borderRadius: "8px", "&:hover": { bgcolor: T.accentDark }, "&.Mui-disabled": { bgcolor: "#c0a0a0", color: "#fff" } }}
+                >
+                  Add preset
+                </Button>
+              </Box>
+            </Box>
+
+            <Box sx={{ borderTop: `1px solid ${T.divider}`, bgcolor: "#fafafa", px: 3, py: 2, display: "flex", justifyContent: "flex-end" }}>
+              <Button variant="outlined" onClick={() => setShowPatternManager(false)} sx={{ borderColor: "#ccc", color: "#444", fontWeight: 600, textTransform: "none" }}>
+                Done
+              </Button>
+            </Box>
+          </Dialog>
+
+          {/* ── Upload Preview ── */}
+          <Dialog open={showPreviewModal} onClose={() => setShowPreviewModal(false)} maxWidth={false} PaperProps={{ sx: { borderRadius: "16px", overflow: "hidden", width: "96vw", maxWidth: "1500px" } }}>
+            <Box sx={dialogHeaderSx}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                <Visibility sx={{ color: "#fff", fontSize: 20 }} />
+                <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "0.975rem" }}>Upload Preview</Typography>
+              </Box>
+              {dialogCloseBtn(() => setShowPreviewModal(false))}
+            </Box>
+            <Box sx={{ bgcolor: "#fff", px: 3, pt: 2.5, pb: 0 }}>
+              {previewRecords.length > 0 && (
+                <>
+                  <Box sx={{ display: "flex", flexWrap: "wrap", gap: 3, mb: 2.5, p: 2, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, borderRadius: "12px" }}>
+                    {[
+                      { label: "Academic Year", value: previewRecords[0].academicYear || "—" },
+                      { label: "Start Date", value: formatDateLong(previewRecords[0].startDate) || formatDateOnly(previewRecords[0].startDate) },
+                      { label: "End Date", value: formatDateLong(previewRecords[0].endDate) || formatDateOnly(previewRecords[0].endDate) },
+                    ].map(({ label, value }) => (
+                      <Box key={label}>
+                        <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: T.accent, textTransform: "uppercase", letterSpacing: "0.4px" }}>{label}</Typography>
+                        <Typography sx={{ fontWeight: 600, color: T.text, fontSize: "0.88rem", mt: 0.25 }}>{value}</Typography>
+                      </Box>
+                    ))}
+                  </Box>
+                  <Box sx={{ mb: 2 }}><ScheduleTabBar activeTab={previewViewScheduleView} setTab={setPreviewViewScheduleView} /></Box>
+                  <TableContainer sx={{ border: `1px solid ${T.divider}`, borderRadius: "10px", overflow: "hidden", mb: 3 }}>
+                    <Table size="small">
+                      <ScheduleTimeRows
+                        records={[...previewRecords].sort((a, b) => DAYS_ORDER.indexOf(a.day) - DAYS_ORDER.indexOf(b.day))}
+                        onChangeRecord={() => {}}
+                        scheduleView={previewViewScheduleView}
+                        readOnly
+                      />
+                    </Table>
+                  </TableContainer>
+                </>
+              )}
+            </Box>
+            <Box sx={{ borderTop: `1px solid ${T.divider}`, bgcolor: "#fafafa", px: 3, py: 2, display: "flex", justifyContent: "flex-end" }}>
+              <Button variant="contained" disableElevation onClick={() => setShowPreviewModal(false)} sx={{ bgcolor: T.accent, color: "#fff", fontWeight: 700, textTransform: "none", "&:hover": { bgcolor: T.accentDark } }}>Close</Button>
+            </Box>
+          </Dialog>
+
+          {/* ── Analyze / Validate Modal (single-employee upload) ── */}
+          <Dialog
+            open={showAnalyzeModal}
+            onClose={() => { if (confirming) return; setShowAnalyzeModal(false); setAnalyzeResult(null); setUploadAcknowledgeChecked(false); setAnalyzeEmployeeNames({}); }}
+            maxWidth="md" fullWidth
+            PaperProps={{ sx: { borderRadius: "16px", overflow: "hidden" } }}
+          >
+            <Box sx={{ ...dialogHeaderSx, bgcolor: analyzeResult?.ok ? T.accent : "#b71c1c" }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                <Box>
+                  <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "0.975rem", lineHeight: 1.25 }}>
+                    {analyzeResult?.ok ? "Validation Complete — Ready to Upload" : "Validation Failed"}
+                  </Typography>
+                  <Typography sx={{ color: "rgba(255,255,255,0.72)", fontSize: "0.78rem", mt: 0.25 }}>
+                    {analyzeResult?.ok ? "Review details before confirming." : "Fix your file and re-upload."}
+                  </Typography>
+                </Box>
+              </Box>
+              {dialogCloseBtn(() => { if (confirming) return; setShowAnalyzeModal(false); setAnalyzeResult(null); setUploadAcknowledgeChecked(false); setAnalyzeEmployeeNames({}); }, confirming)}
+            </Box>
+            <Box sx={{ bgcolor: "#fff", px: 3, pt: 2.5, pb: 1, maxHeight: "65vh", overflowY: "auto" }}>
+              {analyzeResult?.ok ? (
+                <>
+                  <Box sx={{ border: `1px solid ${T.accentBorder}`, borderRadius: "10px", overflow: "hidden", mb: 2.5 }}>
+                    <Box sx={{ display: "grid", gridTemplateColumns: "0.9fr 1.2fr 1.6fr 1fr 1fr 60px", columnGap: 1.5, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.accentBorder}`, px: 2, py: 1 }}>
+                      {["Employee ID","Name","Academic Year","Start Date","End Date","Rows"].map((h) => (
+                        <Typography key={h} sx={{ fontSize: "0.68rem", fontWeight: 700, color: T.accent, textTransform: "uppercase", letterSpacing: "0.4px" }}>{h}</Typography>
+                      ))}
+                    </Box>
+                    {(analyzeResult.schedules || []).map((s, idx) => (
+                      <Box key={idx} sx={{ display: "grid", gridTemplateColumns: "0.9fr 1.2fr 1.6fr 1fr 1fr 60px", columnGap: 1.5, px: 2, py: 1.1, bgcolor: idx % 2 === 0 ? "#fff" : T.accentFaint, borderBottom: idx < (analyzeResult.schedules?.length || 0) - 1 ? `0.5px solid ${T.accentBorder}` : "none", alignItems: "center" }}>
+                        <Typography sx={{ fontSize: "0.83rem", fontWeight: 600, color: T.text }}>{s.employeeID}</Typography>
+                        {/* [CHANGE I] Prefer the Excel "Name" column (display-only, backend-echoed).
+                            Fall back to the system lookup by employeeID only when Excel had none. */}
+                        <Typography sx={{ fontSize: "0.83rem", fontWeight: 600, color: T.text, display: "flex", alignItems: "center", gap: 0.75 }}>
+                          {s.name ? (
+                            s.name
+                          ) : analyzeEmployeeNames[String(s.employeeID)] === undefined ? (
+                            <CircularProgress size={11} sx={{ color: T.accent }} />
+                          ) : (
+                            analyzeEmployeeNames[String(s.employeeID)] || "—"
+                          )}
+                        </Typography>
+                        <Typography sx={{ fontSize: "0.83rem", color: "#333" }}>{s.academicYear || "—"}</Typography>
+<Typography sx={{ fontSize: "0.83rem", color: "#333" }}>{formatDateLong(s.startDate)}</Typography>
+<Typography sx={{ fontSize: "0.83rem", color: "#333" }}>{formatDateLong(s.endDate)}</Typography>
+                        <Typography sx={{ fontSize: "0.83rem", color: "#2e7d32", fontWeight: 700 }}>{s.rows}</Typography>
+                      </Box>
+                    ))}
+                  </Box>
+                 <Box
+  onClick={() => setUploadAcknowledgeChecked((v) => !v)}
+  sx={{
+    display: "flex", alignItems: "flex-start", gap: 1, p: 1.5, mb: 2,
+    bgcolor: uploadAcknowledgeChecked ? T.accentFaint : "#fff",
+    border: `1px solid ${uploadAcknowledgeChecked ? T.accent : T.accentBorder}`,
+    borderRadius: "10px", cursor: "pointer",
+    transition: "all 0.15s ease",
+    "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent },
+  }}
+>
+  <Checkbox
+    size="small"
+    checked={uploadAcknowledgeChecked}
+    onChange={(e) => setUploadAcknowledgeChecked(e.target.checked)}
+    onClick={(e) => e.stopPropagation()}
+    sx={{ color: T.accent, mt: "-2px" }}
+  />
+  <Typography sx={{ fontSize: "0.80rem", color: T.accentDark, lineHeight: 1.55, userSelect: "none" }}>
+    I confirm that I reviewed this upload. Current active schedules for listed employees will be set to Inactive before new schedules are activated.
+  </Typography>
+</Box>
+                </>
+              ) : (
+                <>
+                  {analyzeResult?.message && (
+                    <Box sx={{ p: 1.75, mb: 2.5, bgcolor: "#fff9f0", border: "1px solid #f5d89a", borderRadius: "10px" }}>
+                      <Typography sx={{ fontSize: "0.83rem", color: "#7a5000", lineHeight: 1.6 }}>{analyzeResult.message}</Typography>
+                    </Box>
+                  )}
+                  {(analyzeResult?.timeErrors || []).length > 0 && (
+                    <Box sx={{ mb: 2 }}>
+                      <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: "#c62828", textTransform: "uppercase", letterSpacing: "0.5px", mb: 0.75 }}>
+                        Time Format Errors ({analyzeResult.timeErrors.length})
+                      </Typography>
+                      <Box sx={{ border: "1px solid #ffcdd2", borderRadius: "10px", overflow: "hidden" }}>
+                        {analyzeResult.timeErrors.map((e, idx) => (
+                          <Box key={idx} sx={{ px: 1.75, py: 0.85, bgcolor: idx % 2 === 0 ? "#fff" : "#fff5f5", borderBottom: idx < analyzeResult.timeErrors.length - 1 ? "0.5px solid #ffcdd2" : "none" }}>
+                            <Typography sx={{ fontSize: "0.78rem", fontWeight: 600, color: "#7a0000" }}>Row {e.row} — {e.employeeID} ({e.day}) — {e.field}</Typography>
+                            <Typography sx={{ fontSize: "0.75rem", color: "#c62828", mt: 0.2 }}>{e.reason}</Typography>
+                          </Box>
+                        ))}
+                      </Box>
+                    </Box>
+                  )}
+                </>
+              )}
+            </Box>
+            <Box sx={{ borderTop: `1px solid ${T.divider}`, bgcolor: "#fafafa", px: 3, py: 2, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <Button variant="outlined" onClick={() => { setShowAnalyzeModal(false); setAnalyzeResult(null); setUploadAcknowledgeChecked(false); setAnalyzeEmployeeNames({}); }} disabled={confirming}
+                sx={{ borderColor: "#ccc", color: "#444", fontWeight: 600, textTransform: "none" }}
+              >
+                {analyzeResult?.ok ? "Cancel" : "Close"}
+              </Button>
+              {analyzeResult?.ok && (
+                <Button variant="contained" disableElevation onClick={handleConfirmUpload} disabled={confirming || !uploadAcknowledgeChecked}
+                  startIcon={confirming ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : <CloudUploadIcon />}
+                  sx={{ bgcolor: T.accent, color: "#fff", fontWeight: 700, textTransform: "none", minWidth: 180, "&:hover": { bgcolor: T.accentDark }, "&.Mui-disabled": { bgcolor: "#c0a0a0", color: "#fff" } }}
+                >
+                  {confirming ? "Uploading…" : "Confirm & Upload"}
+                </Button>
+              )}
+            </Box>
+          </Dialog>
+
+          {/* ── Department Upload Validate/Confirm Modal ── */}
+          <Dialog
+            open={showDeptAnalyzeModal}
+            onClose={() => { if (deptConfirming) return; setShowDeptAnalyzeModal(false); setDeptAnalyzeResult(null); setDeptUploadAcknowledgeChecked(false); setDeptAnalyzeEmployeeNames({}); }}
+            maxWidth="md" fullWidth
+            PaperProps={{ sx: { borderRadius: "16px", overflow: "hidden" } }}
+          >
+            <Box sx={{ ...dialogHeaderSx, bgcolor: deptAnalyzeResult?.ok ? T.accent : "#b71c1c" }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                <Box>
+                  <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "0.975rem", lineHeight: 1.25 }}>
+                    {deptAnalyzeResult?.ok ? `Validation Complete — ${deptUploadDepartment}` : "Validation Failed"}
+                  </Typography>
+                  <Typography sx={{ color: "rgba(255,255,255,0.72)", fontSize: "0.78rem", mt: 0.25 }}>
+                    {deptAnalyzeResult?.ok ? "Review details before confirming." : "Fix your file and re-upload."}
+                  </Typography>
+                </Box>
+              </Box>
+              {dialogCloseBtn(() => { if (deptConfirming) return; setShowDeptAnalyzeModal(false); setDeptAnalyzeResult(null); setDeptUploadAcknowledgeChecked(false); setDeptAnalyzeEmployeeNames({}); }, deptConfirming)}
+            </Box>
+            <Box sx={{ bgcolor: "#fff", px: 3, pt: 2.5, pb: 1, maxHeight: "65vh", overflowY: "auto" }}>
+              {deptAnalyzeResult?.ok ? (
+                <>
+                  <Box sx={{ border: `1px solid ${T.accentBorder}`, borderRadius: "10px", overflow: "hidden", mb: 2.5 }}>
+                    <Box sx={{ display: "grid", gridTemplateColumns: "0.9fr 1.2fr 1.6fr 1fr 1fr 60px", columnGap: 1.5, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.accentBorder}`, px: 2, py: 1 }}>
+                      {["Employee ID","Name","Academic Year","Start Date","End Date","Rows"].map((h) => (
+                        <Typography key={h} sx={{ fontSize: "0.68rem", fontWeight: 700, color: T.accent, textTransform: "uppercase", letterSpacing: "0.4px" }}>{h}</Typography>
+                      ))}
+                    </Box>
+                    {(deptAnalyzeResult.schedules || []).map((s, idx) => (
+                      <Box key={idx} sx={{ display: "grid", gridTemplateColumns: "0.9fr 1.2fr 1.6fr 1fr 1fr 60px", columnGap: 1.5, px: 2, py: 1.1, bgcolor: idx % 2 === 0 ? "#fff" : T.accentFaint, borderBottom: idx < (deptAnalyzeResult.schedules?.length || 0) - 1 ? `0.5px solid ${T.accentBorder}` : "none", alignItems: "center" }}>
+                        <Typography sx={{ fontSize: "0.83rem", fontWeight: 600, color: T.text }}>{s.employeeID}</Typography>
+                        {/* [CHANGE I] Prefer the Excel "Name" column (display-only, backend-echoed).
+                            Fall back to the system lookup by employeeID only when Excel had none. */}
+                        <Typography sx={{ fontSize: "0.83rem", fontWeight: 600, color: T.text, display: "flex", alignItems: "center", gap: 0.75 }}>
+                          {s.name ? (
+                            s.name
+                          ) : deptAnalyzeEmployeeNames[String(s.employeeID)] === undefined ? (
+                            <CircularProgress size={11} sx={{ color: T.accent }} />
+                          ) : (
+                            deptAnalyzeEmployeeNames[String(s.employeeID)] || "—"
+                          )}
+                        </Typography>
+                        <Typography sx={{ fontSize: "0.83rem", color: "#333" }}>{s.academicYear || "—"}</Typography>
+                        <Typography sx={{ fontSize: "0.83rem", color: "#333" }}>{formatDateLong(s.startDate)}</Typography>
+                        <Typography sx={{ fontSize: "0.83rem", color: "#333" }}>{formatDateLong(s.endDate)}</Typography>
+                        <Typography sx={{ fontSize: "0.83rem", color: "#2e7d32", fontWeight: 700 }}>{s.rows}</Typography>
+                      </Box>
+                    ))}
+                  </Box>
+
+                  {(deptAnalyzeResult.warnings || []).length > 0 && (
+                    <Box sx={{ mb: 2 }}>
+                      <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: "#b45309", textTransform: "uppercase", letterSpacing: "0.5px", mb: 0.75 }}>
+                        Warnings ({deptAnalyzeResult.warnings.length})
+                      </Typography>
+                      <Box sx={{ border: "1px solid #f5d89a", borderRadius: "10px", overflow: "hidden", maxHeight: 160, overflowY: "auto" }}>
+                        {deptAnalyzeResult.warnings.map((w, idx) => (
+                          <Box key={idx} sx={{ px: 1.75, py: 0.65, bgcolor: idx % 2 === 0 ? "#fff" : "#fff9f0", borderBottom: idx < deptAnalyzeResult.warnings.length - 1 ? "0.5px solid #f5d89a" : "none" }}>
+                            <Typography sx={{ fontSize: "0.76rem", color: "#7a5000" }}>{w}</Typography>
+                          </Box>
+                        ))}
+                      </Box>
+                    </Box>
+                  )}
+
+                  <Box
+                    onClick={() => setDeptUploadAcknowledgeChecked((v) => !v)}
+                    sx={{
+                      display: "flex", alignItems: "flex-start", gap: 1, p: 1.5, mb: 2,
+                      bgcolor: deptUploadAcknowledgeChecked ? T.accentFaint : "#fff",
+                      border: `1px solid ${deptUploadAcknowledgeChecked ? T.accent : T.accentBorder}`,
+                      borderRadius: "10px", cursor: "pointer", transition: "all 0.15s ease",
+                      "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent },
+                    }}
+                  >
+                    <Checkbox
+                      size="small" checked={deptUploadAcknowledgeChecked}
+                      onChange={(e) => setDeptUploadAcknowledgeChecked(e.target.checked)}
+                      onClick={(e) => e.stopPropagation()}
+                      sx={{ color: T.accent, mt: "-2px" }}
+                    />
+                    <Typography sx={{ fontSize: "0.80rem", color: T.accentDark, lineHeight: 1.55, userSelect: "none" }}>
+                      I confirm this upload is scoped to department "<strong>{deptUploadDepartment}</strong>". Current active schedules for the listed employees will be set to Inactive before new schedules are activated.
+                    </Typography>
+                  </Box>
+                </>
+              ) : (
+                <>
+                  {deptAnalyzeResult?.message && (
+                    <Box sx={{ p: 1.75, mb: 2.5, bgcolor: "#fff9f0", border: "1px solid #f5d89a", borderRadius: "10px" }}>
+                      <Typography sx={{ fontSize: "0.83rem", color: "#7a5000", lineHeight: 1.6 }}>{deptAnalyzeResult.message}</Typography>
+                    </Box>
+                  )}
+                  {(deptAnalyzeResult?.timeErrors || []).length > 0 && (
+                    <Box sx={{ mb: 2 }}>
+                      <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: "#c62828", textTransform: "uppercase", letterSpacing: "0.5px", mb: 0.75 }}>
+                        Time Format Errors ({deptAnalyzeResult.timeErrors.length})
+                      </Typography>
+                      <Box sx={{ border: "1px solid #ffcdd2", borderRadius: "10px", overflow: "hidden" }}>
+                        {deptAnalyzeResult.timeErrors.map((e, idx) => (
+                          <Box key={idx} sx={{ px: 1.75, py: 0.85, bgcolor: idx % 2 === 0 ? "#fff" : "#fff5f5", borderBottom: idx < deptAnalyzeResult.timeErrors.length - 1 ? "0.5px solid #ffcdd2" : "none" }}>
+                            <Typography sx={{ fontSize: "0.78rem", fontWeight: 600, color: "#7a0000" }}>Row {e.row} — {e.employeeID} ({e.day}) — {e.field}</Typography>
+                            <Typography sx={{ fontSize: "0.75rem", color: "#c62828", mt: 0.2 }}>{e.reason}</Typography>
+                          </Box>
+                        ))}
+                      </Box>
+                    </Box>
+                  )}
+                </>
+              )}
+            </Box>
+            <Box sx={{ borderTop: `1px solid ${T.divider}`, bgcolor: "#fafafa", px: 3, py: 2, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <Button variant="outlined" onClick={() => { setShowDeptAnalyzeModal(false); setDeptAnalyzeResult(null); setDeptUploadAcknowledgeChecked(false); setDeptAnalyzeEmployeeNames({}); }} disabled={deptConfirming}
+                sx={{ borderColor: "#ccc", color: "#444", fontWeight: 600, textTransform: "none" }}
+              >
+                {deptAnalyzeResult?.ok ? "Cancel" : "Close"}
+              </Button>
+              {deptAnalyzeResult?.ok && (
+                <Button variant="contained" disableElevation onClick={handleConfirmDeptUpload} disabled={deptConfirming || !deptUploadAcknowledgeChecked}
+                  startIcon={deptConfirming ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : <CloudUploadIcon />}
+                  sx={{ bgcolor: T.accent, color: "#fff", fontWeight: 700, textTransform: "none", minWidth: 180, "&:hover": { bgcolor: T.accentDark }, "&.Mui-disabled": { bgcolor: "#c0a0a0", color: "#fff" } }}
+                >
+                  {deptConfirming ? "Uploading…" : "Confirm & Upload"}
+                </Button>
+              )}
+            </Box>
+          </Dialog>
+
+          {/* ── Employment Category Upload Validate/Confirm Modal — mirrors the
+               Department upload modal above 1:1, scoped to a single employment
+               category instead of a department. Employee name/category rows in
+               this table don't need a color dot (the picker/filter/table already
+               show it); the label alone is sufficient here. ── */}
+          <Dialog
+            open={showCatAnalyzeModal}
+            onClose={() => { if (catConfirming) return; setShowCatAnalyzeModal(false); setCatAnalyzeResult(null); setCatUploadAcknowledgeChecked(false); setCatAnalyzeEmployeeNames({}); }}
+            maxWidth="md" fullWidth
+            PaperProps={{ sx: { borderRadius: "16px", overflow: "hidden" } }}
+          >
+            <Box sx={{ ...dialogHeaderSx, bgcolor: catAnalyzeResult?.ok ? T.accent : "#b71c1c" }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                <Box>
+                  <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "0.975rem", lineHeight: 1.25 }}>
+                    {catAnalyzeResult?.ok
+                      ? `Validation Complete — ${catAnalyzeResult.employmentCategoryLabel || employmentCategoryList.find((c) => String(c.id) === String(catUploadCategory))?.label || "Employment Category"}`
+                      : "Validation Failed"}
+                  </Typography>
+                  <Typography sx={{ color: "rgba(255,255,255,0.72)", fontSize: "0.78rem", mt: 0.25 }}>
+                    {catAnalyzeResult?.ok ? "Review details before confirming." : "Fix your file and re-upload."}
+                  </Typography>
+                </Box>
+              </Box>
+              {dialogCloseBtn(() => { if (catConfirming) return; setShowCatAnalyzeModal(false); setCatAnalyzeResult(null); setCatUploadAcknowledgeChecked(false); setCatAnalyzeEmployeeNames({}); }, catConfirming)}
+            </Box>
+            <Box sx={{ bgcolor: "#fff", px: 3, pt: 2.5, pb: 1, maxHeight: "65vh", overflowY: "auto" }}>
+              {catAnalyzeResult?.ok ? (
+                <>
+                  <Box sx={{ border: `1px solid ${T.accentBorder}`, borderRadius: "10px", overflow: "hidden", mb: 2.5 }}>
+                    <Box sx={{ display: "grid", gridTemplateColumns: "0.9fr 1.2fr 1.6fr 1fr 1fr 60px", columnGap: 1.5, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.accentBorder}`, px: 2, py: 1 }}>
+                      {["Employee ID","Name","Academic Year","Start Date","End Date","Rows"].map((h) => (
+                        <Typography key={h} sx={{ fontSize: "0.68rem", fontWeight: 700, color: T.accent, textTransform: "uppercase", letterSpacing: "0.4px" }}>{h}</Typography>
+                      ))}
+                    </Box>
+                    {(catAnalyzeResult.schedules || []).map((s, idx) => (
+                      <Box key={idx} sx={{ display: "grid", gridTemplateColumns: "0.9fr 1.2fr 1.6fr 1fr 1fr 60px", columnGap: 1.5, px: 2, py: 1.1, bgcolor: idx % 2 === 0 ? "#fff" : T.accentFaint, borderBottom: idx < (catAnalyzeResult.schedules?.length || 0) - 1 ? `0.5px solid ${T.accentBorder}` : "none", alignItems: "center" }}>
+                        <Typography sx={{ fontSize: "0.83rem", fontWeight: 600, color: T.text }}>{s.employeeID}</Typography>
+                        {/* [CHANGE I] Prefer the Excel "Name" column (display-only, backend-echoed).
+                            Fall back to the system lookup by employeeID only when Excel had none. */}
+                        <Typography sx={{ fontSize: "0.83rem", fontWeight: 600, color: T.text, display: "flex", alignItems: "center", gap: 0.75 }}>
+                          {s.name ? (
+                            s.name
+                          ) : catAnalyzeEmployeeNames[String(s.employeeID)] === undefined ? (
+                            <CircularProgress size={11} sx={{ color: T.accent }} />
+                          ) : (
+                            catAnalyzeEmployeeNames[String(s.employeeID)] || "—"
+                          )}
+                        </Typography>
+                        <Typography sx={{ fontSize: "0.83rem", color: "#333" }}>{s.academicYear || "—"}</Typography>
+                        <Typography sx={{ fontSize: "0.83rem", color: "#333" }}>{formatDateLong(s.startDate)}</Typography>
+                        <Typography sx={{ fontSize: "0.83rem", color: "#333" }}>{formatDateLong(s.endDate)}</Typography>
+                        <Typography sx={{ fontSize: "0.83rem", color: "#2e7d32", fontWeight: 700 }}>{s.rows}</Typography>
+                      </Box>
+                    ))}
+                  </Box>
+
+                  {(catAnalyzeResult.warnings || []).length > 0 && (
+                    <Box sx={{ mb: 2 }}>
+                      <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: "#b45309", textTransform: "uppercase", letterSpacing: "0.5px", mb: 0.75 }}>
+                        Warnings ({catAnalyzeResult.warnings.length})
+                      </Typography>
+                      <Box sx={{ border: "1px solid #f5d89a", borderRadius: "10px", overflow: "hidden", maxHeight: 160, overflowY: "auto" }}>
+                        {catAnalyzeResult.warnings.map((w, idx) => (
+                          <Box key={idx} sx={{ px: 1.75, py: 0.65, bgcolor: idx % 2 === 0 ? "#fff" : "#fff9f0", borderBottom: idx < catAnalyzeResult.warnings.length - 1 ? "0.5px solid #f5d89a" : "none" }}>
+                            <Typography sx={{ fontSize: "0.76rem", color: "#7a5000" }}>{w}</Typography>
+                          </Box>
+                        ))}
+                      </Box>
+                    </Box>
+                  )}
+
+                  <Box
+                    onClick={() => setCatUploadAcknowledgeChecked((v) => !v)}
+                    sx={{
+                      display: "flex", alignItems: "flex-start", gap: 1, p: 1.5, mb: 2,
+                      bgcolor: catUploadAcknowledgeChecked ? T.accentFaint : "#fff",
+                      border: `1px solid ${catUploadAcknowledgeChecked ? T.accent : T.accentBorder}`,
+                      borderRadius: "10px", cursor: "pointer", transition: "all 0.15s ease",
+                      "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent },
+                    }}
+                  >
+                    <Checkbox
+                      size="small" checked={catUploadAcknowledgeChecked}
+                      onChange={(e) => setCatUploadAcknowledgeChecked(e.target.checked)}
+                      onClick={(e) => e.stopPropagation()}
+                      sx={{ color: T.accent, mt: "-2px" }}
+                    />
+                    <Typography sx={{ fontSize: "0.80rem", color: T.accentDark, lineHeight: 1.55, userSelect: "none" }}>
+                      I confirm this upload is scoped to employment category "
+                      <strong>{catAnalyzeResult.employmentCategoryLabel || employmentCategoryList.find((c) => String(c.id) === String(catUploadCategory))?.label}</strong>
+                      ". Current active schedules for the listed employees will be set to Inactive before new schedules are activated.
+                    </Typography>
+                  </Box>
+                </>
+              ) : (
+                <>
+                  {catAnalyzeResult?.message && (
+                    <Box sx={{ p: 1.75, mb: 2.5, bgcolor: "#fff9f0", border: "1px solid #f5d89a", borderRadius: "10px" }}>
+                      <Typography sx={{ fontSize: "0.83rem", color: "#7a5000", lineHeight: 1.6 }}>{catAnalyzeResult.message}</Typography>
+                    </Box>
+                  )}
+                  {(catAnalyzeResult?.timeErrors || []).length > 0 && (
+                    <Box sx={{ mb: 2 }}>
+                      <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: "#c62828", textTransform: "uppercase", letterSpacing: "0.5px", mb: 0.75 }}>
+                        Time Format Errors ({catAnalyzeResult.timeErrors.length})
+                      </Typography>
+                      <Box sx={{ border: "1px solid #ffcdd2", borderRadius: "10px", overflow: "hidden" }}>
+                        {catAnalyzeResult.timeErrors.map((e, idx) => (
+                          <Box key={idx} sx={{ px: 1.75, py: 0.85, bgcolor: idx % 2 === 0 ? "#fff" : "#fff5f5", borderBottom: idx < catAnalyzeResult.timeErrors.length - 1 ? "0.5px solid #ffcdd2" : "none" }}>
+                            <Typography sx={{ fontSize: "0.78rem", fontWeight: 600, color: "#7a0000" }}>Row {e.row} — {e.employeeID} ({e.day}) — {e.field}</Typography>
+                            <Typography sx={{ fontSize: "0.75rem", color: "#c62828", mt: 0.2 }}>{e.reason}</Typography>
+                          </Box>
+                        ))}
+                      </Box>
+                    </Box>
+                  )}
+                </>
+              )}
+            </Box>
+            <Box sx={{ borderTop: `1px solid ${T.divider}`, bgcolor: "#fafafa", px: 3, py: 2, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <Button variant="outlined" onClick={() => { setShowCatAnalyzeModal(false); setCatAnalyzeResult(null); setCatUploadAcknowledgeChecked(false); setCatAnalyzeEmployeeNames({}); }} disabled={catConfirming}
+                sx={{ borderColor: "#ccc", color: "#444", fontWeight: 600, textTransform: "none" }}
+              >
+                {catAnalyzeResult?.ok ? "Cancel" : "Close"}
+              </Button>
+              {catAnalyzeResult?.ok && (
+                <Button variant="contained" disableElevation onClick={handleConfirmCatUpload} disabled={catConfirming || !catUploadAcknowledgeChecked}
+                  startIcon={catConfirming ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : <CloudUploadIcon />}
+                  sx={{ bgcolor: T.accent, color: "#fff", fontWeight: 700, textTransform: "none", minWidth: 180, "&:hover": { bgcolor: T.accentDark }, "&.Mui-disabled": { bgcolor: "#c0a0a0", color: "#fff" } }}
+                >
+                  {catConfirming ? "Uploading…" : "Confirm & Upload"}
+                </Button>
+              )}
+            </Box>
+          </Dialog>
+
+          <SuccessfulOverlay open={successOpen} action={successAction} />
+        </Box>
+      </Fade>
+    </>
+  );
+};
+
+export default OfficialTimeForm;
