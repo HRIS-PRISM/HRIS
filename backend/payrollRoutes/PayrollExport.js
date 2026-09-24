@@ -98,10 +98,16 @@ function parseExportPeriod(source = {}) {
   const params = [periodPrefix];
   let where = 'LEFT(pp.startDate, 7) = ?';
 
+  // Only an enabled budget code overrides the employee's real department.
+  // Older records may contain a code that was later disabled; those rows fall
+  // back to their real department instead of disappearing from a scoped export.
+  const effectiveDepartmentSql = allowedDepartments.length
+    ? `CASE WHEN bd.budgetCode IN (${allowedDepartments.map(() => '?').join(',')}) THEN bd.budgetCode ELSE pp.department END`
+    : 'pp.department';
+
   if (department && department.toLowerCase() !== 'all') {
-    // Route by budget department when set, otherwise the real department.
-    where += " AND COALESCE(NULLIF(bd.budgetCode, ''), pp.department) = ?";
-    params.push(department);
+    where += ` AND ${effectiveDepartmentSql} = ?`;
+    params.push(...allowedDepartments, department);
   } else if (employmentType) {
     where += ' AND etc.typeName = ?';
     params.push(employmentType);
@@ -109,8 +115,8 @@ function parseExportPeriod(source = {}) {
     // Only employees under an enabled department or employment category.
     const parts = [];
     if (allowedDepartments.length) {
-      parts.push(`COALESCE(NULLIF(bd.budgetCode, ''), pp.department) IN (${allowedDepartments.map(() => '?').join(',')})`);
-      params.push(...allowedDepartments);
+      parts.push(`${effectiveDepartmentSql} IN (${allowedDepartments.map(() => '?').join(',')})`);
+      params.push(...allowedDepartments, ...allowedDepartments);
     }
     if (allowedEmploymentTypes.length) {
       parts.push(`etc.typeName IN (${allowedEmploymentTypes.map(() => '?').join(',')})`);

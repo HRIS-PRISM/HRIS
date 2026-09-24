@@ -20,17 +20,34 @@ const { getResolved, resolveScopeTemplate } = require('./positionOverrides');
  * @param {{departments: Object, employmentTypes: Object}} maps
  * @returns {{key:string, blueprintKey:string|null}|null}
  */
+function resolveDepartmentScope(code, maps) {
+  const normalized = code == null ? '' : String(code).trim();
+  if (!normalized) return null;
+
+  const directKey = normalized;
+  const matchingKey = directKey && maps.departments?.[directKey] != null
+    ? directKey
+    : Object.keys(maps.departments || {}).find(
+      (key) => String(key).trim().toUpperCase() === normalized.toUpperCase(),
+    );
+  if (!matchingKey) return null;
+
+  return resolveScopeTemplate(maps.departments[matchingKey], matchingKey);
+}
+
 function resolveRowScope(row, maps) {
-  // Budget department (payroll charge) wins over the real department so an
-  // employee can be paid from another department's budget without changing
-  // their actual department assignment.
+  // A valid budget department is the payroll charge and takes precedence over
+  // the employee's real department. If a previously saved override is no longer
+  // enabled, ignore it and fall back to the real department rather than routing
+  // the employee through an unrelated employment category.
   const budget = row.budgetDepartment == null ? '' : String(row.budgetDepartment).trim();
   const realCode = row.department == null ? '' : String(row.department).trim();
-  const code = budget || realCode;
-  if (code && maps.departments?.[code]) {
-    const resolved = resolveScopeTemplate(maps.departments[code], code);
-    if (resolved) return resolved;
-  }
+  const budgetScope = resolveDepartmentScope(budget, maps);
+  if (budgetScope) return budgetScope;
+
+  const departmentScope = resolveDepartmentScope(realCode, maps);
+  if (departmentScope) return departmentScope;
+
   const typeName = row.employmentTypeName == null ? '' : String(row.employmentTypeName).trim();
   if (typeName && maps.employmentTypes?.[typeName]) {
     const resolved = resolveScopeTemplate(maps.employmentTypes[typeName], typeName);

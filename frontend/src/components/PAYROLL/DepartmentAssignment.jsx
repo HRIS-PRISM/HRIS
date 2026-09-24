@@ -1,5 +1,5 @@
 import API_BASE_URL from '../../apiConfig';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
 import {
   Box, Grid, Modal, IconButton, CircularProgress, Snackbar, Alert,
@@ -305,6 +305,121 @@ const DeptCodeAutocomplete = ({ value, onChange, departmentList = [], placeholde
   );
 };
 
+// ── Budget Dept Code Autocomplete (Appendix 33 allow-list only) ──
+// Options come from the Appendix 33 layout's department tab — the same allow-list
+// used by the Appendix 33 download modal's "Include" options. A manually typed code
+// is shown long enough to explain the problem, but cannot be saved until corrected.
+const BudgetCodeAutocomplete = ({
+  value,
+  onChange,
+  allowedDepartments = [],
+  scopesLoaded = false,
+  scopesLoading = false,
+  scopesError = '',
+  placeholder = 'Same as department…',
+  disabled = false,
+}) => {
+  const [query, setQuery] = useState(value || '');
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => { setQuery(value || ''); }, [value]);
+  useEffect(() => {
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', h); return () => document.removeEventListener('mousedown', h);
+  }, []);
+
+  const q = query.toLowerCase();
+  const filtered = allowedDepartments.filter(
+    (d) => String(d.code || '').toLowerCase().includes(q)
+      || String(d.description || '').toLowerCase().includes(q),
+  );
+  const trimmedValue = String(value || '').trim();
+  const allowedSet = new Set(
+    allowedDepartments.map((d) => String(d.code || '').trim().toUpperCase()).filter(Boolean),
+  );
+  const isAllowedSelection = !trimmedValue || allowedSet.has(trimmedValue.toUpperCase());
+  const validationError = scopesLoaded && !isAllowedSelection
+    ? `"${trimmedValue}" is not enabled in the Appendix 33 layout's department tab.`
+    : (scopesError && trimmedValue ? scopesError : '');
+
+  return (
+    <Box sx={{ position: 'relative', width: '100%' }} ref={ref}>
+      <FieldInput
+        value={query}
+        onChange={(e) => { setQuery(e.target.value); onChange(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={(e) => e.key === 'Escape' && setOpen(false)}
+        placeholder={placeholder}
+        disabled={disabled}
+        fullWidth
+        autoComplete="off"
+        size="small"
+        error={Boolean(validationError)}
+        helperText={validationError}
+        InputProps={{
+          startAdornment: <DomainIcon sx={{ color: T.muted, mr: 1, fontSize: 15 }} />,
+          endAdornment: (
+            <IconButton
+              size="small"
+              sx={{ color: trimmedValue ? '#c62828' : T.muted }}
+              disabled={disabled || !trimmedValue}
+              title={trimmedValue ? 'Clear budget override' : 'Open suggestions'}
+              onClick={() => {
+                if (trimmedValue) {
+                  setQuery('');
+                  onChange('');
+                  setOpen(false);
+                } else {
+                  setOpen((p) => !p);
+                }
+              }}
+            >
+              {trimmedValue
+                ? <Close sx={{ fontSize: 15 }} />
+                : (open ? <ExpandLessIcon sx={{ fontSize: 15 }} /> : <ExpandMoreIcon sx={{ fontSize: 15 }} />)}
+            </IconButton>
+          ),
+        }}
+      />
+      {open && !disabled && (
+        <Paper elevation={4} sx={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 1400, maxHeight: 220, overflow: 'auto', mt: 0.75, borderRadius: 2, border: `1px solid ${T.accentBorder}`, ...scrollbarSx }}>
+          {filtered.length > 0 ? (
+            <List dense disablePadding>
+              {filtered.map((dept) => (
+                <ListItem key={dept.code} button onClick={() => { setQuery(dept.code); onChange(dept.code); setOpen(false); }}
+                  sx={{ py: 0.9, px: 1.5, '&:hover': { bgcolor: T.accentFaint }, borderBottom: `1px solid ${T.divider}` }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+                    <DomainIcon sx={{ fontSize: 14, color: T.accent, flexShrink: 0 }} />
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography sx={{ fontSize: '0.82rem', fontWeight: 600, color: T.text }}>{dept.code}</Typography>
+                      {dept.description && <Typography sx={{ fontSize: '0.7rem', color: T.muted }} noWrap>{dept.description}</Typography>}
+                    </Box>
+                  </Box>
+                </ListItem>
+              ))}
+            </List>
+          ) : (
+            <Box sx={{ p: 2, textAlign: 'center' }}>
+              <Typography sx={{ fontSize: '0.8rem', color: T.faint, fontStyle: 'italic' }}>
+                {scopesError
+                  ? 'Could not load the allowed departments from the Appendix 33 layout. Refresh and try again.'
+                  : scopesLoading
+                    ? 'Loading allowed departments…'
+                    : scopesLoaded
+                      ? (query
+                        ? `No allowed department matches "${query}"`
+                        : 'No departments are enabled in the Appendix 33 layout')
+                      : 'Waiting for the Appendix 33 department configuration…'}
+              </Typography>
+            </Box>
+          )}
+        </Paper>
+      )}
+    </Box>
+  );
+};
+
 // ── Single Employee Autocomplete ──────────────────────────────
 const SingleEmployeeAutocomplete = ({ value, onChange, selectedEmployee, onEmployeeSelect, placeholder = 'Search employee…', disabled = false }) => {
   const [query, setQuery]     = useState('');
@@ -442,6 +557,10 @@ const DepartmentAssignment = () => {
 
   const [selectedCode, setSelectedCode]     = useState('');
   const [assignBudgetCode, setAssignBudgetCode] = useState('');
+  const [appendix33DeptScopes, setAppendix33DeptScopes] = useState([]);
+  const [appendix33ScopesLoaded, setAppendix33ScopesLoaded] = useState(false);
+  const [appendix33ScopesLoading, setAppendix33ScopesLoading] = useState(true);
+  const [appendix33ScopesError, setAppendix33ScopesError] = useState('');
   const [singleEmployee, setSingleEmployee] = useState(null);
   const [singleEmpNum, setSingleEmpNum]     = useState('');
 
@@ -472,7 +591,7 @@ const DepartmentAssignment = () => {
   const showSnackbar = (msg, sev = 'success') => setSnackbar({ open: true, message: msg, severity: sev });
   const { hasAccess, loading: accessLoading } = usePageAccess('department-assignment');
 
-  useEffect(() => { fetchAssignments(); fetchDepartmentList(); }, []);
+  useEffect(() => { fetchAssignments(); fetchDepartmentList(); fetchAppendix33DeptScopes(); }, []);
   useEffect(() => { if (selectMode) fetchEmpList(''); }, [selectMode]); // eslint-disable-line
 
   const fetchAssignments = async () => {
@@ -489,6 +608,28 @@ const DepartmentAssignment = () => {
     } catch { /* silent */ }
   };
 
+  // Appendix 33 allow-list: the only departments an export can be charged to
+  // (same source as the Appendix 33 download modal's "Include" options).
+  const fetchAppendix33DeptScopes = async () => {
+    setAppendix33ScopesLoading(true);
+    setAppendix33ScopesError('');
+    try {
+      const r = await axios.get(
+        `${API_BASE_URL}/PayrollExportRoute/export-appendix33/scopes`,
+        getAuthHeaders(),
+      );
+      const list = Array.isArray(r.data?.departments) ? r.data.departments : [];
+      setAppendix33DeptScopes(list.map((d) => ({ code: d.code, description: d.description || d.code })));
+      setAppendix33ScopesLoaded(true);
+    } catch {
+      setAppendix33DeptScopes([]);
+      setAppendix33ScopesLoaded(false);
+      setAppendix33ScopesError('Could not load the allowed departments from the Appendix 33 layout.');
+    } finally {
+      setAppendix33ScopesLoading(false);
+    }
+  };
+
   const fetchEmpList = async (q) => {
     setEmpListLoading(true);
     try {
@@ -500,7 +641,33 @@ const DepartmentAssignment = () => {
     } catch { setEmpList([]); } finally { setEmpListLoading(false); }
   };
 
-  usePayrollRealtimeRefresh(() => { fetchAssignments(); fetchDepartmentList(); });
+  usePayrollRealtimeRefresh(() => { fetchAssignments(); fetchDepartmentList(); fetchAppendix33DeptScopes(); });
+
+  const appendix33DeptCodeSet = useMemo(
+    () => new Set(appendix33DeptScopes.map((d) => String(d.code || '').trim().toUpperCase()).filter(Boolean)),
+    [appendix33DeptScopes],
+  );
+
+  // A budget department only matters for the Appendix 33 export, so it is only
+  // valid when the code is on that dialog's allowed-departments list. Until the
+  // allow-list loads we stay neutral; once loaded, an off-list code warns.
+  const getBudgetScopeWarning = (code) => {
+    const v = String(code || '').trim();
+    if (!v) return '';
+    if (appendix33ScopesError) return appendix33ScopesError;
+    if (!appendix33ScopesLoaded) return 'Waiting for the Appendix 33 department configuration to load.';
+    if (!appendix33DeptCodeSet.has(v.toUpperCase())) {
+      return `“${v}” is not enabled in the Appendix 33 layout’s department tab, so this payroll budget override will have no effect on the export until it is allowed there.`;
+    }
+    return '';
+  };
+
+  const isBudgetCodeAllowed = (code) => {
+    const v = String(code || '').trim();
+    if (!v) return true;
+    if (appendix33ScopesError || !appendix33ScopesLoaded) return false;
+    return appendix33DeptCodeSet.has(v.toUpperCase());
+  };
 
   useEffect(() => {
     const descMap = {};
@@ -542,11 +709,19 @@ const DepartmentAssignment = () => {
   const handleAssign = async () => {
     const toAssign = selectMode ? employeeQueue : singleEmployee ? [singleEmployee] : [];
     if (toAssign.length === 0) { showSnackbar('Please select at least one employee', 'error'); return; }
+    const budgetWarning = getBudgetScopeWarning(assignBudgetCode);
+    if (budgetWarning || !isBudgetCodeAllowed(assignBudgetCode)) {
+      showSnackbar(budgetWarning || 'Choose an allowed Budget Department from the Appendix 33 layout.', 'error');
+      return;
+    }
     setLoading(true);
-    let ok = 0, fail = 0;
+    let ok = 0, fail = 0, firstError = '';
     for (const emp of toAssign) {
       try { await axios.post(`${API_BASE_URL}/api/department-assignment`, { code: selectedCode, budgetCode: assignBudgetCode, employeeNumber: emp.employeeNumber, name: emp.name }, getAuthHeaders()); ok++; }
-      catch { fail++; }
+      catch (err) {
+        fail++;
+        if (!firstError) firstError = err?.response?.data?.error || '';
+      }
     }
     setLoading(false);
     setSingleEmployee(null); setSingleEmpNum('');
@@ -557,10 +732,16 @@ const DepartmentAssignment = () => {
     if (fail === 0) {
       setSuccessAction(ok > 1 ? 'bulk' : 'create');
       setSuccessOpen(true);
-    } else showSnackbar(`${ok} assigned, ${fail} failed.`, 'warning');
+    } else showSnackbar(`${ok} assigned, ${fail} failed.${firstError ? ` ${firstError}` : ''}`, 'warning');
   };
 
   const handleUpdate = async () => {
+    if (!editAssignment) return;
+    const budgetWarning = getBudgetScopeWarning(editAssignment.budgetCode);
+    if (budgetWarning || !isBudgetCodeAllowed(editAssignment.budgetCode)) {
+      showSnackbar(budgetWarning || 'Choose an allowed Budget Department from the Appendix 33 layout.', 'error');
+      return;
+    }
     try {
       await axios.put(`${API_BASE_URL}/api/department-assignment/${editAssignment.id}`, editAssignment, getAuthHeaders());
       setSuccessAction('edit');
@@ -670,7 +851,9 @@ const DepartmentAssignment = () => {
   }) : [];
 
   const selectedDeptObj = departmentList.find((d) => d.code === selectedCode);
-  const canAssign       = selectMode ? employeeQueue.length > 0 : !!singleEmployee;
+  const assignBudgetAllowed = isBudgetCodeAllowed(assignBudgetCode);
+  const assignBudgetWarning = getBudgetScopeWarning(assignBudgetCode);
+  const canAssign       = (selectMode ? employeeQueue.length > 0 : !!singleEmployee) && assignBudgetAllowed;
   const assignCount     = selectMode ? employeeQueue.length : singleEmployee ? 1 : 0;
 
   return (
@@ -695,7 +878,7 @@ const DepartmentAssignment = () => {
                   <Typography sx={{ fontSize: '0.8rem', color: T.accent, fontWeight: 700 }}>{data.length} {data.length === 1 ? 'assignment' : 'assignments'}</Typography>
                 </Box>
                 <Tooltip title="Refresh Data">
-                  <IconButton onClick={() => { fetchAssignments(); fetchDepartmentList(); }} sx={{ bgcolor: alpha(T.accent, 0.08), color: T.accent, width: 36, height: 36, '&:hover': { bgcolor: alpha(T.accent, 0.15) } }}>
+                  <IconButton onClick={() => { fetchAssignments(); fetchDepartmentList(); fetchAppendix33DeptScopes(); }} sx={{ bgcolor: alpha(T.accent, 0.08), color: T.accent, width: 36, height: 36, '&:hover': { bgcolor: alpha(T.accent, 0.15) } }}>
                     <Refresh sx={{ fontSize: 18 }} />
                   </IconButton>
                 </Tooltip>
@@ -723,14 +906,22 @@ const DepartmentAssignment = () => {
                     <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>
                       Budget Department (payroll charge)
                     </Typography>
-                    <DeptCodeAutocomplete
+                    <BudgetCodeAutocomplete
                       value={assignBudgetCode}
                       onChange={setAssignBudgetCode}
-                      departmentList={departmentList}
+                      allowedDepartments={appendix33DeptScopes}
+                      scopesLoaded={appendix33ScopesLoaded}
+                      scopesLoading={appendix33ScopesLoading}
+                      scopesError={appendix33ScopesError}
                       placeholder="Same as department…"
                     />
+                    {assignBudgetWarning && (
+                      <Typography sx={{ fontSize: '0.7rem', color: '#b45309', mt: 0.75, ml: 0.5 }}>
+                        {assignBudgetWarning}
+                      </Typography>
+                    )}
                     <Typography sx={{ fontSize: '0.68rem', color: T.muted, mt: 0.75, ml: 0.5 }}>
-                      Optional. Set only when the payroll budget comes from another department (e.g. employee is in CAS but charged to CEN). Leave blank to use the department code above.
+                      Optional. Set only when the payroll budget comes from another department (e.g. employee is in CAS but charged to CEN). Only departments enabled in the Appendix 33 layout are available here. Leave blank to use the department code above.
                     </Typography>
                   </Box>
 
@@ -1131,15 +1322,23 @@ const DepartmentAssignment = () => {
                                   </Typography>
                                   {isEditingModal ? (
                                     <Box>
-                                      <DeptCodeAutocomplete
+                                      <BudgetCodeAutocomplete
                                         value={editAssignment.budgetCode || ''}
                                         onChange={(val) => setEditAssignment((p) => ({ ...p, budgetCode: val }))}
-                                        departmentList={departmentList}
+                                        allowedDepartments={appendix33DeptScopes}
+                                        scopesLoaded={appendix33ScopesLoaded}
+                                        scopesLoading={appendix33ScopesLoading}
+                                        scopesError={appendix33ScopesError}
                                         placeholder="Same as department…"
                                       />
-                                      <Typography sx={{ fontSize: '0.7rem', color: T.muted, mt: 0.75, ml: 0.5 }}>
-                                        Optional. Routes this employee's pay to another department's tab in the exported payroll workbook. Their department above stays unchanged. Leave blank to use the department directly.
-                                      </Typography>
+                                       {getBudgetScopeWarning(editAssignment.budgetCode) && (
+                                         <Typography sx={{ fontSize: '0.7rem', color: '#b45309', mt: 0.75, ml: 0.5 }}>
+                                           {getBudgetScopeWarning(editAssignment.budgetCode)}
+                                         </Typography>
+                                       )}
+                                       <Typography sx={{ fontSize: '0.7rem', color: T.muted, mt: 0.75, ml: 0.5 }}>
+                                         Optional. Routes this employee's pay to another department's tab in the exported payroll workbook. Their department above stays unchanged. Only departments enabled in the Appendix 33 layout are available here. Leave blank to use the department directly.
+                                       </Typography>
                                     </Box>
                                   ) : (
                                     <Box sx={{
@@ -1159,6 +1358,11 @@ const DepartmentAssignment = () => {
                                           {editAssignment.budgetCode ? 'Pay is charged to this department in the exported payroll' : 'No budget override — uses the department above'}
                                         </Typography>
                                       </Box>
+                                      {getBudgetScopeWarning(editAssignment.budgetCode) && (
+                                        <Typography sx={{ fontSize: '0.75rem', color: '#b45309', mt: 0.75 }}>
+                                          {getBudgetScopeWarning(editAssignment.budgetCode)}
+                                        </Typography>
+                                      )}
                                     </Box>
                                   )}
                                 </Box>
@@ -1240,7 +1444,7 @@ const DepartmentAssignment = () => {
                                     onClick={handleUpdate}
                                     variant="contained"
                                     startIcon={<SaveIcon sx={{ fontSize: '14px !important' }} />}
-                                    disabled={!hasChanges()}
+                                    disabled={!hasChanges() || !isBudgetCodeAllowed(editAssignment.budgetCode)}
                                     sx={{ fontSize: '0.8rem', bgcolor: '#639922', color: '#fff', boxShadow: '0 2px 10px rgba(99,153,34,0.32)', '&:hover': { bgcolor: '#3B6D11' }, '&:disabled': { bgcolor: '#b9c7a5 !important', color: '#fff !important' } }}
                                   >
                                     Save Changes
