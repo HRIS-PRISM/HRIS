@@ -1,114 +1,23 @@
 {
-  "generatedFrom": "templates/appendix33-versions/bundled-master.xlsm",
-  "shape": "multi",
+  "generatedFrom": "templates/appendix33-versions/tpl_1789454359572_1ijsna.xlsm",
+  "shape": "generic",
   "wtaxFirstRow": 8,
   "payFirstRow": 21,
   "dedsFirstRow": 20,
-  "totalCapacity": 584,
+  "totalCapacity": 94,
   "departments": {
-    "GEN.AD": {
-      "capacity": 141,
-      "wtaxSubtotal": 149,
-      "paySubtotal": 163,
-      "dedsSubtotal": 162,
-      "dedsVariant": "classic",
+    "GENERIC": {
+      "capacity": 94,
+      "wtaxSubtotal": 102,
+      "paySubtotal": 116,
+      "dedsSubtotal": 115,
+      "dedsVariant": "wide",
       "summaryRow": 8
-    },
-    "AUX": {
-      "capacity": 19,
-      "wtaxSubtotal": 27,
-      "paySubtotal": 41,
-      "dedsSubtotal": 40,
-      "dedsVariant": "classic",
-      "summaryRow": 9
-    },
-    "CEN": {
-      "capacity": 27,
-      "wtaxSubtotal": 35,
-      "paySubtotal": 49,
-      "dedsSubtotal": 48,
-      "dedsVariant": "classic",
-      "summaryRow": 10
-    },
-    "CIT": {
-      "capacity": 62,
-      "wtaxSubtotal": 70,
-      "paySubtotal": 84,
-      "dedsSubtotal": 83,
-      "dedsVariant": "classic",
-      "summaryRow": 11
-    },
-    "CBPA": {
-      "capacity": 71,
-      "wtaxSubtotal": 79,
-      "paySubtotal": 93,
-      "dedsSubtotal": 92,
-      "dedsVariant": "classic",
-      "summaryRow": 12
-    },
-    "CAS": {
-      "capacity": 47,
-      "wtaxSubtotal": 55,
-      "paySubtotal": 69,
-      "dedsSubtotal": 68,
-      "dedsVariant": "classic",
-      "summaryRow": 13
-    },
-    "CAFA": {
-      "capacity": 24,
-      "wtaxSubtotal": 32,
-      "paySubtotal": 46,
-      "dedsSubtotal": 45,
-      "dedsVariant": "classic",
-      "summaryRow": 14
-    },
-    "CED": {
-      "capacity": 50,
-      "wtaxSubtotal": 58,
-      "paySubtotal": 72,
-      "dedsSubtotal": 71,
-      "dedsVariant": "classic",
-      "summaryRow": 15
-    },
-    "PE": {
-      "capacity": 13,
-      "wtaxSubtotal": 21,
-      "paySubtotal": 35,
-      "dedsSubtotal": 34,
-      "dedsVariant": "classic",
-      "summaryRow": 16
-    },
-    "RESEARCH": {
-      "capacity": 13,
-      "wtaxSubtotal": 21,
-      "paySubtotal": 35,
-      "dedsSubtotal": 34,
-      "dedsVariant": "classic",
-      "summaryRow": 17
-    },
-    "EXTENSION": {
-      "capacity": 39,
-      "wtaxSubtotal": 47,
-      "paySubtotal": 61,
-      "dedsSubtotal": 60,
-      "dedsVariant": "classic",
-      "summaryRow": 18
-    },
-    "TEMPO": {
-      "capacity": 65,
-      "wtaxSubtotal": 73,
-      "paySubtotal": 87,
-      "dedsSubtotal": 86,
-      "dedsVariant": "classic",
-      "summaryRow": 19
-    },
-    "CONTRACTUAL": {
-      "capacity": 13,
-      "wtaxSubtotal": 21,
-      "paySubtotal": 35,
-      "dedsSubtotal": 34,
-      "dedsVariant": "classic",
-      "summaryRow": 20
     }
+  },
+  "genericSheets": {
+    "wtax": "WTAX",
+    "pay": "PAY",
+    "deds": "DEDS"
   }
 }

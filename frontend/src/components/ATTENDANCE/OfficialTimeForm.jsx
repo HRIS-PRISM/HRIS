@@ -1,54 +1,3 @@
-// ─── OfficialTimeForm — Search-First Layout ──────────────────────────────────
-// Layout: Left panel (search + control) | Right panel (schedule detail/create)
-// Employee autocomplete mirrors Children.jsx pattern (debounced, lazy)
-// ─────────────────────────────────────────────────────────────────────────────
-//
-// CHANGES vs previous version:
-//  [A] makeDefaultRow — Saturday & Sunday now default to blank ("") for all
-//      time fields instead of "00:00:00 AM/PM". Weekdays keep their defaults.
-//  [B] ScheduleTimeRows — new "Fill break" ActionBtn on the Work Days tab.
-//      Appears only when BOTH officialBreaktimeIN and officialBreaktimeOUT are
-//      empty for that row. Clicking it sets Break In → "12:00:00 PM" and
-//      Break Out → "01:00:00 PM" (or keeps any existing partial value).
-//  [C] Department-scoped Excel upload — Filters bar + "Upload Excel by
-//      Department" panel + confirmation modal added to the All Users view.
-//  [D] FIX — moved `fetchAllUsers` declaration earlier in the component so it
-//      is initialized before handlers that reference it in their dependency
-//      arrays (handleConfirmUpload, handleConfirmDeptUpload, handleConfirmCatUpload).
-//  [E] Department dropdown now sourced from the Department Table (via
-//      GET /officialtime/departments) instead of being derived from whichever
-//      departments happen to already have uploaded users in All Users view.
-//  [F] All Users view restructured into the same 360px-sticky-left /
-//      flexible-right two-panel layout as the Single Employee view.
-//  [G] Employment Category — added as a THIRD, independent filter axis
-//      alongside Department (e.g. Department = "College of Engineering",
-//      Employment Category = "Non-Teaching | General Administration").
-//      Added to: All Users filters, All Users table column, and a new
-//      "Excel upload by Employment Category" panel + validate/confirm modal,
-//      mirroring the existing Department-scoped upload 1:1.
-//  [H] Employment Category COLOR — the color dot / colored chip
-//      treatment used in EmploymentCategoryManagement.jsx (DynamicCategorySelect)
-//      is now applied here too: the "Target employment category" upload
-//      dropdown, the All Users "Employment Category" filter dropdown, and the
-//      All Users table's Employment Category column all render the
-//      employment_type_config.colorHex color (dot in menus, colored chip in
-//      the table) instead of plain text.
-//  [I] [NEW] Excel "Name" column support — Excel uploads (single-employee,
-//      department-scoped, and category-scoped) now accept an optional "Name"
-//      column, which the backend echoes back per row as `schedules[].name`
-//      in each validate response. This value is DISPLAY-ONLY: it is never
-//      sent back to the server and never used to match/filter/validate rows
-//      — matching remains 100% by employeeID/employeeNumber, and Department /
-//      Employment Category are still resolved from the system by employeeID,
-//      never from the Excel file (which doesn't include those columns). If a
-//      row's Excel had no Name (or a blank one), we fall back to the existing
-//      system lookup by employeeNumber so the table still shows a readable
-//      name. This applies identically to all three analyze/validate flows
-//      (single-employee, department-scoped, category-scoped).
-//  [J] Right-side "Setup by month" card — checked indicator per employee
-//      for whether an active official-time schedule already covers that month.
-// ─────────────────────────────────────────────────────────────────────────────
-
 import API_BASE_URL from "../../apiConfig";
 import {
   logOfficialTimeAdd,
@@ -161,6 +110,9 @@ const T = {
 
 // #H: fallback color when an employment type has no colorHex assigned
 const DEFAULT_CATEGORY_COLOR = "#757575";
+
+// [NEW #K] Palette for day-pattern presets — mirrors the concept prototype
+const PATTERN_COLORS = ["#6d2323", "#2e6b4f", "#1d5b8b", "#8a5a1d", "#6a1f8a", "#0d7a7a", "#a3781d"];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SHIMMER
@@ -733,7 +685,7 @@ const AcademicYearAutocomplete = ({ value, onChange, onBlur, sx, size = "small",
 // ─────────────────────────────────────────────────────────────────────────────
 // TIME PICKER FIELD
 // ─────────────────────────────────────────────────────────────────────────────
-const TimePickerField = ({ value, onChange, label, size = "small", disabled = false, accentColor = T.accent }) => {
+const TimePickerField = ({ value, onChange, label, size = "small", disabled = false, accentColor = T.accent, patterns = [], direction }) => {
   const parseVal = (v) => {
     if (!v || !String(v).trim()) return { hh: "", mm: "", ss: "", ampm: "AM" };
     const m = String(v).trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)$/i);
@@ -747,6 +699,11 @@ const TimePickerField = ({ value, onChange, label, size = "small", disabled = fa
   const [ampm, setAmpm] = useState(init.ampm);
   const [focused, setFocused] = useState(false);
   const [anchorEl, setAnchorEl] = useState(null);
+  // [NEW #K] When this field has usable patterns (direction is set and at
+  // least one saved pattern has a time for that direction), Quick Pick opens
+  // showing those patterns first. showCustomGrid lets the person fall back
+  // to the original hour/minute grid without losing that shortcut.
+  const [showCustomGrid, setShowCustomGrid] = useState(false);
   const lastEmittedRef = useRef(value);
   const hhRef = useRef(null);
   const mmRef = useRef(null);
@@ -767,6 +724,12 @@ const TimePickerField = ({ value, onChange, label, size = "small", disabled = fa
     onChange(out);
   }, [onChange]);
 
+  const applyExactTime = useCallback((timeStr) => {
+    const p = parseVal(timeStr);
+    setHh(p.hh); setMm(p.mm); setSs(p.ss); setAmpm(p.ampm);
+    emit(p.hh, p.mm, p.ss, p.ampm);
+  }, [emit]);
+
   const segStyle = {
     width: 24, textAlign: "center", border: "none", outline: "none",
     background: "transparent", fontSize: "0.82rem", fontFamily: "monospace",
@@ -777,8 +740,37 @@ const TimePickerField = ({ value, onChange, label, size = "small", disabled = fa
   const MINUTES = ["00", "15", "30", "45"];
   const isEmpty = !hh && !mm && !ss;
 
+  // [NEW] Clamp raw digit input to a valid range so the box can never show
+  // something like "38" for hours — previously any 2 digits were accepted
+  // as-is until a later save/read caught it.
+  const clampHour = (raw) => {
+    if (!raw) return raw;
+    let n = parseInt(raw, 10);
+    if (Number.isNaN(n)) return "";
+    if (n < 1) n = 1;
+    if (n > 12) n = 12;
+    return String(n).padStart(2, "0");
+  };
+  const clampMinute = (raw) => {
+    if (!raw) return raw;
+    let n = parseInt(raw, 10);
+    if (Number.isNaN(n)) return "";
+    if (n > 59) n = 59;
+    return String(n).padStart(2, "0");
+  };
+
+  // [NEW #K] Which saved patterns actually have a usable time for this
+  // field's direction (Time In fields use pattern.timeIn, Time Out fields
+  // use pattern.timeOut). Break/Honorarium/Service-Credit/Overtime fields
+  // pass no `direction`, so this stays empty and Quick Pick behaves exactly
+  // as before for them.
+  const patternOptions = direction
+    ? patterns.filter((p) => (direction === "out" ? p.timeOut : p.timeIn))
+    : [];
+  const showPatternList = patternOptions.length > 0 && !showCustomGrid;
+
   return (
-    <Box sx={{ display: "flex", alignItems: "center", gap: 0.4, width: "100%" }}>
+    <Box sx={{ display: "flex", alignItems: "center", gap: 0.4, width: "100%", minWidth: 0 }}>
       <Box
         onClick={() => !disabled && hhRef.current?.focus()}
         sx={{
@@ -800,8 +792,17 @@ const TimePickerField = ({ value, onChange, label, size = "small", disabled = fa
         )}
         <input
           ref={hhRef} type="text" inputMode="numeric" maxLength={2} placeholder="HH" value={hh} disabled={disabled}
-          onChange={(e) => { const r = e.target.value.replace(/\D/g, "").slice(0, 2); setHh(r); emit(r, mm, ss, ampm); if (r.length === 2) { mmRef.current?.focus(); mmRef.current?.select(); } }}
-          onBlur={(e) => { setFocused(false); const v = e.target.value.replace(/\D/g, ""); const p = v ? v.padStart(2, "0") : ""; setHh(p); emit(p, mm, ss, ampm); }}
+          onChange={(e) => {
+            const r = e.target.value.replace(/\D/g, "").slice(0, 2);
+            if (r.length === 2) {
+              const clamped = clampHour(r);
+              setHh(clamped); emit(clamped, mm, ss, ampm);
+              mmRef.current?.focus(); mmRef.current?.select();
+            } else {
+              setHh(r); emit(r, mm, ss, ampm);
+            }
+          }}
+          onBlur={(e) => { setFocused(false); const v = e.target.value.replace(/\D/g, ""); const p = v ? clampHour(v) : ""; setHh(p); emit(p, mm, ss, ampm); }}
           onFocus={(e) => { setFocused(true); e.target.select(); }}
           onKeyDown={(e) => {
             if (e.key === "ArrowRight" && e.target.selectionStart === e.target.value.length) { e.preventDefault(); mmRef.current?.focus(); mmRef.current?.select(); }
@@ -812,8 +813,17 @@ const TimePickerField = ({ value, onChange, label, size = "small", disabled = fa
         <span style={{ fontSize: "0.82rem", fontFamily: "monospace", color: "#bbb", lineHeight: 1, margin: "0 1px", userSelect: "none" }}>:</span>
         <input
           ref={mmRef} type="text" inputMode="numeric" maxLength={2} placeholder="MM" value={mm} disabled={disabled}
-          onChange={(e) => { const r = e.target.value.replace(/\D/g, "").slice(0, 2); setMm(r); emit(hh, r, ss, ampm); if (r.length === 2) { ssRef.current?.focus(); ssRef.current?.select(); } }}
-          onBlur={(e) => { setFocused(false); const v = e.target.value.replace(/\D/g, ""); const p = v ? v.padStart(2, "0") : ""; setMm(p); emit(hh, p, ss, ampm); }}
+          onChange={(e) => {
+            const r = e.target.value.replace(/\D/g, "").slice(0, 2);
+            if (r.length === 2) {
+              const clamped = clampMinute(r);
+              setMm(clamped); emit(hh, clamped, ss, ampm);
+              ssRef.current?.focus(); ssRef.current?.select();
+            } else {
+              setMm(r); emit(hh, r, ss, ampm);
+            }
+          }}
+          onBlur={(e) => { setFocused(false); const v = e.target.value.replace(/\D/g, ""); const p = v ? clampMinute(v) : ""; setMm(p); emit(hh, p, ss, ampm); }}
           onFocus={(e) => { setFocused(true); e.target.select(); }}
           onKeyDown={(e) => {
             if (e.key === "Backspace" && !mm) { e.preventDefault(); hhRef.current?.focus(); hhRef.current?.select(); }
@@ -837,29 +847,41 @@ const TimePickerField = ({ value, onChange, label, size = "small", disabled = fa
         />
       </Box>
 
-      <Select
-        size={size}
-        value={ampm}
-        onChange={(e) => { setAmpm(e.target.value); emit(hh, mm, ss, e.target.value); }}
-        disabled={disabled}
-        renderValue={(v) => v}
-        sx={{
-          fontSize: "0.78rem", fontWeight: 700, minWidth: 58, width: 58,
-          "&.Mui-focused .MuiOutlinedInput-notchedOutline": { borderColor: accentColor },
-          color: ampm === "AM" ? "#1565c0" : accentColor,
-          "& .MuiSelect-select": { px: 1, py: 0.85, pr: "24px !important" },
-          "& .MuiSelect-icon": { right: 2, fontSize: "1rem" },
-        }}
-      >
-        <MenuItem value="AM" sx={{ fontSize: "0.82rem", fontWeight: 700, color: "#1565c0" }}>AM</MenuItem>
-        <MenuItem value="PM" sx={{ fontSize: "0.82rem", fontWeight: 700, color: T.accent }}>PM</MenuItem>
-      </Select>
+      {/* [NEW #K] AM/PM is now a single-click toggle instead of a dropdown —
+          one tap flips it, no menu to open first. Uses a hard-pixel box (not
+          MUI Button) so the width can never shift between AM and PM. */}
+      <Tooltip title="Click to switch AM/PM">
+        <Box
+          component="button"
+          type="button"
+          disabled={disabled}
+          onClick={() => { const next = ampm === "AM" ? "PM" : "AM"; setAmpm(next); emit(hh, mm, ss, next); }}
+          sx={{
+            width: 44, minWidth: 44, maxWidth: 44, height: 32, flexShrink: 0,
+            boxSizing: "border-box",
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+            appearance: "none", WebkitAppearance: "none", MozAppearance: "none",
+            outline: "none", overflow: "hidden", whiteSpace: "nowrap",
+            fontFamily: "inherit", fontSize: "0.76rem", fontWeight: 800, letterSpacing: "0.2px", lineHeight: 1,
+            borderRadius: "5px", p: 0, m: 0,
+            cursor: disabled ? "not-allowed" : "pointer",
+            color: T.muted,
+            bgcolor: "#f4f4f4",
+            border: "1px solid rgba(0,0,0,0.14)",
+            opacity: disabled ? 0.5 : 1,
+            transition: "background-color 0.12s, color 0.12s, border-color 0.12s",
+            "&:hover": disabled ? {} : { bgcolor: alpha(accentColor, 0.08), color: accentColor, borderColor: alpha(accentColor, 0.35) },
+          }}
+        >
+          {ampm}
+        </Box>
+      </Tooltip>
 
-      <Tooltip title="Quick pick">
+      <Tooltip title={patternOptions.length ? "Quick pick — from your saved patterns" : "Quick pick"}>
         <span>
           <IconButton
             size="small" disabled={disabled}
-            onClick={(e) => setAnchorEl(e.currentTarget)}
+            onClick={(e) => { setShowCustomGrid(false); setAnchorEl(e.currentTarget); }}
             sx={{ color: alpha(accentColor, 0.7), p: 0.5, "&:hover": { color: accentColor, bgcolor: alpha(accentColor, 0.08) } }}
           >
             <AccessTime fontSize="small" />
@@ -880,7 +902,7 @@ const TimePickerField = ({ value, onChange, label, size = "small", disabled = fa
       )}
 
       <Popover
-        open={Boolean(anchorEl)} anchorEl={anchorEl} onClose={() => setAnchorEl(null)}
+        open={Boolean(anchorEl)} anchorEl={anchorEl} onClose={() => { setAnchorEl(null); setShowCustomGrid(false); }}
         anchorOrigin={{ vertical: "bottom", horizontal: "left" }}
         transformOrigin={{ vertical: "top", horizontal: "left" }}
         PaperProps={{
@@ -892,48 +914,92 @@ const TimePickerField = ({ value, onChange, label, size = "small", disabled = fa
           },
         }}
       >
-        <Box sx={{ bgcolor: accentColor, px: 2, py: 1, flexShrink: 0 }}>
-          <Typography sx={{ color: "#fff", fontWeight: 700, fontSize: "0.78rem", letterSpacing: "0.5px", textTransform: "uppercase" }}>
-            Quick Pick
-          </Typography>
-        </Box>
-        <Box sx={{ overflowY: "auto", flex: 1 }}>
-          {["AM", "PM"].map((ap) => (
-            <Box key={ap}>
-              <Box sx={{ px: 2, py: 0.6, bgcolor: ap === "AM" ? "#e3f0fb" : "#f7f0f0", position: "sticky", top: 0, zIndex: 1 }}>
-                <Typography sx={{ fontSize: "0.7rem", fontWeight: 800, color: ap === "AM" ? "#1565c0" : accentColor, letterSpacing: "0.6px" }}>
-                  {ap}
-                </Typography>
-              </Box>
-              <Box sx={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: "3px", px: 1.25, py: 0.75 }}>
-                {HOURS.map((h) =>
-                  MINUTES.map((min) => (
-                    <Button
-                      key={`${h}${min}${ap}`} size="small"
-                      onClick={() => { setHh(h); setMm(min); setSs("00"); setAmpm(ap); emit(h, min, "00", ap); setAnchorEl(null); }}
-                      sx={{
-                        minWidth: 0, height: 26, fontSize: "0.68rem", fontWeight: 600,
-                        fontFamily: "monospace", px: 0, borderRadius: 1, textTransform: "none",
-                        bgcolor: alpha(ap === "AM" ? "#1565c0" : accentColor, 0.06),
-                        color: ap === "AM" ? "#1565c0" : accentColor,
-                        border: `1px solid ${alpha(ap === "AM" ? "#1565c0" : accentColor, 0.18)}`,
-                        "&:hover": { bgcolor: alpha(ap === "AM" ? "#1565c0" : accentColor, 0.18), transform: "scale(1.05)" },
-                        transition: "all 0.1s ease",
-                      }}
-                    >
-                      {h}:{min}
-                    </Button>
-                  )),
-                )}
-              </Box>
+        {showPatternList ? (
+          <>
+            <Box sx={{ bgcolor: accentColor, px: 2, py: 1, flexShrink: 0 }}>
+              <Typography sx={{ color: "#fff", fontWeight: 700, fontSize: "0.78rem", letterSpacing: "0.5px", textTransform: "uppercase" }}>
+                From your patterns
+              </Typography>
             </Box>
-          ))}
-        </Box>
-        <Box sx={{ px: 2, py: 0.75, borderTop: `1px solid ${alpha(accentColor, 0.12)}`, display: "flex", justifyContent: "flex-end", flexShrink: 0, bgcolor: "#fafafa" }}>
-          <Button size="small" onClick={() => setAnchorEl(null)} sx={{ fontSize: "0.72rem", color: "#555", textTransform: "none", minWidth: 0, px: 1.5 }}>
-            Close
-          </Button>
-        </Box>
+            <Box sx={{ overflowY: "auto", flex: 1, py: 0.5 }}>
+              {patternOptions.map((p) => {
+                const t = direction === "out" ? p.timeOut : p.timeIn;
+                return (
+                  <Box
+                    key={p.id}
+                    onClick={() => { applyExactTime(t); setAnchorEl(null); }}
+                    sx={{
+                      display: "flex", alignItems: "center", gap: 1, px: 1.5, py: 0.9,
+                      cursor: "pointer", "&:hover": { bgcolor: alpha(p.color || accentColor, 0.08) },
+                    }}
+                  >
+                    <Box sx={{ width: 9, height: 9, borderRadius: "3px", bgcolor: p.color || accentColor, flexShrink: 0 }} />
+                    <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, color: T.text, flex: 1, minWidth: 0 }} noWrap>{p.name}</Typography>
+                    <Typography sx={{ fontSize: "0.74rem", fontWeight: 800, color: accentColor, fontFamily: "monospace", flexShrink: 0 }}>{t}</Typography>
+                  </Box>
+                );
+              })}
+            </Box>
+            <Box sx={{ px: 2, py: 0.75, borderTop: `1px solid ${alpha(accentColor, 0.12)}`, display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0, bgcolor: "#fafafa" }}>
+              <Button size="small" onClick={() => setShowCustomGrid(true)} sx={{ fontSize: "0.7rem", color: accentColor, textTransform: "none", minWidth: 0, px: 0, fontWeight: 700 }}>
+                Or pick any time…
+              </Button>
+              <Button size="small" onClick={() => setAnchorEl(null)} sx={{ fontSize: "0.72rem", color: "#555", textTransform: "none", minWidth: 0, px: 1.5 }}>
+                Close
+              </Button>
+            </Box>
+          </>
+        ) : (
+          <>
+            <Box sx={{ bgcolor: accentColor, px: 2, py: 1, flexShrink: 0, display: "flex", alignItems: "center", gap: 1 }}>
+              {patternOptions.length > 0 && (
+                <IconButton size="small" onClick={() => setShowCustomGrid(false)} sx={{ color: "#fff", p: 0.25, mr: 0.25 }}>
+                  <ArrowBack sx={{ fontSize: 15 }} />
+                </IconButton>
+              )}
+              <Typography sx={{ color: "#fff", fontWeight: 700, fontSize: "0.78rem", letterSpacing: "0.5px", textTransform: "uppercase" }}>
+                Quick Pick
+              </Typography>
+            </Box>
+            <Box sx={{ overflowY: "auto", flex: 1 }}>
+              {["AM", "PM"].map((ap) => (
+                <Box key={ap}>
+                  <Box sx={{ px: 2, py: 0.6, bgcolor: ap === "AM" ? "#e3f0fb" : "#f7f0f0", position: "sticky", top: 0, zIndex: 1 }}>
+                    <Typography sx={{ fontSize: "0.7rem", fontWeight: 800, color: ap === "AM" ? "#1565c0" : accentColor, letterSpacing: "0.6px" }}>
+                      {ap}
+                    </Typography>
+                  </Box>
+                  <Box sx={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: "3px", px: 1.25, py: 0.75 }}>
+                    {HOURS.map((h) =>
+                      MINUTES.map((min) => (
+                        <Button
+                          key={`${h}${min}${ap}`} size="small"
+                          onClick={() => { setHh(h); setMm(min); setSs("00"); setAmpm(ap); emit(h, min, "00", ap); setAnchorEl(null); }}
+                          sx={{
+                            minWidth: 0, height: 26, fontSize: "0.68rem", fontWeight: 600,
+                            fontFamily: "monospace", px: 0, borderRadius: 1, textTransform: "none",
+                            bgcolor: alpha(ap === "AM" ? "#1565c0" : accentColor, 0.06),
+                            color: ap === "AM" ? "#1565c0" : accentColor,
+                            border: `1px solid ${alpha(ap === "AM" ? "#1565c0" : accentColor, 0.18)}`,
+                            "&:hover": { bgcolor: alpha(ap === "AM" ? "#1565c0" : accentColor, 0.18), transform: "scale(1.05)" },
+                            transition: "all 0.1s ease",
+                          }}
+                        >
+                          {h}:{min}
+                        </Button>
+                      )),
+                    )}
+                  </Box>
+                </Box>
+              ))}
+            </Box>
+            <Box sx={{ px: 2, py: 0.75, borderTop: `1px solid ${alpha(accentColor, 0.12)}`, display: "flex", justifyContent: "flex-end", flexShrink: 0, bgcolor: "#fafafa" }}>
+              <Button size="small" onClick={() => setAnchorEl(null)} sx={{ fontSize: "0.72rem", color: "#555", textTransform: "none", minWidth: 0, px: 1.5 }}>
+                Close
+              </Button>
+            </Box>
+          </>
+        )}
       </Popover>
     </Box>
   );
@@ -948,6 +1014,34 @@ const getAuthHeaders = () => ({
     "Content-Type": "application/json",
   },
 });
+
+// [NEW] Client-side mirror of the backend's OFFICIAL_TIME_ADMIN_ROLES check
+// (administrator / superadmin / technical). Decodes the same JWT already
+// stored under "token" — no new localStorage key needed. This is a UI
+// convenience only: the real enforcement lives server-side in
+// ensureActiveSupervisorAssignment()'s admin bypass, so a hidden/forged
+// frontend role can never grant more than the backend already allows.
+const OFFICIAL_TIME_ADMIN_ROLES = ["administrator", "superadmin", "technical", "admin"];
+const decodeJwtPayload = (token) => {
+  try {
+    const base64Url = token.split(".")[1];
+    const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+    const json = decodeURIComponent(
+      atob(base64)
+        .split("")
+        .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+        .join(""),
+    );
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+};
+const getCurrentUserRole = () => {
+  const token = localStorage.getItem("token");
+  if (!token) return "";
+  return String(decodeJwtPayload(token)?.role || "").toLowerCase();
+};
 
 const countUniqueSchedules = (rows) => {
   const keys = new Set();
@@ -1159,7 +1253,7 @@ const ActionBtn = ({ onClick, disabled, icon: Icon, label, variant = "default", 
 // SCHEDULE TIME ROWS
 // [CHANGE B] Added fillBreak helper + "Fill break" ActionBtn on Work Days tab
 // ─────────────────────────────────────────────────────────────────────────────
-const ScheduleTimeRows = ({ records, onChangeRecord, scheduleView, readOnly = false }) => {
+const ScheduleTimeRows = ({ records, onChangeRecord, scheduleView, readOnly = false, patterns = [] }) => {
   const fields = TIME_FIELDS[scheduleView] || TIME_FIELDS.workDays;
 
   const rowHasValues = (record) =>
@@ -1274,6 +1368,13 @@ const ScheduleTimeRows = ({ records, onChangeRecord, scheduleView, readOnly = fa
                       value={record[f.key] || ""}
                       onChange={(val) => onChangeRecord(index, f.key, val)}
                       accentColor={T.accent}
+                      // [NEW #K] Only the Work Days tab's main Time In / Time Out
+                      // columns know how to read a pattern (patterns only define
+                      // one in/out pair). Break, Honorarium, Service Credit and
+                      // Overtime fields get no `direction`, so their Quick Pick
+                      // stays exactly the original hour/minute grid.
+                      patterns={f.key === "officialTimeIN" || f.key === "officialTimeOUT" ? patterns : []}
+                      direction={f.key.toUpperCase().endsWith("OUT") ? "out" : f.key.toUpperCase().endsWith("IN") ? "in" : undefined}
                     />
                   )}
                 </TableCell>
@@ -1719,6 +1820,15 @@ const OfficialTimeForm = ({
   const { settings } = useSystemSettings();
   const { hasAccess, loading: accessLoading } = usePageAccess("official-time");
 
+  // [NEW] Admin roles get an Edit/Delete bypass on every schedule block,
+  // active or inactive — see the matching backend bypass in
+  // ensureActiveSupervisorAssignment(). Computed once; role doesn't change
+  // mid-session without a re-login.
+  const isOfficialTimeAdmin = useMemo(
+    () => OFFICIAL_TIME_ADMIN_ROLES.includes(getCurrentUserRole()),
+    [],
+  );
+
   const [viewMode, setViewMode] = useState("single");
   const showSingleView = embedded || viewMode === "single";
   const showAllUsers = !embedded && viewMode === "allUsers";
@@ -1751,6 +1861,62 @@ const OfficialTimeForm = ({
   const [draftStartDate, setDraftStartDate] = useState("");
   const [draftEndDate, setDraftEndDate] = useState("");
   const draftStatus = "active";
+
+  // ── [NEW #K] Day-pattern presets ("Patterns") ──────────────────────────
+  // Optional shortcut only. Stored client-side (localStorage) for now — see
+  // the note in the patch docs for swapping this to a real backend table
+  // (GET/POST/DELETE /officialtime/patterns) later without touching the JSX
+  // below. Picking a pattern only changes what pre-fills modalRecords when
+  // the Create Schedule modal opens; the modal itself (ScheduleTimeRows,
+  // Fill Break, Copy/Apply, overlap validation) is completely unchanged.
+  const PATTERNS_STORAGE_KEY = "earist-official-time-patterns";
+  const [patterns, setPatterns] = useState(() => {
+    try {
+      const raw = localStorage.getItem(PATTERNS_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [selectedPatternId, setSelectedPatternId] = useState("");
+  const [showPatternManager, setShowPatternManager] = useState(false);
+  const [patternDraft, setPatternDraft] = useState({
+    name: "",
+    days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+    timeIn: "08:00:00 AM",
+    timeOut: "05:00:00 PM",
+    color: PATTERN_COLORS[0],
+  });
+  // [NEW] Opens the browser's native color picker for a custom pattern color
+  // that isn't one of the 7 presets — see the dashed "+" swatch below.
+  const customColorInputRef = useRef(null);
+
+  const persistPatterns = useCallback((next) => {
+    setPatterns(next);
+    try {
+      localStorage.setItem(PATTERNS_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      /* ignore quota / private mode */
+    }
+  }, []);
+
+  // Builds the same 7-row shape makeDefaultRow() produces, but filled from a
+  // saved pattern instead of the hardcoded 8AM–5PM default. Days not in the
+  // pattern stay blank (a day off), same convention as weekends in
+  // makeDefaultRow.
+  const buildRecordsFromPattern = useCallback((pattern, empId) => {
+    return DAYS_ORDER.map((day) => {
+      const working = pattern.days.includes(day);
+      return {
+        ...makeDefaultRow(empId, day),
+        officialTimeIN: working ? pattern.timeIn : "",
+        officialTimeOUT: working ? pattern.timeOut : "",
+        officialBreaktimeIN: working ? "00:00:00 AM" : "",
+        officialBreaktimeOUT: working ? "00:00:00 PM" : "",
+      };
+    });
+  }, []);
+  // ── end pattern additions ──────────────────────────────────────────────
 
   const [activeScheduleKey, setActiveScheduleKey] = useState(null);
   const [scheduleView, setScheduleView] = useState("workDays");
@@ -2099,7 +2265,8 @@ const OfficialTimeForm = ({
 
   const requestDeleteInactiveSchedule = useCallback((block) => {
     if (!block) return;
-    if (String(block.status || "active").toLowerCase() === "active") {
+    const isActive = String(block.status || "active").toLowerCase() === "active";
+    if (isActive && !isOfficialTimeAdmin) {
       showToast("Only inactive official time can be deleted.");
       return;
     }
@@ -2108,8 +2275,11 @@ const OfficialTimeForm = ({
       startDate: block.startDate,
       endDate: block.endDate,
       status: block.status,
+      // [NEW] Lets the confirmation dialog show a stronger warning when an
+      // admin is about to delete the currently ACTIVE schedule.
+      wasActive: isActive,
     });
-  }, [showToast]);
+  }, [showToast, isOfficialTimeAdmin]);
 
   const handleConfirmDeleteInactiveSchedule = useCallback(async () => {
     if (!employeeID || !deleteScheduleTarget) return;
@@ -2131,7 +2301,7 @@ const OfficialTimeForm = ({
         periodStart: startDate,
         periodEnd: endDate,
       });
-      showToast("Inactive official time deleted.");
+      showToast(deleteScheduleTarget.wasActive ? "Active official time deleted." : "Inactive official time deleted.");
       setDeleteScheduleTarget(null);
       setShowViewScheduleModal(false);
       setIsEditingViewSchedule(false);
@@ -2167,6 +2337,10 @@ const OfficialTimeForm = ({
   }, [employeeID, buildDefaultRecords, stampServerRecords]);
 
   // ── Create schedule modal ──
+  // [NEW #K] Now checks `patterns` / `selectedPatternId` to optionally
+  // pre-fill blank days from a saved pattern instead of makeDefaultRow.
+  // Existing (already-set) rows for the active block are still preserved
+  // exactly as before — a pattern never overwrites real data.
   const openCreateScheduleModal = useCallback(async () => {
     if (!employeeID) { showToast("Please select an employee first."); return; }
     if (!draftAcademicYear) { showToast("Please fill Academic Year first."); return; }
@@ -2182,15 +2356,19 @@ const OfficialTimeForm = ({
     });
     if (hasConflict) { setShowConflictModal(true); return; }
 
+    const activePattern = patterns.find((p) => p.id === selectedPatternId) || null;
+    const patternRows = activePattern ? buildRecordsFromPattern(activePattern, employeeID) : null;
     const sevenRows = DAYS_ORDER.map((day) => {
       const existing = records.find((r) => r.day === day && activeBlockData && normalizeDateStr(r.startDate) === normalizeDateStr(activeBlockData.startDate));
-      return existing ? { ...existing, employeeID } : makeDefaultRow(employeeID, day);
+      if (existing) return { ...existing, employeeID };
+      if (patternRows) return patternRows.find((r) => r.day === day);
+      return makeDefaultRow(employeeID, day);
     });
     setModalRecords(sevenRows);
     setModalScheduleView("workDays");
     setIsBulkSchedule(false);
     setShowScheduleModal(true);
-  }, [employeeID, draftAcademicYear, draftSemester, draftStartDate, draftEndDate, scheduleBlocks, records, activeBlockData, showToast]);
+  }, [employeeID, draftAcademicYear, draftSemester, draftStartDate, draftEndDate, scheduleBlocks, records, activeBlockData, showToast, patterns, selectedPatternId, buildRecordsFromPattern]);
 
   const handleModalRecordChange = useCallback((index, field, value) => {
     setModalRecords((prev) => { const u = [...prev]; u[index] = { ...u[index], [field]: value }; return u; });
@@ -2962,6 +3140,57 @@ const OfficialTimeForm = ({
                       <ModernTextField fullWidth size="small" label="Start Date" type="date" InputLabelProps={{ shrink: true }} value={draftStartDate} onChange={(e) => setDraftStartDate(e.target.value)} />
                       <ModernTextField fullWidth size="small" label="End Date" type="date" InputLabelProps={{ shrink: true }} value={draftEndDate} onChange={(e) => setDraftEndDate(e.target.value)} />
                     </Box>
+
+                    {/* [NEW #K] Pattern picker — optional, only row added to this panel */}
+                    {patterns.length > 0 ? (
+                      <Box sx={{ display: "flex", alignItems: "flex-end", gap: 1, mb: 1.5 }}>
+                        <ModernTextField
+                          select fullWidth size="small" label="Pattern (optional)"
+                          value={selectedPatternId}
+                          onChange={(e) => setSelectedPatternId(e.target.value)}
+                          SelectProps={{
+                            renderValue: (val) => {
+                              if (!val) return <Typography sx={{ fontSize: "0.875rem", color: T.text }}>No pattern — start blank</Typography>;
+                              const found = patterns.find((p) => p.id === val);
+                              if (!found) return val;
+                              return (
+                                <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                                  <Box sx={{ width: 9, height: 9, borderRadius: "3px", bgcolor: found.color || T.accent, flexShrink: 0 }} />
+                                  <Typography sx={{ fontSize: "0.875rem" }}>{found.name}</Typography>
+                                </Box>
+                              );
+                            },
+                          }}
+                        >
+                          <MenuItem value="">No pattern — start blank</MenuItem>
+                          {patterns.map((p) => (
+                            <MenuItem key={p.id} value={p.id}>
+                              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                                <Box sx={{ width: 9, height: 9, borderRadius: "3px", bgcolor: p.color || T.accent, flexShrink: 0 }} />
+                                <Typography sx={{ fontSize: "0.875rem" }}>{p.name}</Typography>
+                              </Box>
+                            </MenuItem>
+                          ))}
+                        </ModernTextField>
+                        <Tooltip title="Manage patterns">
+                          <IconButton
+                            size="small"
+                            onClick={() => setShowPatternManager(true)}
+                            sx={{ border: `1px solid ${T.accentBorder}`, color: T.accent, borderRadius: 1.5, height: 36, width: 36, flexShrink: 0 }}
+                          >
+                            <Edit sx={{ fontSize: 14 }} />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
+                    ) : (
+                      <Button
+                        size="small" variant="text" onClick={() => setShowPatternManager(true)}
+                        sx={{ mb: 1.5, textTransform: "none", color: T.accent, fontWeight: 700, fontSize: "0.76rem", justifyContent: "flex-start", px: 0 }}
+                      >
+                        + Save a pattern (optional shortcut)
+                      </Button>
+                    )}
+
                     <Button
                       fullWidth variant="contained"
                       onClick={openCreateScheduleModal}
@@ -3049,7 +3278,7 @@ const OfficialTimeForm = ({
                         rightContent={
                           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
                             <StatusBadge active={String(activeBlockData.status || "active").toLowerCase() === "active"} />
-                            {String(activeBlockData.status || "active").toLowerCase() === "active" && (
+                            {(String(activeBlockData.status || "active").toLowerCase() === "active" || isOfficialTimeAdmin) && (
                               <Tooltip title="Edit this schedule">
                                 <IconButton
                                   size="small"
@@ -3139,8 +3368,8 @@ const OfficialTimeForm = ({
                                           <Visibility sx={{ fontSize: 11.5 }} />
                                         </IconButton>
                                       </Tooltip>
-                                      {!isActive && (
-                                        <Tooltip title="Delete inactive official time">
+                                      {(!isActive || isOfficialTimeAdmin) && (
+                                        <Tooltip title={isActive ? "Delete this ACTIVE schedule (admin)" : "Delete inactive official time"}>
                                           <IconButton size="small"
                                             onClick={(e) => {
                                               e.stopPropagation();
@@ -3179,11 +3408,13 @@ const OfficialTimeForm = ({
 
                       <Box sx={{ borderTop: `1px solid ${T.divider}`, bgcolor: "#fafafa", px: 3, py: 1.75, display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 1.5, flexShrink: 0 }}>
                         <Typography sx={{ fontSize: "0.72rem", color: T.faint, flex: 1 }}>
-                          {String(activeBlockData.status || "active").toLowerCase() === "active"
-                            ? "Viewing in read-only mode — click Edit to make changes"
-                            : "This official time is inactive — Delete removes it permanently"}
+                          {isOfficialTimeAdmin
+                            ? "Admin mode — you can edit or delete this schedule regardless of status"
+                            : String(activeBlockData.status || "active").toLowerCase() === "active"
+                              ? "Viewing in read-only mode — click Edit to make changes"
+                              : "This official time is inactive — Delete removes it permanently"}
                         </Typography>
-                        {String(activeBlockData.status || "active").toLowerCase() !== "active" && (
+                        {(String(activeBlockData.status || "active").toLowerCase() !== "active" || isOfficialTimeAdmin) && (
                           <Button
                             variant="outlined" size="small" startIcon={<Delete sx={{ fontSize: 14 }} />}
                             onClick={() => requestDeleteInactiveSchedule(activeBlockData)}
@@ -3192,7 +3423,7 @@ const OfficialTimeForm = ({
                             Delete
                           </Button>
                         )}
-                        {String(activeBlockData.status || "active").toLowerCase() === "active" && (
+                        {(String(activeBlockData.status || "active").toLowerCase() === "active" || isOfficialTimeAdmin) && (
                           <Button
                             variant="outlined" size="small" startIcon={<Edit sx={{ fontSize: 14 }} />}
                             onClick={() => {
@@ -3714,6 +3945,7 @@ const OfficialTimeForm = ({
                     onChangeRecord={handleModalRecordChange}
                     scheduleView={modalScheduleView}
                     readOnly={false}
+                    patterns={patterns}
                   />
                 </Table>
               </TableContainer>
@@ -3805,6 +4037,7 @@ const OfficialTimeForm = ({
                           }}
                           scheduleView={editViewScheduleView}
                           readOnly={false}
+                          patterns={patterns}
                         />
                       ) : (
                         <ScheduleTimeRows
@@ -3832,14 +4065,14 @@ const OfficialTimeForm = ({
               ) : (
                 <>
                   <Button variant="outlined" onClick={() => setShowViewScheduleModal(false)} sx={{ fontWeight: 700, textTransform: "none", borderColor: "#ccc", color: "#444", "&:hover": { bgcolor: "#f5f5f5" } }}>Close</Button>
-                  {viewScheduleInfo && String(viewScheduleInfo.status || "active").toLowerCase() !== "active" && (
+                  {viewScheduleInfo && (String(viewScheduleInfo.status || "active").toLowerCase() !== "active" || isOfficialTimeAdmin) && (
                     <Button variant="outlined" startIcon={<Delete />} onClick={() => requestDeleteInactiveSchedule(viewScheduleInfo)}
                       sx={{ fontWeight: 700, textTransform: "none", borderColor: "rgba(198,40,40,0.4)", color: "#c62828", "&:hover": { bgcolor: "rgba(198,40,40,0.06)", borderColor: "#c62828" } }}
                     >
                       Delete
                     </Button>
                   )}
-                  {viewScheduleInfo && String(viewScheduleInfo.status || "active").toLowerCase() === "active" && (
+                  {viewScheduleInfo && (String(viewScheduleInfo.status || "active").toLowerCase() === "active" || isOfficialTimeAdmin) && (
                     <Button variant="contained" disableElevation startIcon={<Edit />} onClick={handleStartEditViewSchedule}
                       sx={{ fontWeight: 700, textTransform: "none", bgcolor: T.accent, color: "#fff", "&:hover": { bgcolor: T.accentDark } }}
                     >
@@ -3861,14 +4094,25 @@ const OfficialTimeForm = ({
             <Box sx={dialogHeaderSx}>
               <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
                 <Delete sx={{ color: "#fff", fontSize: 20 }} />
-                <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "1rem" }}>Delete inactive official time</Typography>
+                <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "1rem" }}>
+                  {deleteScheduleTarget?.wasActive ? "Delete ACTIVE official time" : "Delete inactive official time"}
+                </Typography>
               </Box>
               {dialogCloseBtn(() => { if (!deletingSchedule) setDeleteScheduleTarget(null); }, deletingSchedule)}
             </Box>
             <Box sx={{ bgcolor: "#fff", px: 3, pt: 2.5, pb: 2 }}>
-              <Typography sx={{ color: T.text, lineHeight: 1.7, fontSize: "0.93rem" }}>
-                This removes the inactive schedule and cannot be undone. Active official time is not affected.
-              </Typography>
+              {deleteScheduleTarget?.wasActive ? (
+                <Box sx={{ display: "flex", gap: 1, p: 1.5, mb: 1.5, bgcolor: "#fff5f5", border: "1px solid #ffcdd2", borderRadius: "10px" }}>
+                  <WarningAmber sx={{ color: "#c62828", fontSize: 18, mt: "1px", flexShrink: 0 }} />
+                  <Typography sx={{ fontSize: "0.83rem", color: "#7a0000", lineHeight: 1.55 }}>
+                    <strong>This is the employee's currently ACTIVE official time.</strong> You're deleting it as an admin override — once removed, this employee has no active schedule until a new one is created.
+                  </Typography>
+                </Box>
+              ) : (
+                <Typography sx={{ color: T.text, lineHeight: 1.7, fontSize: "0.93rem" }}>
+                  This removes the inactive schedule and cannot be undone. Active official time is not affected.
+                </Typography>
+              )}
               {deleteScheduleTarget && (
                 <Box sx={{ mt: 1.5, px: 2, py: 1.25, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, borderRadius: "10px" }}>
                   <Typography sx={{ fontWeight: 700, color: T.accent, fontSize: "0.88rem" }}>
@@ -4040,6 +4284,235 @@ const OfficialTimeForm = ({
                 sx={{ bgcolor: T.accent, color: "#fff", fontWeight: 700, textTransform: "none", minWidth: 120, "&:hover": { bgcolor: T.accentDark } }}
               >
                 Yes, Proceed
+              </Button>
+            </Box>
+          </Dialog>
+
+          {/* ── Pattern Manager ── */}
+          {/* [NEW #K] Card-grid layout matching the approved concept preview —
+              colored-dot preset cards up top, a single-row "new pattern" form
+              below (Name / Time In / Time Out / Color, then Working days). */}
+          <Dialog
+            open={showPatternManager}
+            onClose={() => setShowPatternManager(false)}
+            maxWidth="sm"
+            fullWidth
+            PaperProps={{ sx: { borderRadius: "16px", overflow: "hidden" } }}
+          >
+            <Box sx={dialogHeaderSx}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                <Schedule sx={{ color: "#fff", fontSize: 20 }} />
+                <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "1rem" }}>
+                  Day-Pattern Presets
+                </Typography>
+              </Box>
+              {dialogCloseBtn(() => setShowPatternManager(false))}
+            </Box>
+
+            <Box sx={{ bgcolor: "#fff", px: 3, pt: 2.5, pb: 1, maxHeight: "70vh", overflowY: "auto" }}>
+              <Typography sx={{ fontSize: "0.78rem", color: T.muted, mb: 2, lineHeight: 1.5 }}>
+                Save a recurring weekly pattern (e.g. "Mon–Thu 7–6") so creating a
+                schedule is pick-dates + pick-pattern instead of retyping every field.
+                Patterns are optional — for faculty or irregular schedules you can
+                still leave this blank and fill the table manually, same as before.
+              </Typography>
+
+              {/* Preset cards */}
+              {patterns.length > 0 ? (
+                <Box
+                  sx={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))",
+                    gap: 1.25,
+                    mb: 2.5,
+                  }}
+                >
+                  {patterns.map((p) => (
+                    <Box
+                      key={p.id}
+                      sx={{
+                        position: "relative",
+                        border: `1px solid ${T.accentBorder}`,
+                        borderRadius: "10px",
+                        p: 1.5,
+                        bgcolor: "#fff",
+                        transition: "box-shadow 0.15s, border-color 0.15s",
+                        "&:hover": { boxShadow: "0 3px 12px rgba(0,0,0,0.08)", borderColor: p.color || T.accent },
+                      }}
+                    >
+                      <IconButton
+                        size="small"
+                        onClick={() => {
+                          persistPatterns(patterns.filter((x) => x.id !== p.id));
+                          if (selectedPatternId === p.id) setSelectedPatternId("");
+                        }}
+                        sx={{ position: "absolute", top: 4, right: 4, width: 20, height: 20, color: T.faint, "&:hover": { color: "#c62828", bgcolor: "rgba(198,40,40,0.08)" } }}
+                      >
+                        <Close sx={{ fontSize: 13 }} />
+                      </IconButton>
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 0.4 }}>
+                        <Box sx={{ width: 10, height: 10, borderRadius: "3px", bgcolor: p.color || T.accent, flexShrink: 0 }} />
+                        <Typography sx={{ fontSize: "0.85rem", fontWeight: 700, color: T.text, pr: 2, lineHeight: 1.25 }} noWrap>
+                          {p.name}
+                        </Typography>
+                      </Box>
+                      <Typography sx={{ fontSize: "0.7rem", color: T.muted, mb: 0.3 }}>
+                        {p.days.map((d) => d.slice(0, 3)).join(" · ")}
+                      </Typography>
+                      <Typography sx={{ fontSize: "0.78rem", fontWeight: 700, color: T.text, fontFamily: "monospace" }}>
+                        {(p.timeIn || "").replace(":00 ", " ")} – {(p.timeOut || "").replace(":00 ", " ")}
+                      </Typography>
+                    </Box>
+                  ))}
+                </Box>
+              ) : (
+                <Box sx={{ mb: 2.5, py: 2, textAlign: "center", border: `1.5px dashed ${T.accentBorder}`, borderRadius: 2, bgcolor: T.accentFaint }}>
+                  <Typography sx={{ fontSize: "0.78rem", color: T.faint, fontStyle: "italic" }}>
+                    No patterns saved yet — add your first one below.
+                  </Typography>
+                </Box>
+              )}
+
+              {/* New pattern form */}
+              <Box sx={{ border: `1.5px dashed ${T.accentBorder}`, borderRadius: 2, p: 2, mb: 1 }}>
+                <Box sx={{ mb: 1.75 }}>
+                  <Typography sx={{ fontSize: "0.68rem", color: T.muted, mb: 0.5 }}>Name</Typography>
+                  <ModernTextField
+                    fullWidth size="small" placeholder="e.g. Tue–Fri Compensatory"
+                    value={patternDraft.name}
+                    onChange={(e) => setPatternDraft((d) => ({ ...d, name: e.target.value }))}
+                  />
+                </Box>
+
+                <Box
+                  sx={{
+                    display: "grid",
+                    gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" },
+                    gap: 1.5,
+                    mb: 1.75,
+                    alignItems: "flex-end",
+                  }}
+                >
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography sx={{ fontSize: "0.68rem", color: T.muted, mb: 0.5 }}>Time In</Typography>
+                    <TimePickerField value={patternDraft.timeIn} onChange={(v) => setPatternDraft((d) => ({ ...d, timeIn: v }))} accentColor={T.accent} />
+                  </Box>
+                  <Box sx={{ minWidth: 0 }}>
+                    <Typography sx={{ fontSize: "0.68rem", color: T.muted, mb: 0.5 }}>Time Out</Typography>
+                    <TimePickerField value={patternDraft.timeOut} onChange={(v) => setPatternDraft((d) => ({ ...d, timeOut: v }))} accentColor={T.accent} />
+                  </Box>
+                </Box>
+
+                {/* [NEW] Color now gets its own full-width row — same label
+                    treatment and alignment as Working days below it — instead
+                    of being squeezed into a third time-grid column. Swatches
+                    flex-wrap so they're never cramped at any dialog width. */}
+                <Box sx={{ mb: 1.75 }}>
+                  <Typography sx={{ fontSize: "0.68rem", color: T.muted, mb: 0.6 }}>Color</Typography>
+                  <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
+                    {PATTERN_COLORS.map((c) => (
+                      <Box
+                        key={c}
+                        onClick={() => setPatternDraft((d) => ({ ...d, color: c }))}
+                        sx={{
+                          width: 26, height: 26, borderRadius: "6px", bgcolor: c, cursor: "pointer", flexShrink: 0,
+                          border: patternDraft.color === c ? "2px solid #fff" : "2px solid transparent",
+                          boxShadow: patternDraft.color === c ? `0 0 0 2px ${c}` : "none",
+                          transition: "box-shadow 0.12s, border-color 0.12s, transform 0.12s",
+                          "&:hover": { transform: "translateY(-1px)" },
+                        }}
+                      />
+                    ))}
+                    {/* Custom color — opens the browser's native color picker
+                        for any hex, not just the 7 presets above. */}
+                    <Tooltip title="Choose a custom color">
+                      <Box
+                        onClick={() => customColorInputRef.current?.click()}
+                        sx={{
+                          width: 26, height: 26, borderRadius: "6px", cursor: "pointer", flexShrink: 0,
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          bgcolor: !PATTERN_COLORS.includes(patternDraft.color) ? patternDraft.color : "#fff",
+                          border: !PATTERN_COLORS.includes(patternDraft.color) ? "2px solid #fff" : "2px dashed rgba(0,0,0,0.28)",
+                          boxShadow: !PATTERN_COLORS.includes(patternDraft.color) ? `0 0 0 2px ${patternDraft.color}` : "none",
+                          color: T.muted,
+                          transition: "box-shadow 0.12s, border-color 0.12s, transform 0.12s",
+                          "&:hover": {
+                            transform: "translateY(-1px)",
+                            ...(PATTERN_COLORS.includes(patternDraft.color) ? { borderColor: T.accent, color: T.accent } : {}),
+                          },
+                        }}
+                      >
+                        {PATTERN_COLORS.includes(patternDraft.color) && <Add sx={{ fontSize: 15 }} />}
+                      </Box>
+                    </Tooltip>
+                    <input
+                      ref={customColorInputRef}
+                      type="color"
+                      value={!PATTERN_COLORS.includes(patternDraft.color) ? patternDraft.color : "#8a8a8a"}
+                      onChange={(e) => setPatternDraft((d) => ({ ...d, color: e.target.value }))}
+                      style={{ display: "none" }}
+                    />
+                  </Box>
+                </Box>
+
+                <Box sx={{ mb: 1.75 }}>
+                  <Typography sx={{ fontSize: "0.68rem", color: T.muted, mb: 0.6 }}>Working days</Typography>
+                  <Box sx={{ display: "flex", gap: { xs: 1, sm: 1.75 } }}>
+                    {[
+                      { key: "Sunday", label: "Sun" },
+                      { key: "Monday", label: "Mon" },
+                      { key: "Tuesday", label: "Tue" },
+                      { key: "Wednesday", label: "Wed" },
+                      { key: "Thursday", label: "Thu" },
+                      { key: "Friday", label: "Fri" },
+                      { key: "Saturday", label: "Sat" },
+                    ].map(({ key, label }) => {
+                      const active = patternDraft.days.includes(key);
+                      return (
+                        <Box key={key} sx={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 0.35 }}>
+                          <Typography sx={{ fontSize: "0.65rem", fontWeight: 600, color: active ? T.accent : T.muted }}>{label}</Typography>
+                          <Checkbox
+                            size="small"
+                            checked={active}
+                            onChange={() =>
+                              setPatternDraft((d) => ({
+                                ...d,
+                                days: active ? d.days.filter((x) => x !== key) : [...d.days, key],
+                              }))
+                            }
+                            sx={{ p: 0.4, color: T.accentBorder, "&.Mui-checked": { color: T.accent } }}
+                          />
+                        </Box>
+                      );
+                    })}
+                  </Box>
+                </Box>
+
+                <Button
+                  variant="contained" size="small"
+                  startIcon={<Add sx={{ fontSize: 16 }} />}
+                  disabled={!patternDraft.name.trim() || !patternDraft.days.length || !patternDraft.timeIn || !patternDraft.timeOut}
+                  onClick={() => {
+                    const next = [...patterns, { id: `pat_${Date.now()}`, ...patternDraft, name: patternDraft.name.trim() }];
+                    persistPatterns(next);
+                    setPatternDraft({
+                      name: "",
+                      days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+                      timeIn: "08:00:00 AM",
+                      timeOut: "05:00:00 PM",
+                      color: PATTERN_COLORS[(patterns.length + 1) % PATTERN_COLORS.length],
+                    });
+                  }}
+                  sx={{ bgcolor: T.accent, color: "#fff", fontWeight: 700, textTransform: "none", borderRadius: "8px", "&:hover": { bgcolor: T.accentDark }, "&.Mui-disabled": { bgcolor: "#c0a0a0", color: "#fff" } }}
+                >
+                  Add preset
+                </Button>
+              </Box>
+            </Box>
+
+            <Box sx={{ borderTop: `1px solid ${T.divider}`, bgcolor: "#fafafa", px: 3, py: 2, display: "flex", justifyContent: "flex-end" }}>
+              <Button variant="outlined" onClick={() => setShowPatternManager(false)} sx={{ borderColor: "#ccc", color: "#444", fontWeight: 600, textTransform: "none" }}>
+                Done
               </Button>
             </Box>
           </Dialog>
