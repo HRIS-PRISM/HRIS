@@ -74,6 +74,7 @@ const SidebarCard = styled(Card)({
 const PUNCH_PAGE_SIZE = 25;
 
 const ATTENDANCE_STATE_OPTIONS = [
+  { value: 0, label: 'Uncategorized' },
   { value: 1, label: 'Time IN' },
   { value: 2, label: 'Breaktime OUT' },
   { value: 3, label: 'Breaktime IN' },
@@ -613,12 +614,6 @@ const AttendancePunchStatusSidebar = ({
                     </Box>
                   </MenuItem>
                 ))}
-                <MenuItem value="0" sx={{ fontSize: '0.74rem' }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                    {getAttendanceIcon(0)}
-                    Uncategorized
-                  </Box>
-                </MenuItem>
               </Select>
             </FormControl>
 

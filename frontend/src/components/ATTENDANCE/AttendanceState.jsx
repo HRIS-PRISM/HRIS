@@ -1,6 +1,7 @@
 import API_BASE_URL from "../../apiConfig";
 import React, { useState, useEffect, useRef, useCallback, useMemo, startTransition } from "react";
 import axios from "axios";
+import { jsPDF } from "jspdf";
 import useAttendanceRealtimeRefresh from "../../hooks/useAttendanceRealtimeRefresh";
 import useAttendanceWorkflow from "../../hooks/useAttendanceWorkflow";
 import AttendanceWorkflowNav from "./AttendanceWorkflowNav";
@@ -43,6 +44,8 @@ import {
   Male as MaleIcon,
   Female as FemaleIcon,
   Download as DownloadIcon,
+  Print as PrintIcon,
+  PictureAsPdf as PictureAsPdfIcon,
 } from "@mui/icons-material";
 import { DeptBadge, EmpCatBadge } from "../LEAVE/EARNINGS/RecordsList";
 import {
@@ -409,6 +412,164 @@ const ATTENDANCE_STATE_OPTIONS = [
   { value: 5, label: "Special Time IN" },
   { value: 6, label: "Special Time OUT" },
 ];
+
+const escapeReportHtml = (value) =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+
+const formatReportDate = (value) => {
+  if (!value) return "—";
+  const [year, month, day] = String(value).split("-").map(Number);
+  if (!year || !month || !day) return String(value);
+  return new Date(year, month - 1, day, 12).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+};
+
+const hexToPdfRgb = (hex) => {
+  const normalized = String(hex || "").replace("#", "");
+  if (!/^[0-9a-f]{6}$/i.test(normalized)) return [109, 35, 35];
+  return [
+    Number.parseInt(normalized.slice(0, 2), 16),
+    Number.parseInt(normalized.slice(2, 4), 16),
+    Number.parseInt(normalized.slice(4, 6), 16),
+  ];
+};
+
+const ATTENDANCE_REPORT_COLUMN_KEYS = [
+  "employeeNumber",
+  "name",
+  "date",
+  "time",
+  "status",
+  "punch",
+];
+
+const ATTENDANCE_REPORT_COLUMNS = [
+  { key: "employeeNumber", label: "Employee No.", width: 25 },
+  { key: "name", label: "Employee Name", width: 48 },
+  { key: "date", label: "Date", width: 42 },
+  { key: "time", label: "Time", width: 25 },
+  { key: "status", label: "Attendance State", width: 38 },
+  { key: "punch", label: "Punch Timestamp", width: 95 },
+];
+
+const buildAttendanceStateReportRows = (records, personID, employeeName) =>
+  records.map((record) => ({
+    employeeNumber: record.PersonID || personID || "—",
+    name: employeeName || "—",
+    date: record._dateLabel || record.Date || "—",
+    time: record.Time || "—",
+    status: getAttendanceLabel(Number(record.AttendanceState) || 0),
+    state: Number(record.AttendanceState) || 0,
+    punch: record.AttendanceDateTime || "—",
+  }));
+
+const printAttendanceStatesTable = ({
+  rows,
+  employeeName,
+  employeeNumber,
+  startDate,
+  endDate,
+  sortOrder,
+}) => {
+  if (!rows.length) throw new Error("No attendance records to print.");
+
+  const generatedAt = excelTimestamp();
+  const exportedBy = excelExporterName(getUserInfo());
+  const period = `${formatReportDate(startDate)} to ${formatReportDate(endDate)}`;
+  const employeeSummary = employeeName
+    ? `${employeeName}${employeeNumber ? ` (#${employeeNumber})` : ""}`
+    : employeeNumber
+      ? `#${employeeNumber}`
+      : "—";
+  const tableRows = rows
+    .map(
+      (row) => `
+        <tr>
+          ${ATTENDANCE_REPORT_COLUMNS.map(
+            (column) => `<td${column.key === "status" ? ` class="status" style="color:${getAttendanceColor(row.state)}"` : ""}>${escapeReportHtml(row[column.key] ?? "—")}</td>`,
+          ).join("")}
+        </tr>`,
+    )
+    .join("");
+  const documentHtml = `<!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8" />
+        <title>Attendance States</title>
+        <style>
+          * { box-sizing: border-box; }
+          @page { size: A4 landscape; margin: 10mm 12mm 14mm; }
+          body { margin: 0; color: #1a1a1a; font-family: Arial, Helvetica, sans-serif; font-size: 9px; }
+          .report-header { border-radius: 6px; background: #6d2323; color: #fff; padding: 10px 14px; }
+          .report-title { font-size: 19px; font-weight: 800; letter-spacing: 0.3px; }
+          .report-meta { display: grid; grid-template-columns: 1.4fr 2fr; gap: 3px 20px; margin-top: 9px; }
+          .report-meta div { color: rgba(255, 255, 255, 0.82); }
+          .report-meta strong { color: #fff; }
+          .report-note { margin: 7px 0; color: #777; font-size: 8px; }
+          table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+          thead { display: table-header-group; }
+          tr { break-inside: avoid; page-break-inside: avoid; }
+          th { padding: 7px 6px; border: 1px solid #6d2323; background: #6d2323; color: #fff; text-align: left; font-size: 8px; letter-spacing: 0.35px; }
+          td { padding: 5px 6px; border: 1px solid #d8c4c4; vertical-align: middle; overflow-wrap: anywhere; }
+          tbody tr:nth-child(even) td { background: #fbf8f8; }
+          td.status { font-weight: 700; }
+          .report-footer { margin-top: 7px; display: flex; justify-content: space-between; color: #777; font-size: 8px; }
+          @media print {
+            html, body { width: 100%; margin: 0; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          }
+        </style>
+      </head>
+      <body>
+        <header class="report-header">
+          <div class="report-title">ATTENDANCE STATES</div>
+          <div class="report-meta">
+            <div><strong>Employee:</strong> ${escapeReportHtml(employeeSummary)}</div>
+            <div><strong>Period:</strong> ${escapeReportHtml(period)}</div>
+            <div><strong>Sort:</strong> ${sortOrder === "asc" ? "Oldest first" : "Newest first"}</div>
+            <div><strong>Records:</strong> ${rows.length}</div>
+          </div>
+        </header>
+        <p class="report-note">Report range: ${escapeReportHtml(startDate)} to ${escapeReportHtml(endDate)} · Exported by: ${escapeReportHtml(exportedBy)}</p>
+        <table>
+          <colgroup>${ATTENDANCE_REPORT_COLUMNS.map((column) => `<col style="width: ${column.width}mm" />`).join("")}</colgroup>
+          <thead><tr>${ATTENDANCE_REPORT_COLUMNS.map((column) => `<th>${escapeReportHtml(column.label.toUpperCase())}</th>`).join("")}</tr></thead>
+          <tbody>${tableRows}</tbody>
+        </table>
+        <footer class="report-footer"><span>EARIST HRIS · Confidential</span><span>Generated ${escapeReportHtml(generatedAt)}</span></footer>
+      </body>
+    </html>`;
+
+  const frame = document.createElement("iframe");
+  frame.setAttribute("title", "Attendance States print preview");
+  frame.setAttribute("aria-hidden", "true");
+  frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;";
+  document.body.appendChild(frame);
+  const printDocument = frame.contentDocument;
+  printDocument.open();
+  printDocument.write(documentHtml);
+  printDocument.close();
+
+  let cleanedUp = false;
+  const cleanup = () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    window.setTimeout(() => frame.remove(), 0);
+  };
+  frame.contentWindow.addEventListener("afterprint", cleanup, { once: true });
+  frame.contentWindow.focus();
+  frame.contentWindow.print();
+  window.setTimeout(() => {
+    if (frame.isConnected) frame.remove();
+  }, 60000);
+};
 
 const STATE_ROW_HEIGHT = 52;
 
@@ -954,6 +1115,10 @@ const AllAttendanceRecord = () => {
   const [successOverlayOpen, setSuccessOverlayOpen] = useState(false);
   const [statusSuccessDialog, setStatusSuccessDialog] = useState({ open: false, message: "" });
   const [savingStatusKey, setSavingStatusKey] = useState(null);
+  const [reportAction, setReportAction] = useState("");
+  const [reportDialog, setReportDialog] = useState({ open: false, action: "" });
+  const [reportStartDate, setReportStartDate] = useState("");
+  const [reportEndDate, setReportEndDate] = useState("");
   const [listHeight, setListHeight]       = useState(420);
   const [departmentAssignmentsMap, setDepartmentAssignmentsMap] = useState({});
   const [empCatMap, setEmpCatMap] = useState({});
@@ -1048,6 +1213,11 @@ const AllAttendanceRecord = () => {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accessLoading, hasAccess]);
+
+  useEffect(() => {
+    setReportStartDate(startDate);
+    setReportEndDate(endDate);
+  }, [startDate, endDate]);
 
   useEffect(() => {
     const handleScroll = () => setShowScrollTop(window.scrollY > 300);
@@ -1344,23 +1514,80 @@ const AllAttendanceRecord = () => {
     });
   }, [records, sortOrder, recordDateFilter]);
 
+  const handleReportStartDateChange = useCallback((event) => {
+    const rawValue = event.target.value;
+    const value = !rawValue
+      ? ""
+      : rawValue < startDate
+        ? startDate
+        : rawValue > endDate
+          ? endDate
+          : rawValue;
+    setReportStartDate(value);
+    if (value && reportEndDate && value > reportEndDate) {
+      setReportEndDate(value);
+    }
+  }, [endDate, reportEndDate, startDate]);
+
+  const handleReportEndDateChange = useCallback((event) => {
+    const rawValue = event.target.value;
+    const value = !rawValue
+      ? ""
+      : rawValue < startDate
+        ? startDate
+        : rawValue > endDate
+          ? endDate
+          : rawValue;
+    setReportEndDate(value);
+    if (value && reportStartDate && value < reportStartDate) {
+      setReportStartDate(value);
+    }
+  }, [endDate, reportStartDate, startDate]);
+
+  const resetReportDateRange = useCallback(() => {
+    setReportStartDate(startDate);
+    setReportEndDate(endDate);
+  }, [startDate, endDate]);
+
+  const reportDateRangeError =
+    !reportStartDate || !reportEndDate
+      ? "Choose a start and end date for the report."
+      : reportStartDate > reportEndDate
+        ? "Report start date must be on or before the end date."
+        : "";
+
+  const reportRecords = useMemo(() => {
+    if (reportDateRangeError || !reportStartDate || !reportEndDate) return [];
+    return records
+      .filter((record) => {
+        const isoDate = record._isoDate;
+        return isoDate >= reportStartDate && isoDate <= reportEndDate;
+      })
+      .sort((a, b) => {
+        const diff = (a._sortTs ?? 0) - (b._sortTs ?? 0);
+        return sortOrder === "asc" ? diff : -diff;
+      });
+  }, [records, reportStartDate, reportEndDate, reportDateRangeError, sortOrder]);
+
+  const attendanceReportData = useMemo(() => {
+    const employeeName = selectedEmployee ? buildDisplayName(selectedEmployee) : "";
+    return {
+      rows: buildAttendanceStateReportRows(reportRecords, personID, employeeName),
+      employeeName,
+      employeeNumber: personID,
+      startDate: reportStartDate,
+      endDate: reportEndDate,
+      sortOrder,
+    };
+  }, [reportRecords, personID, reportStartDate, reportEndDate, selectedEmployee, sortOrder]);
+
   const handleExportExcel = useCallback(() => {
     try {
-      const employeeName = selectedEmployee ? buildDisplayName(selectedEmployee) : "";
+      const { rows, employeeName, startDate: reportFrom, endDate: reportTo } = attendanceReportData;
       const filterParts = [];
       if (personID) filterParts.push(`Employee: ${personID}`);
-      if (startDate && endDate) filterParts.push(`${startDate} to ${endDate}`);
-      if (recordDateFilter) filterParts.push(`Date: ${recordDateFilter}`);
+      if (reportFrom && reportTo) filterParts.push(`Report range: ${reportFrom} to ${reportTo}`);
       filterParts.push(`Sort: ${sortOrder === "asc" ? "oldest first" : "newest first"}`);
-
-      const rows = filteredRecords.map((record) => ({
-        employeeNumber: record.PersonID || personID || "—",
-        name: employeeName || "—",
-        date: record._dateLabel || record.Date || "—",
-        time: record.Time || "—",
-        status: getAttendanceLabel(Number(record.AttendanceState) || 0),
-        punch: record.AttendanceDateTime || "—",
-      }));
 
       const stamp = new Date().toISOString().slice(0, 10);
       const safeId = String(personID || "employee").replace(/[^\w.-]+/g, "_");
@@ -1389,7 +1616,206 @@ const AllAttendanceRecord = () => {
       console.error("Attendance state Excel export failed:", err);
       setError("Failed to generate Excel export.");
     }
-  }, [filteredRecords, personID, recordDateFilter, selectedEmployee, sortOrder, startDate, endDate]);
+  }, [attendanceReportData, personID, sortOrder]);
+
+  const handleExportPdf = useCallback(() => {
+    if (!attendanceReportData.rows.length || reportAction) return;
+    setReportAction("pdf");
+    setError("");
+    window.setTimeout(() => {
+      try {
+        const stamp = new Date().toISOString().slice(0, 10);
+        const safeId = String(personID || "employee").replace(/[^\w.-]+/g, "_");
+        const {
+          rows,
+          employeeName,
+          employeeNumber,
+          startDate: reportFrom,
+          endDate: reportTo,
+          sortOrder,
+        } = attendanceReportData;
+        const period = `${formatReportDate(reportFrom)} to ${formatReportDate(reportTo)}`;
+        const employeeSummary = employeeName
+          ? `${employeeName}${employeeNumber ? ` (#${employeeNumber})` : ""}`
+          : employeeNumber
+            ? `#${employeeNumber}`
+            : "—";
+        const generatedAt = excelTimestamp();
+        const exportedBy = excelExporterName(getUserInfo());
+        const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+        const pageWidth = pdf.internal.pageSize.getWidth();
+        const pageHeight = pdf.internal.pageSize.getHeight();
+        const marginX = 12;
+        const footerTop = pageHeight - 10;
+        const tableWidth = pageWidth - marginX * 2;
+        const columnWidth = tableWidth / ATTENDANCE_REPORT_COLUMN_KEYS.length;
+
+        pdf.setProperties({
+          title: "Attendance States",
+          subject: "Employee attendance punch states report",
+          author: exportedBy,
+          creator: "EARIST HRIS",
+        });
+
+        const drawTableHeader = (top) => {
+          let x = marginX;
+          pdf.setFillColor(109, 35, 35);
+          pdf.rect(marginX, top, tableWidth, 10, "F");
+          pdf.setTextColor(255, 255, 255);
+          pdf.setFont("helvetica", "bold");
+          pdf.setFontSize(8);
+          ATTENDANCE_REPORT_COLUMNS.forEach((column) => {
+            pdf.text(column.label.toUpperCase(), x + 2, top + 6.4);
+            x += columnWidth;
+          });
+        };
+
+        const drawPageFooter = (pageNumber, totalPages) => {
+          pdf.setDrawColor(216, 196, 196);
+          pdf.setLineWidth(0.2);
+          pdf.line(marginX, footerTop, pageWidth - marginX, footerTop);
+          pdf.setTextColor(105, 105, 105);
+          pdf.setFont("helvetica", "normal");
+          pdf.setFontSize(7.5);
+          pdf.text(`EARIST HRIS · Generated ${generatedAt} · ${exportedBy}`, marginX, pageHeight - 4.5);
+          pdf.text(`Page ${pageNumber} of ${totalPages}`, pageWidth - marginX, pageHeight - 4.5, {
+            align: "right",
+          });
+        };
+
+        pdf.setFillColor(109, 35, 35);
+        pdf.roundedRect(marginX, 12, tableWidth, 14, 1.5, 1.5, "F");
+        pdf.setTextColor(255, 255, 255);
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(17);
+        pdf.text("ATTENDANCE STATES", marginX + 5, 21);
+        pdf.setTextColor(35, 35, 35);
+        pdf.setFontSize(9);
+        pdf.setFont("helvetica", "bold");
+        pdf.text(`Employee: ${employeeSummary}`, marginX, 33);
+        pdf.setFont("helvetica", "normal");
+        pdf.setTextColor(95, 95, 95);
+        pdf.text(
+          `Period: ${period}  |  Displayed: ${sortOrder === "asc" ? "oldest first" : "newest first"}  |  Records: ${rows.length}`,
+          marginX,
+          39,
+        );
+        pdf.setFontSize(8);
+        pdf.text(
+          `Report range: ${reportFrom} to ${reportTo}  |  Exported by: ${exportedBy}`,
+          marginX,
+          45,
+        );
+
+        let tableTop = 49;
+        drawTableHeader(tableTop);
+        tableTop += 10;
+        rows.forEach((row, rowIndex) => {
+          const wrappedCells = ATTENDANCE_REPORT_COLUMNS.map((column) =>
+            pdf.splitTextToSize(String(row[column.key] ?? "—"), columnWidth - 4),
+          );
+          const lineCount = Math.max(1, ...wrappedCells.map((lines) => lines.length));
+          const rowHeight = Math.max(8, lineCount * 3.5 + 3.5);
+          if (tableTop + rowHeight > footerTop - 2) {
+            pdf.addPage("a4", "landscape");
+            tableTop = 18;
+            drawTableHeader(tableTop);
+            tableTop += 10;
+          }
+          pdf.setFillColor(rowIndex % 2 === 0 ? 255 : 251, rowIndex % 2 === 0 ? 255 : 248, rowIndex % 2 === 0 ? 255 : 248);
+          pdf.setDrawColor(216, 196, 196);
+          let x = marginX;
+          wrappedCells.forEach((lines, columnIndex) => {
+            const column = ATTENDANCE_REPORT_COLUMNS[columnIndex];
+            pdf.rect(x, tableTop, columnWidth, rowHeight, "FD");
+            if (column.key === "status") {
+              pdf.setTextColor(...hexToPdfRgb(getAttendanceColor(row.state)));
+              pdf.setFont("helvetica", "bold");
+            } else {
+              pdf.setTextColor(40, 40, 40);
+              pdf.setFont("helvetica", "normal");
+            }
+            pdf.setFontSize(column.key === "punch" || column.key === "time" ? 7.4 : 8);
+            pdf.text(lines, x + 2, tableTop + 4.2, { lineHeightFactor: 1.15 });
+            x += columnWidth;
+          });
+          tableTop += rowHeight;
+        });
+        const totalPages = pdf.getNumberOfPages();
+        for (let pageNumber = 1; pageNumber <= totalPages; pageNumber += 1) {
+          pdf.setPage(pageNumber);
+          drawPageFooter(pageNumber, totalPages);
+        }
+        pdf.save(`Attendance-States_${safeId}_${stamp}.pdf`);
+      } catch (err) {
+        console.error("Attendance state PDF export failed:", err);
+        setError("Failed to generate PDF export.");
+      } finally {
+        setReportAction("");
+      }
+    }, 0);
+  }, [attendanceReportData, personID, reportAction]);
+
+  const handlePrint = useCallback(() => {
+    if (!attendanceReportData.rows.length || reportAction) return;
+    setReportAction("print");
+    setError("");
+    window.setTimeout(() => {
+      try {
+        printAttendanceStatesTable(attendanceReportData);
+      } catch (err) {
+        console.error("Attendance state print failed:", err);
+        setError("Failed to open the Attendance States print preview.");
+      } finally {
+        setReportAction("");
+      }
+    }, 0);
+  }, [attendanceReportData, reportAction]);
+
+  const openReportDialog = useCallback((action) => {
+    if (!records.length || reportAction) return;
+    setReportStartDate(startDate);
+    setReportEndDate(endDate);
+    setReportDialog({ open: true, action });
+    setError("");
+  }, [endDate, records.length, reportAction, startDate]);
+
+  const closeReportDialog = useCallback(() => {
+    if (reportAction) return;
+    setReportDialog({ open: false, action: "" });
+  }, [reportAction]);
+
+  const confirmReportDialog = useCallback(() => {
+    if (reportDateRangeError || !attendanceReportData.rows.length || reportAction) return;
+    const action = reportDialog.action;
+    setReportDialog({ open: false, action: "" });
+    window.setTimeout(() => {
+      if (action === "excel") handleExportExcel();
+      if (action === "pdf") handleExportPdf();
+      if (action === "print") handlePrint();
+    }, 0);
+  }, [attendanceReportData.rows.length, handleExportExcel, handleExportPdf, handlePrint, reportAction, reportDateRangeError, reportDialog.action]);
+
+  const reportDialogMeta = {
+    excel: {
+      title: "Download Excel Report",
+      description: "Choose the attendance dates to include in the Excel file.",
+      confirmLabel: "Download Excel",
+      icon: <DownloadIcon sx={{ fontSize: 21 }} />,
+    },
+    pdf: {
+      title: "Download PDF Report",
+      description: "Choose the attendance dates to include in the PDF file.",
+      confirmLabel: "Download PDF",
+      icon: <PictureAsPdfIcon sx={{ fontSize: 21 }} />,
+    },
+    print: {
+      title: "Print Attendance States",
+      description: "Choose the attendance dates to include in the printable table.",
+      confirmLabel: "Print",
+      icon: <PrintIcon sx={{ fontSize: 21 }} />,
+    },
+  }[reportDialog.action] || null;
 
   const virtualListRowProps = useMemo(
     () => ({
@@ -1690,30 +2116,87 @@ const AllAttendanceRecord = () => {
                       </Typography>
                     </Box>
                     {records.length > 0 && (
-                      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", justifyContent: "flex-end" }}>
                         <Typography sx={{ fontSize: "0.72rem", color: T.muted, fontWeight: 600 }}>
                           {filteredRecords.length.toLocaleString()} punch{filteredRecords.length === 1 ? "" : "es"}
                         </Typography>
-                        <AccentButton
-                          variant="outlined"
-                          size="small"
-                          startIcon={<DownloadIcon sx={{ fontSize: "13px !important" }} />}
-                          onClick={handleExportExcel}
-                          disabled={filteredRecords.length === 0}
-                          sx={{
-                            fontSize: "0.78rem",
-                            color: T.accent,
-                            borderColor: alpha(T.accent, 0.35),
-                            bgcolor: "#fff",
-                            boxShadow: "none",
-                            "&:hover": {
-                              bgcolor: T.accentFaint,
-                              borderColor: T.accent,
-                            },
-                          }}
-                        >
-                          Excel
-                        </AccentButton>
+                        <Tooltip title="Choose a date range and download the table as Excel">
+                          <AccentButton
+                            variant="outlined"
+                            size="small"
+                            startIcon={<DownloadIcon sx={{ fontSize: "13px !important" }} />}
+                            onClick={() => openReportDialog("excel")}
+                            disabled={Boolean(reportAction)}
+                            aria-label="Download Attendance States as Excel"
+                            sx={{
+                              fontSize: "0.78rem",
+                              color: T.accent,
+                              borderColor: alpha(T.accent, 0.35),
+                              bgcolor: "#fff",
+                              boxShadow: "none",
+                              "&:hover": {
+                                bgcolor: T.accentFaint,
+                                borderColor: T.accent,
+                              },
+                            }}
+                          >
+                            Excel
+                          </AccentButton>
+                        </Tooltip>
+                        <Tooltip title="Choose a date range and download the table as PDF">
+                          <span>
+                            <AccentButton
+                              variant="outlined"
+                              size="small"
+                              startIcon={reportAction === "pdf"
+                                ? <CircularProgress size={13} sx={{ color: T.accent }} />
+                                : <PictureAsPdfIcon sx={{ fontSize: "14px !important" }} />}
+                              onClick={() => openReportDialog("pdf")}
+                              disabled={Boolean(reportAction)}
+                              aria-label="Download Attendance States as PDF"
+                              sx={{
+                                fontSize: "0.78rem",
+                                color: T.accent,
+                                borderColor: alpha(T.accent, 0.35),
+                                bgcolor: "#fff",
+                                boxShadow: "none",
+                                "&:hover": {
+                                  bgcolor: T.accentFaint,
+                                  borderColor: T.accent,
+                                },
+                              }}
+                            >
+                              {reportAction === "pdf" ? "Preparing" : "PDF"}
+                            </AccentButton>
+                          </span>
+                        </Tooltip>
+                        <Tooltip title="Choose a date range and print the table (the browser can also save it as PDF)">
+                          <span>
+                            <AccentButton
+                              variant="outlined"
+                              size="small"
+                              startIcon={reportAction === "print"
+                                ? <CircularProgress size={13} sx={{ color: T.accent }} />
+                                : <PrintIcon sx={{ fontSize: "14px !important" }} />}
+                              onClick={() => openReportDialog("print")}
+                              disabled={Boolean(reportAction)}
+                              aria-label="Print Attendance States table"
+                              sx={{
+                                fontSize: "0.78rem",
+                                color: T.accent,
+                                borderColor: alpha(T.accent, 0.35),
+                                bgcolor: "#fff",
+                                boxShadow: "none",
+                                "&:hover": {
+                                  bgcolor: T.accentFaint,
+                                  borderColor: T.accent,
+                                },
+                              }}
+                            >
+                              {reportAction === "print" ? "Preparing" : "Print"}
+                            </AccentButton>
+                          </span>
+                        </Tooltip>
                         <AccentButton
                           variant="contained"
                           size="small"
@@ -1733,7 +2216,7 @@ const AllAttendanceRecord = () => {
                           icon={sortOrder === "asc"
                             ? <KeyboardArrowUp sx={{ fontSize: 13 }} />
                             : <KeyboardArrowDown sx={{ fontSize: 13 }} />}
-                          label={`Sort ${sortOrder === "asc" ? "Newest First" : "Oldest First"}`}
+                          label={`Sort ${sortOrder === "asc" ? "Oldest First" : "Newest First"}`}
                           color={T.accent}
                           hoverBg={T.accentFaint}
                           onClick={handleSort}
@@ -1863,6 +2346,166 @@ const AllAttendanceRecord = () => {
                     </MenuItem>
                   ))}
                 </Menu>
+
+                <Dialog
+                  open={reportDialog.open && Boolean(reportDialogMeta)}
+                  onClose={closeReportDialog}
+                  maxWidth="xs"
+                  fullWidth
+                  PaperProps={{ sx: dialogPaperSx }}
+                >
+                  {reportDialogMeta && (
+                    <>
+                      <Box
+                        sx={{
+                          px: 2.5,
+                          py: 2,
+                          bgcolor: T.accent,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 1.25,
+                          color: "#FEF9E1",
+                        }}
+                      >
+                        <Box
+                          sx={{
+                            width: 38,
+                            height: 38,
+                            borderRadius: "9px",
+                            bgcolor: alpha("#fff", 0.13),
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            flexShrink: 0,
+                          }}
+                        >
+                          {reportDialogMeta.icon}
+                        </Box>
+                        <Box sx={{ minWidth: 0 }}>
+                          <Typography sx={{ color: "#FEF9E1", fontWeight: 800, fontSize: "0.98rem" }}>
+                            {reportDialogMeta.title}
+                          </Typography>
+                          <Typography sx={{ color: alpha("#FEF9E1", 0.8), fontSize: "0.72rem", mt: 0.25 }}>
+                            {reportDialogMeta.description}
+                          </Typography>
+                        </Box>
+                        <IconButton
+                          onClick={closeReportDialog}
+                          size="small"
+                          sx={{
+                            ml: "auto",
+                            color: alpha("#FEF9E1", 0.9),
+                            bgcolor: alpha("#fff", 0.1),
+                            "&:hover": { bgcolor: alpha("#fff", 0.18) },
+                          }}
+                        >
+                          <Close sx={{ fontSize: 18 }} />
+                        </IconButton>
+                      </Box>
+
+                      <DialogContent sx={{ px: 2.5, py: 2.5 }}>
+                        <Box
+                          sx={{
+                            p: 1.5,
+                            borderRadius: "10px",
+                            border: `1px solid ${T.accentBorder}`,
+                            bgcolor: T.accentFaint,
+                            mb: 2,
+                          }}
+                        >
+                          <Typography sx={{ fontSize: "0.64rem", fontWeight: 800, color: T.accent, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                            Loaded attendance period
+                          </Typography>
+                          <Typography sx={{ fontSize: "0.78rem", color: T.muted, mt: 0.4 }}>
+                            {formatReportDate(startDate)} to {formatReportDate(endDate)}
+                          </Typography>
+                        </Box>
+
+                        <Box sx={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 1 }}>
+                          <FieldInput
+                            label="From"
+                            type="date"
+                            size="small"
+                            value={reportStartDate}
+                            onChange={handleReportStartDateChange}
+                            InputLabelProps={{ shrink: true }}
+                            inputProps={{
+                              min: startDate || undefined,
+                              max: endDate || undefined,
+                              "aria-label": "Report range start date",
+                            }}
+                          />
+                          <Typography sx={{ fontSize: "0.75rem", color: T.muted, pt: 1.5 }}>to</Typography>
+                          <FieldInput
+                            label="To"
+                            type="date"
+                            size="small"
+                            value={reportEndDate}
+                            onChange={handleReportEndDateChange}
+                            InputLabelProps={{ shrink: true }}
+                            inputProps={{
+                              min: startDate || undefined,
+                              max: endDate || undefined,
+                              "aria-label": "Report range end date",
+                            }}
+                          />
+                        </Box>
+
+                        <Box sx={{ mt: 1.5, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1.5 }}>
+                          <Typography sx={{ fontSize: "0.72rem", color: reportDateRangeError ? "error.main" : T.muted, fontWeight: 600 }}>
+                            {reportDateRangeError || `${reportRecords.length} matching punch${reportRecords.length === 1 ? "" : "es"}`}
+                          </Typography>
+                          <Button
+                            onClick={resetReportDateRange}
+                            disabled={reportStartDate === startDate && reportEndDate === endDate}
+                            size="small"
+                            sx={{ color: T.accent, textTransform: "none", fontWeight: 700, fontSize: "0.7rem" }}
+                          >
+                            Use full period
+                          </Button>
+                        </Box>
+                      </DialogContent>
+
+                      <DialogActions
+                        sx={{
+                          px: 2.5,
+                          py: 1.75,
+                          bgcolor: T.accentFaint,
+                          borderTop: `1px solid ${T.divider}`,
+                        }}
+                      >
+                        <Button
+                          onClick={closeReportDialog}
+                          variant="outlined"
+                          sx={{
+                            textTransform: "none",
+                            fontWeight: 700,
+                            borderRadius: "8px",
+                            color: T.accent,
+                            borderColor: alpha(T.accent, 0.35),
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          onClick={confirmReportDialog}
+                          variant="contained"
+                          disabled={Boolean(reportDateRangeError) || reportRecords.length === 0}
+                          startIcon={reportDialogMeta.icon}
+                          sx={{
+                            textTransform: "none",
+                            fontWeight: 700,
+                            borderRadius: "8px",
+                            bgcolor: T.accent,
+                            "&:hover": { bgcolor: T.accentDark },
+                          }}
+                        >
+                          {reportDialogMeta.confirmLabel}
+                        </Button>
+                      </DialogActions>
+                    </>
+                  )}
+                </Dialog>
 
                 <AttendanceStateDetailsDialog
                   record={detailsRecord}

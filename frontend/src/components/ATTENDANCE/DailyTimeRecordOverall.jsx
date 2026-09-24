@@ -645,6 +645,7 @@ const DailyTimeRecordFaculty = ({
     loadDtrIndicatorVisibility,
   );
   const [indicatorMenuAnchor, setIndicatorMenuAnchor] = useState(null);
+  const [computationMenuAnchor, setComputationMenuAnchor] = useState(null);
   const dtrRef = useRef(null);
 
   const fetchRecordsRef = useRef(null);
@@ -3779,6 +3780,141 @@ const DailyTimeRecordFaculty = ({
     </Popover>
   );
 
+  const getComputationOptionState = (btn) => {
+    const drawerOpen =
+      activeComputationDrawer === btn.drawer || moduleDrawer === btn.drawer;
+    const isOnDtr = appliedLateUtModuleType === btn.moduleType;
+    const isExpected = expectedModuleType === btn.moduleType;
+    const categoryColor = btn.categoryColor || T.accent;
+    const statusLabel = isOnDtr
+      ? 'Using on this DTR'
+      : isExpected
+        ? 'Matches employment category'
+        : drawerOpen
+          ? 'Panel is open'
+          : 'Open computation';
+    return { drawerOpen, isOnDtr, isExpected, categoryColor, statusLabel };
+  };
+
+  const renderComputationMenu = () => (
+    <Popover
+      open={Boolean(computationMenuAnchor)}
+      anchorEl={computationMenuAnchor}
+      onClose={() => setComputationMenuAnchor(null)}
+      anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+      marginThreshold={8}
+      className="no-print"
+      sx={{ zIndex: (theme) => theme.zIndex.modal + 2 }}
+      PaperProps={{
+        sx: {
+          mt: 0.5,
+          minWidth: { xs: 230, sm: 260 },
+          maxWidth: 'calc(100vw - 24px)',
+          borderRadius: 2,
+          border: `1px solid ${T.accentBorder}`,
+          boxShadow: '0 8px 28px rgba(0,0,0,0.14)',
+          '& .MuiMenuItem-root': {
+            borderRadius: 1.25,
+            mx: 0.5,
+            width: 'calc(100% - 8px)',
+          },
+        },
+      }}
+    >
+      <Box sx={{ py: 0.5 }}>
+        {HUB_COMPUTATION_BUTTONS.map((btn) => {
+          const {
+            drawerOpen,
+            isOnDtr,
+            isExpected,
+            categoryColor,
+            statusLabel,
+          } = getComputationOptionState(btn);
+          return (
+            <MenuItem
+              key={`compute-menu-${btn.drawer}`}
+              selected={isOnDtr || drawerOpen}
+              onClick={() => {
+                setComputationMenuAnchor(null);
+                openComputationDrawer(btn.drawer);
+              }}
+              sx={{
+                minHeight: 48,
+                px: 1,
+                py: 0.7,
+                color: isOnDtr || isExpected ? categoryColor : T.text,
+                bgcolor: isOnDtr
+                  ? alpha(categoryColor, 0.12)
+                  : isExpected || drawerOpen
+                    ? alpha(categoryColor, 0.07)
+                    : 'transparent',
+                '&:hover': { bgcolor: alpha(categoryColor, 0.1) },
+                '&.Mui-selected': {
+                  bgcolor: alpha(categoryColor, 0.14),
+                  '&:hover': { bgcolor: alpha(categoryColor, 0.18) },
+                },
+              }}
+            >
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1,
+                  width: '100%',
+                  minWidth: 0,
+                }}
+              >
+                {isOnDtr || isExpected ? (
+                  <CheckCircle sx={{ fontSize: 16, color: categoryColor, flexShrink: 0 }} />
+                ) : (
+                  <AccessTime sx={{ fontSize: 16, color: T.faint, flexShrink: 0 }} />
+                )}
+                <Box sx={{ minWidth: 0, flex: 1 }}>
+                  <Typography
+                    sx={{
+                      fontSize: '0.76rem',
+                      fontWeight: isOnDtr || isExpected ? 800 : 600,
+                      lineHeight: 1.2,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {btn.label}
+                  </Typography>
+                  <Typography
+                    sx={{
+                      mt: 0.15,
+                      fontSize: '0.64rem',
+                      color: T.muted,
+                      lineHeight: 1.2,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {statusLabel}
+                  </Typography>
+                </Box>
+                {isOnDtr && (
+                  <Chip
+                    label="Using"
+                    size="small"
+                    sx={{
+                      height: 19,
+                      flexShrink: 0,
+                      fontSize: '0.6rem',
+                      fontWeight: 800,
+                      color: '#fff',
+                      bgcolor: categoryColor,
+                    }}
+                  />
+                )}
+              </Box>
+            </MenuItem>
+          );
+        })}
+      </Box>
+    </Popover>
+  );
+
   // ─── Left panel ────────────────────────────────────────────────────────
   const displayEmployee = useMemo(() => {
     if (selectedEmployee) return toProfileEmployee(selectedEmployee);
@@ -4376,7 +4512,7 @@ const DailyTimeRecordFaculty = ({
                               >
                                 DTR Preview
                               </Typography>
-                              {selectedMonth !== null && employeeName && (
+                              {/* {selectedMonth !== null && employeeName && (
                                 <Box
                                   sx={{
                                     display: 'flex',
@@ -4416,7 +4552,7 @@ const DailyTimeRecordFaculty = ({
                                     {monthsShort[selectedMonth]}
                                   </Box>
                                 </Box>
-                              )}
+                              )} */}
                             </Box>
                             <Box
                               sx={{
@@ -4506,147 +4642,48 @@ const DailyTimeRecordFaculty = ({
                                   display: { xs: 'none', md: 'block' },
                                 }}
                               />
-                              <Typography
-                                sx={{
-                                  fontSize: '0.7rem',
-                                  color: T.faint,
-                                  display: { xs: 'none', lg: 'block' },
-                                  whiteSpace: 'nowrap',
-                                }}
+                              <Tooltip
+                                title="Choose a computation type to open and save"
+                                placement="top"
                               >
-                                Compute &amp; save:
-                              </Typography>
-                              {HUB_COMPUTATION_BUTTONS.map((btn) => {
-                                const drawerOpen =
-                                  activeComputationDrawer === btn.drawer ||
-                                  moduleDrawer === btn.drawer;
-                                const isOnDtr =
-                                  appliedLateUtModuleType === btn.moduleType;
-                                const isExpected =
-                                  expectedModuleType === btn.moduleType;
-                                const categoryColor =
-                                  btn.categoryColor || T.accent;
-                                const disabled =
-                                  !personID || !hasSearchedSingle;
-                                return (
-                                  <Tooltip
-                                    key={`compute-${btn.drawer}`}
-                                    title={
-                                      isOnDtr
-                                        ? `${btn.label} is currently on this DTR — open to review or Save to Summary again`
-                                        : isExpected
-                                          ? `${btn.label} matches this employee's employment category`
-                                          : drawerOpen
-                                            ? `${btn.label} panel is open`
-                                            : expectedModuleType
-                                              ? `This employee is ${HUB_COMPUTATION_BUTTONS.find((b) => b.moduleType === expectedModuleType)?.label || 'a different type'}. Opening ${btn.label} uses a different formula.`
-                                              : `No employment category assigned. Opening ${btn.label} will still compute with this formula.`
+                                <span>
+                                  <AccentButton
+                                    variant="outlined"
+                                    size="small"
+                                    disabled={!personID || !hasSearchedSingle}
+                                    aria-label="Compute and save"
+                                    aria-haspopup="menu"
+                                    aria-expanded={
+                                      computationMenuAnchor ? 'true' : 'false'
                                     }
-                                    placement="top"
+                                    endIcon={
+                                      <ExpandMore
+                                        sx={{ fontSize: '16px !important' }}
+                                      />
+                                    }
+                                    onClick={(event) =>
+                                      setComputationMenuAnchor(event.currentTarget)
+                                    }
+                                    sx={{
+                                      height: 32,
+                                      fontSize: '0.72rem',
+                                      fontWeight: 700,
+                                      px: 1.25,
+                                      color: T.accent,
+                                      borderColor: T.accentBorder,
+                                      bgcolor: '#fff',
+                                      '&:hover': {
+                                        bgcolor: T.accentFaint,
+                                        borderColor: T.accent,
+                                      },
+                                      '&.Mui-disabled': { opacity: 0.55 },
+                                    }}
                                   >
-                                    <span>
-                                      <AccentButton
-                                        variant="outlined"
-                                        size="small"
-                                        disabled={disabled}
-                                        aria-pressed={isOnDtr || drawerOpen || isExpected}
-                                        startIcon={
-                                          isOnDtr || isExpected ? (
-                                            <CheckCircle
-                                              sx={{
-                                                fontSize: '15px !important',
-                                              }}
-                                            />
-                                          ) : (
-                                            <AccessTime
-                                              sx={{
-                                                fontSize: '15px !important',
-                                              }}
-                                            />
-                                          )
-                                        }
-                                        onClick={() =>
-                                          openComputationDrawer(btn.drawer)
-                                        }
-                                        sx={{
-                                          height: 32,
-                                          fontSize: '0.72rem',
-                                          fontWeight: 700,
-                                          px: 1.25,
-                                          ...(isOnDtr
-                                            ? {
-                                                bgcolor: categoryColor,
-                                                color: '#fff',
-                                                borderColor: categoryColor,
-                                                borderWidth: 2,
-                                                boxShadow: `0 0 0 2px ${alpha(
-                                                  categoryColor,
-                                                  0.28,
-                                                )}, 0 2px 8px ${alpha(
-                                                  categoryColor,
-                                                  0.35,
-                                                )}`,
-                                                '&:hover': {
-                                                  bgcolor: categoryColor,
-                                                  filter: 'brightness(0.92)',
-                                                  borderColor: categoryColor,
-                                                  borderWidth: 2,
-                                                },
-                                                '&.Mui-focusVisible': {
-                                                  bgcolor: categoryColor,
-                                                  borderColor: categoryColor,
-                                                },
-                                              }
-                                            : isExpected || drawerOpen
-                                              ? {
-                                                  color: categoryColor,
-                                                  borderColor: categoryColor,
-                                                  borderWidth: 2,
-                                                  bgcolor: alpha(
-                                                    categoryColor,
-                                                    0.16,
-                                                  ),
-                                                  boxShadow: `inset 0 0 0 1px ${alpha(
-                                                    categoryColor,
-                                                    0.35,
-                                                  )}`,
-                                                  '&:hover': {
-                                                    bgcolor: alpha(
-                                                      categoryColor,
-                                                      0.22,
-                                                    ),
-                                                    borderColor: categoryColor,
-                                                    borderWidth: 2,
-                                                  },
-                                                }
-                                              : {
-                                                  color: categoryColor,
-                                                  borderColor: alpha(
-                                                    categoryColor,
-                                                    0.35,
-                                                  ),
-                                                  bgcolor: '#fff',
-                                                  '&:hover': {
-                                                    bgcolor: alpha(
-                                                      categoryColor,
-                                                      0.08,
-                                                    ),
-                                                    borderColor: categoryColor,
-                                                  },
-                                                }),
-                                          '&.Mui-disabled': { opacity: 0.55 },
-                                        }}
-                                      >
-                                        {isOnDtr
-                                          ? `Using · ${btn.label}`
-                                          : isExpected
-                                            ? `Category · ${btn.label}`
-                                            : btn.label}
-                                      </AccentButton>
-                                    </span>
-                                  </Tooltip>
-                                );
-                              })}
+                                    Compute &amp; Save
+                                  </AccentButton>
+                                </span>
+                              </Tooltip>
+                              {renderComputationMenu()}
                             </Box>
                           </Box>
                         </Box>

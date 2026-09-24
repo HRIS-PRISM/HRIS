@@ -242,6 +242,7 @@
 
   const attendanceStateLabel = (state) => {
     switch (Number(state)) {
+      case 0: return 'Uncategorized';
       case 1: return 'Time IN';
       case 2: return 'Breaktime OUT';
       case 3: return 'Breaktime IN';
@@ -4084,11 +4085,11 @@
       !personKey ||
       !Number.isFinite(ts) ||
       !Number.isInteger(newState) ||
-      newState < 1 ||
+      newState < 0 ||
       newState > 6
     ) {
       return res.status(400).json({
-        error: 'personID, attendanceDateTime, and attendanceState (1–6) are required',
+        error: 'personID, attendanceDateTime, and attendanceState (0–6) are required',
       });
     }
 
