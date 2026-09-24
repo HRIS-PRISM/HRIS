@@ -1,7 +1,6 @@
 import API_BASE_URL from "../../apiConfig";
 import React, { useState, useEffect, useRef, useCallback, useMemo, startTransition } from "react";
 import axios from "axios";
-import { jsPDF } from "jspdf";
 import useAttendanceRealtimeRefresh from "../../hooks/useAttendanceRealtimeRefresh";
 import useAttendanceWorkflow from "../../hooks/useAttendanceWorkflow";
 import AttendanceWorkflowNav from "./AttendanceWorkflowNav";
@@ -45,7 +44,6 @@ import {
   Female as FemaleIcon,
   Download as DownloadIcon,
   Print as PrintIcon,
-  PictureAsPdf as PictureAsPdfIcon,
 } from "@mui/icons-material";
 import { DeptBadge, EmpCatBadge } from "../LEAVE/EARNINGS/RecordsList";
 import {
@@ -405,6 +403,7 @@ const getAttendanceLabel = (state) => {
 };
 
 const ATTENDANCE_STATE_OPTIONS = [
+  { value: 0, label: "Uncategorized" },
   { value: 1, label: "Time IN" },
   { value: 2, label: "Breaktime OUT" },
   { value: 3, label: "Breaktime IN" },
@@ -421,6 +420,19 @@ const escapeReportHtml = (value) =>
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 
+const enumerateReportDates = (from, to) => {
+  if (!from || !to || from > to) return [];
+  const start = new Date(`${from}T00:00:00Z`);
+  const end = new Date(`${to}T00:00:00Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return [];
+
+  const dates = [];
+  for (const cursor = new Date(start); cursor <= end; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
+    dates.push(cursor.toISOString().slice(0, 10));
+  }
+  return dates;
+};
+
 const formatReportDate = (value) => {
   if (!value) return "—";
   const [year, month, day] = String(value).split("-").map(Number);
@@ -431,25 +443,6 @@ const formatReportDate = (value) => {
     day: "numeric",
   });
 };
-
-const hexToPdfRgb = (hex) => {
-  const normalized = String(hex || "").replace("#", "");
-  if (!/^[0-9a-f]{6}$/i.test(normalized)) return [109, 35, 35];
-  return [
-    Number.parseInt(normalized.slice(0, 2), 16),
-    Number.parseInt(normalized.slice(2, 4), 16),
-    Number.parseInt(normalized.slice(4, 6), 16),
-  ];
-};
-
-const ATTENDANCE_REPORT_COLUMN_KEYS = [
-  "employeeNumber",
-  "name",
-  "date",
-  "time",
-  "status",
-  "punch",
-];
 
 const ATTENDANCE_REPORT_COLUMNS = [
   { key: "employeeNumber", label: "Employee No.", width: 25 },
@@ -471,19 +464,34 @@ const buildAttendanceStateReportRows = (records, personID, employeeName) =>
     punch: record.AttendanceDateTime || "—",
   }));
 
+const formatReportDateShort = (value) => {
+  if (!value) return "—";
+  const [year, month, day] = String(value).split("-").map(Number);
+  if (!year || !month || !day) return String(value);
+  return new Date(year, month - 1, day, 12).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+};
+
 const printAttendanceStatesTable = ({
   rows,
   employeeName,
   employeeNumber,
   startDate,
   endDate,
+  selectedDates = [],
   sortOrder,
 }) => {
   if (!rows.length) throw new Error("No attendance records to print.");
 
   const generatedAt = excelTimestamp();
   const exportedBy = excelExporterName(getUserInfo());
-  const period = `${formatReportDate(startDate)} to ${formatReportDate(endDate)}`;
+  const selectedDateLabel = selectedDates.length
+    ? selectedDates.length === 1
+      ? formatReportDate(selectedDates[0])
+      : `${selectedDates.length} selected dates (${selectedDates.map(formatReportDateShort).join(", ")})`
+    : `${formatReportDate(startDate)} to ${formatReportDate(endDate)}`;
   const employeeSummary = employeeName
     ? `${employeeName}${employeeNumber ? ` (#${employeeNumber})` : ""}`
     : employeeNumber
@@ -532,12 +540,12 @@ const printAttendanceStatesTable = ({
           <div class="report-title">ATTENDANCE STATES</div>
           <div class="report-meta">
             <div><strong>Employee:</strong> ${escapeReportHtml(employeeSummary)}</div>
-            <div><strong>Period:</strong> ${escapeReportHtml(period)}</div>
+            <div><strong>Period:</strong> ${escapeReportHtml(selectedDateLabel)}</div>
             <div><strong>Sort:</strong> ${sortOrder === "asc" ? "Oldest first" : "Newest first"}</div>
             <div><strong>Records:</strong> ${rows.length}</div>
           </div>
         </header>
-        <p class="report-note">Report range: ${escapeReportHtml(startDate)} to ${escapeReportHtml(endDate)} · Exported by: ${escapeReportHtml(exportedBy)}</p>
+        <p class="report-note">Selected dates: ${escapeReportHtml(selectedDates.map(formatReportDate).join(", ") || "—")} · Exported by: ${escapeReportHtml(exportedBy)}</p>
         <table>
           <colgroup>${ATTENDANCE_REPORT_COLUMNS.map((column) => `<col style="width: ${column.width}mm" />`).join("")}</colgroup>
           <thead><tr>${ATTENDANCE_REPORT_COLUMNS.map((column) => `<th>${escapeReportHtml(column.label.toUpperCase())}</th>`).join("")}</tr></thead>
@@ -1119,6 +1127,7 @@ const AllAttendanceRecord = () => {
   const [reportDialog, setReportDialog] = useState({ open: false, action: "" });
   const [reportStartDate, setReportStartDate] = useState("");
   const [reportEndDate, setReportEndDate] = useState("");
+  const [selectedReportDates, setSelectedReportDates] = useState([]);
   const [listHeight, setListHeight]       = useState(420);
   const [departmentAssignmentsMap, setDepartmentAssignmentsMap] = useState({});
   const [empCatMap, setEmpCatMap] = useState({});
@@ -1217,6 +1226,7 @@ const AllAttendanceRecord = () => {
   useEffect(() => {
     setReportStartDate(startDate);
     setReportEndDate(endDate);
+    setSelectedReportDates(enumerateReportDates(startDate, endDate));
   }, [startDate, endDate]);
 
   useEffect(() => {
@@ -1523,10 +1533,12 @@ const AllAttendanceRecord = () => {
         : rawValue > endDate
           ? endDate
           : rawValue;
+    const nextEnd = value && reportEndDate && value > reportEndDate
+      ? value
+      : reportEndDate;
     setReportStartDate(value);
-    if (value && reportEndDate && value > reportEndDate) {
-      setReportEndDate(value);
-    }
+    setReportEndDate(nextEnd);
+    setSelectedReportDates(value && nextEnd ? enumerateReportDates(value, nextEnd) : []);
   }, [endDate, reportEndDate, startDate]);
 
   const handleReportEndDateChange = useCallback((event) => {
@@ -1538,15 +1550,18 @@ const AllAttendanceRecord = () => {
         : rawValue > endDate
           ? endDate
           : rawValue;
+    const nextStart = value && reportStartDate && value < reportStartDate
+      ? value
+      : reportStartDate;
     setReportEndDate(value);
-    if (value && reportStartDate && value < reportStartDate) {
-      setReportStartDate(value);
-    }
+    setReportStartDate(nextStart);
+    setSelectedReportDates(value && nextStart ? enumerateReportDates(nextStart, value) : []);
   }, [endDate, reportStartDate, startDate]);
 
   const resetReportDateRange = useCallback(() => {
     setReportStartDate(startDate);
     setReportEndDate(endDate);
+    setSelectedReportDates(enumerateReportDates(startDate, endDate));
   }, [startDate, endDate]);
 
   const reportDateRangeError =
@@ -1555,19 +1570,57 @@ const AllAttendanceRecord = () => {
       : reportStartDate > reportEndDate
         ? "Report start date must be on or before the end date."
         : "";
+  const reportDateSelectionError = !reportDateRangeError && selectedReportDates.length === 0
+    ? "Select at least one date to include."
+    : "";
+  const reportValidationError = reportDateRangeError || reportDateSelectionError;
 
+  const reportAvailableDates = useMemo(
+    () => enumerateReportDates(reportStartDate, reportEndDate),
+    [reportStartDate, reportEndDate],
+  );
+  const reportRecordCounts = useMemo(
+    () => records.reduce((counts, record) => {
+      const date = record?._isoDate;
+      if (!date) return counts;
+      counts[date] = (counts[date] || 0) + 1;
+      return counts;
+    }, {}),
+    [records],
+  );
+  const reportSelectedDateSet = useMemo(
+    () => new Set(selectedReportDates),
+    [selectedReportDates],
+  );
+  const toggleReportDate = useCallback((date) => {
+    setSelectedReportDates((previous) => {
+      if (previous.includes(date)) {
+        return previous.filter((selectedDate) => selectedDate !== date);
+      }
+      return [...previous, date].sort();
+    });
+  }, []);
+  const selectAllReportDates = useCallback(() => {
+    setSelectedReportDates(reportAvailableDates);
+  }, [reportAvailableDates]);
+  const clearReportDates = useCallback(() => {
+    setSelectedReportDates([]);
+  }, []);
   const reportRecords = useMemo(() => {
-    if (reportDateRangeError || !reportStartDate || !reportEndDate) return [];
+    if (reportValidationError || selectedReportDates.length === 0) return [];
     return records
-      .filter((record) => {
-        const isoDate = record._isoDate;
-        return isoDate >= reportStartDate && isoDate <= reportEndDate;
-      })
+      .filter((record) => reportSelectedDateSet.has(record._isoDate))
       .sort((a, b) => {
         const diff = (a._sortTs ?? 0) - (b._sortTs ?? 0);
         return sortOrder === "asc" ? diff : -diff;
       });
-  }, [records, reportStartDate, reportEndDate, reportDateRangeError, sortOrder]);
+  }, [
+    records,
+    reportValidationError,
+    reportSelectedDateSet,
+    selectedReportDates.length,
+    sortOrder,
+  ]);
 
   const attendanceReportData = useMemo(() => {
     const employeeName = selectedEmployee ? buildDisplayName(selectedEmployee) : "";
@@ -1577,16 +1630,29 @@ const AllAttendanceRecord = () => {
       employeeNumber: personID,
       startDate: reportStartDate,
       endDate: reportEndDate,
+      selectedDates: [...selectedReportDates],
       sortOrder,
     };
-  }, [reportRecords, personID, reportStartDate, reportEndDate, selectedEmployee, sortOrder]);
+  }, [
+    reportRecords,
+    personID,
+    reportStartDate,
+    reportEndDate,
+    selectedReportDates,
+    selectedEmployee,
+    sortOrder,
+  ]);
 
   const handleExportExcel = useCallback(() => {
     try {
-      const { rows, employeeName, startDate: reportFrom, endDate: reportTo } = attendanceReportData;
+      const { rows, employeeName, startDate: reportFrom, endDate: reportTo, selectedDates = [] } = attendanceReportData;
       const filterParts = [];
       if (personID) filterParts.push(`Employee: ${personID}`);
-      if (reportFrom && reportTo) filterParts.push(`Report range: ${reportFrom} to ${reportTo}`);
+      if (selectedDates.length) {
+        filterParts.push(`Selected dates: ${selectedDates.map(formatReportDate).join(", ")}`);
+      } else if (reportFrom && reportTo) {
+        filterParts.push(`Report range: ${reportFrom} to ${reportTo}`);
+      }
       filterParts.push(`Sort: ${sortOrder === "asc" ? "oldest first" : "newest first"}`);
 
       const stamp = new Date().toISOString().slice(0, 10);
@@ -1618,144 +1684,6 @@ const AllAttendanceRecord = () => {
     }
   }, [attendanceReportData, personID, sortOrder]);
 
-  const handleExportPdf = useCallback(() => {
-    if (!attendanceReportData.rows.length || reportAction) return;
-    setReportAction("pdf");
-    setError("");
-    window.setTimeout(() => {
-      try {
-        const stamp = new Date().toISOString().slice(0, 10);
-        const safeId = String(personID || "employee").replace(/[^\w.-]+/g, "_");
-        const {
-          rows,
-          employeeName,
-          employeeNumber,
-          startDate: reportFrom,
-          endDate: reportTo,
-          sortOrder,
-        } = attendanceReportData;
-        const period = `${formatReportDate(reportFrom)} to ${formatReportDate(reportTo)}`;
-        const employeeSummary = employeeName
-          ? `${employeeName}${employeeNumber ? ` (#${employeeNumber})` : ""}`
-          : employeeNumber
-            ? `#${employeeNumber}`
-            : "—";
-        const generatedAt = excelTimestamp();
-        const exportedBy = excelExporterName(getUserInfo());
-        const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-        const pageWidth = pdf.internal.pageSize.getWidth();
-        const pageHeight = pdf.internal.pageSize.getHeight();
-        const marginX = 12;
-        const footerTop = pageHeight - 10;
-        const tableWidth = pageWidth - marginX * 2;
-        const columnWidth = tableWidth / ATTENDANCE_REPORT_COLUMN_KEYS.length;
-
-        pdf.setProperties({
-          title: "Attendance States",
-          subject: "Employee attendance punch states report",
-          author: exportedBy,
-          creator: "EARIST HRIS",
-        });
-
-        const drawTableHeader = (top) => {
-          let x = marginX;
-          pdf.setFillColor(109, 35, 35);
-          pdf.rect(marginX, top, tableWidth, 10, "F");
-          pdf.setTextColor(255, 255, 255);
-          pdf.setFont("helvetica", "bold");
-          pdf.setFontSize(8);
-          ATTENDANCE_REPORT_COLUMNS.forEach((column) => {
-            pdf.text(column.label.toUpperCase(), x + 2, top + 6.4);
-            x += columnWidth;
-          });
-        };
-
-        const drawPageFooter = (pageNumber, totalPages) => {
-          pdf.setDrawColor(216, 196, 196);
-          pdf.setLineWidth(0.2);
-          pdf.line(marginX, footerTop, pageWidth - marginX, footerTop);
-          pdf.setTextColor(105, 105, 105);
-          pdf.setFont("helvetica", "normal");
-          pdf.setFontSize(7.5);
-          pdf.text(`EARIST HRIS · Generated ${generatedAt} · ${exportedBy}`, marginX, pageHeight - 4.5);
-          pdf.text(`Page ${pageNumber} of ${totalPages}`, pageWidth - marginX, pageHeight - 4.5, {
-            align: "right",
-          });
-        };
-
-        pdf.setFillColor(109, 35, 35);
-        pdf.roundedRect(marginX, 12, tableWidth, 14, 1.5, 1.5, "F");
-        pdf.setTextColor(255, 255, 255);
-        pdf.setFont("helvetica", "bold");
-        pdf.setFontSize(17);
-        pdf.text("ATTENDANCE STATES", marginX + 5, 21);
-        pdf.setTextColor(35, 35, 35);
-        pdf.setFontSize(9);
-        pdf.setFont("helvetica", "bold");
-        pdf.text(`Employee: ${employeeSummary}`, marginX, 33);
-        pdf.setFont("helvetica", "normal");
-        pdf.setTextColor(95, 95, 95);
-        pdf.text(
-          `Period: ${period}  |  Displayed: ${sortOrder === "asc" ? "oldest first" : "newest first"}  |  Records: ${rows.length}`,
-          marginX,
-          39,
-        );
-        pdf.setFontSize(8);
-        pdf.text(
-          `Report range: ${reportFrom} to ${reportTo}  |  Exported by: ${exportedBy}`,
-          marginX,
-          45,
-        );
-
-        let tableTop = 49;
-        drawTableHeader(tableTop);
-        tableTop += 10;
-        rows.forEach((row, rowIndex) => {
-          const wrappedCells = ATTENDANCE_REPORT_COLUMNS.map((column) =>
-            pdf.splitTextToSize(String(row[column.key] ?? "—"), columnWidth - 4),
-          );
-          const lineCount = Math.max(1, ...wrappedCells.map((lines) => lines.length));
-          const rowHeight = Math.max(8, lineCount * 3.5 + 3.5);
-          if (tableTop + rowHeight > footerTop - 2) {
-            pdf.addPage("a4", "landscape");
-            tableTop = 18;
-            drawTableHeader(tableTop);
-            tableTop += 10;
-          }
-          pdf.setFillColor(rowIndex % 2 === 0 ? 255 : 251, rowIndex % 2 === 0 ? 255 : 248, rowIndex % 2 === 0 ? 255 : 248);
-          pdf.setDrawColor(216, 196, 196);
-          let x = marginX;
-          wrappedCells.forEach((lines, columnIndex) => {
-            const column = ATTENDANCE_REPORT_COLUMNS[columnIndex];
-            pdf.rect(x, tableTop, columnWidth, rowHeight, "FD");
-            if (column.key === "status") {
-              pdf.setTextColor(...hexToPdfRgb(getAttendanceColor(row.state)));
-              pdf.setFont("helvetica", "bold");
-            } else {
-              pdf.setTextColor(40, 40, 40);
-              pdf.setFont("helvetica", "normal");
-            }
-            pdf.setFontSize(column.key === "punch" || column.key === "time" ? 7.4 : 8);
-            pdf.text(lines, x + 2, tableTop + 4.2, { lineHeightFactor: 1.15 });
-            x += columnWidth;
-          });
-          tableTop += rowHeight;
-        });
-        const totalPages = pdf.getNumberOfPages();
-        for (let pageNumber = 1; pageNumber <= totalPages; pageNumber += 1) {
-          pdf.setPage(pageNumber);
-          drawPageFooter(pageNumber, totalPages);
-        }
-        pdf.save(`Attendance-States_${safeId}_${stamp}.pdf`);
-      } catch (err) {
-        console.error("Attendance state PDF export failed:", err);
-        setError("Failed to generate PDF export.");
-      } finally {
-        setReportAction("");
-      }
-    }, 0);
-  }, [attendanceReportData, personID, reportAction]);
-
   const handlePrint = useCallback(() => {
     if (!attendanceReportData.rows.length || reportAction) return;
     setReportAction("print");
@@ -1776,6 +1704,7 @@ const AllAttendanceRecord = () => {
     if (!records.length || reportAction) return;
     setReportStartDate(startDate);
     setReportEndDate(endDate);
+    setSelectedReportDates(enumerateReportDates(startDate, endDate));
     setReportDialog({ open: true, action });
     setError("");
   }, [endDate, records.length, reportAction, startDate]);
@@ -1786,15 +1715,14 @@ const AllAttendanceRecord = () => {
   }, [reportAction]);
 
   const confirmReportDialog = useCallback(() => {
-    if (reportDateRangeError || !attendanceReportData.rows.length || reportAction) return;
+    if (reportValidationError || !attendanceReportData.rows.length || reportAction) return;
     const action = reportDialog.action;
     setReportDialog({ open: false, action: "" });
     window.setTimeout(() => {
       if (action === "excel") handleExportExcel();
-      if (action === "pdf") handleExportPdf();
       if (action === "print") handlePrint();
     }, 0);
-  }, [attendanceReportData.rows.length, handleExportExcel, handleExportPdf, handlePrint, reportAction, reportDateRangeError, reportDialog.action]);
+  }, [attendanceReportData.rows.length, handleExportExcel, handlePrint, reportAction, reportValidationError, reportDialog.action]);
 
   const reportDialogMeta = {
     excel: {
@@ -1802,12 +1730,6 @@ const AllAttendanceRecord = () => {
       description: "Choose the attendance dates to include in the Excel file.",
       confirmLabel: "Download Excel",
       icon: <DownloadIcon sx={{ fontSize: 21 }} />,
-    },
-    pdf: {
-      title: "Download PDF Report",
-      description: "Choose the attendance dates to include in the PDF file.",
-      confirmLabel: "Download PDF",
-      icon: <PictureAsPdfIcon sx={{ fontSize: 21 }} />,
     },
     print: {
       title: "Print Attendance States",
@@ -2143,34 +2065,7 @@ const AllAttendanceRecord = () => {
                             Excel
                           </AccentButton>
                         </Tooltip>
-                        <Tooltip title="Choose a date range and download the table as PDF">
-                          <span>
-                            <AccentButton
-                              variant="outlined"
-                              size="small"
-                              startIcon={reportAction === "pdf"
-                                ? <CircularProgress size={13} sx={{ color: T.accent }} />
-                                : <PictureAsPdfIcon sx={{ fontSize: "14px !important" }} />}
-                              onClick={() => openReportDialog("pdf")}
-                              disabled={Boolean(reportAction)}
-                              aria-label="Download Attendance States as PDF"
-                              sx={{
-                                fontSize: "0.78rem",
-                                color: T.accent,
-                                borderColor: alpha(T.accent, 0.35),
-                                bgcolor: "#fff",
-                                boxShadow: "none",
-                                "&:hover": {
-                                  bgcolor: T.accentFaint,
-                                  borderColor: T.accent,
-                                },
-                              }}
-                            >
-                              {reportAction === "pdf" ? "Preparing" : "PDF"}
-                            </AccentButton>
-                          </span>
-                        </Tooltip>
-                        <Tooltip title="Choose a date range and print the table (the browser can also save it as PDF)">
+                        <Tooltip title="Choose specific dates and print the table (the browser can also save it as PDF)">
                           <span>
                             <AccentButton
                               variant="outlined"
@@ -2451,15 +2346,68 @@ const AllAttendanceRecord = () => {
                           />
                         </Box>
 
+                        <Box sx={{ mt: 1.5 }}>
+                          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1, mb: 0.75 }}>
+                            <Typography sx={{ fontSize: "0.64rem", fontWeight: 800, color: T.accent, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                              Select dates
+                            </Typography>
+                            <Box sx={{ display: "flex", gap: 0.5 }}>
+                              <Button onClick={selectAllReportDates} disabled={reportAvailableDates.length === 0} size="small" sx={{ color: T.accent, textTransform: "none", fontWeight: 700, fontSize: "0.68rem", py: 0.25 }}>
+                                Select all
+                              </Button>
+                              <Button onClick={clearReportDates} disabled={selectedReportDates.length === 0} size="small" sx={{ color: T.muted, textTransform: "none", fontWeight: 700, fontSize: "0.68rem", py: 0.25 }}>
+                                Clear
+                              </Button>
+                            </Box>
+                          </Box>
+                          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(68px, 1fr))", gap: 0.6, maxHeight: 180, overflowY: "auto", p: 0.5, border: `1px solid ${T.accentBorder}`, borderRadius: "8px", bgcolor: "#fafafa" }}>
+                            {reportAvailableDates.map((date) => {
+                              const selected = reportSelectedDateSet.has(date);
+                              const count = reportRecordCounts[date] || 0;
+                              return (
+                                <Button
+                                  key={date}
+                                  type="button"
+                                  variant={selected ? "contained" : "outlined"}
+                                  onClick={() => toggleReportDate(date)}
+                                  aria-pressed={selected}
+                                  aria-label={`${selected ? "Deselect" : "Select"} ${formatReportDate(date)}`}
+                                  sx={{
+                                    minWidth: 0,
+                                    px: 0.5,
+                                    py: 0.55,
+                                    borderRadius: "7px",
+                                    textTransform: "none",
+                                    fontSize: "0.68rem",
+                                    fontWeight: 700,
+                                    lineHeight: 1.1,
+                                    color: selected ? "#fff" : T.text,
+                                    borderColor: selected ? T.accent : T.accentBorder,
+                                    bgcolor: selected ? T.accent : "#fff",
+                                    "&:hover": { borderColor: T.accent, bgcolor: selected ? T.accentDark : T.accentFaint },
+                                  }}
+                                >
+                                  <Typography component="span" sx={{ display: "block", fontSize: "0.68rem", fontWeight: 800, color: "inherit" }}>
+                                    {formatReportDateShort(date)}
+                                  </Typography>
+                                  <Typography component="span" sx={{ display: "block", fontSize: "0.58rem", fontWeight: 600, color: selected ? "rgba(255,255,255,0.78)" : T.faint }}>
+                                    {count} {count === 1 ? "punch" : "punches"}
+                                  </Typography>
+                                </Button>
+                              );
+                            })}
+                          </Box>
+                        </Box>
+
                         <Box sx={{ mt: 1.5, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1.5 }}>
-                          <Typography sx={{ fontSize: "0.72rem", color: reportDateRangeError ? "error.main" : T.muted, fontWeight: 600 }}>
-                            {reportDateRangeError || `${reportRecords.length} matching punch${reportRecords.length === 1 ? "" : "es"}`}
+                          <Typography sx={{ fontSize: "0.72rem", color: reportValidationError ? "error.main" : T.muted, fontWeight: 600 }}>
+                            {reportValidationError || `${selectedReportDates.length} date${selectedReportDates.length === 1 ? "" : "s"} selected · ${reportRecords.length} matching punch${reportRecords.length === 1 ? "" : "es"}`}
                           </Typography>
                           <Button
                             onClick={resetReportDateRange}
-                            disabled={reportStartDate === startDate && reportEndDate === endDate}
+                            disabled={reportStartDate === startDate && reportEndDate === endDate && selectedReportDates.length === reportAvailableDates.length}
                             size="small"
-                            sx={{ color: T.accent, textTransform: "none", fontWeight: 700, fontSize: "0.7rem" }}
+                            sx={{ color: T.accent, textTransform: "none", fontWeight: 700, fontSize: "0.7rem", flexShrink: 0 }}
                           >
                             Use full period
                           </Button>
@@ -2490,7 +2438,7 @@ const AllAttendanceRecord = () => {
                         <Button
                           onClick={confirmReportDialog}
                           variant="contained"
-                          disabled={Boolean(reportDateRangeError) || reportRecords.length === 0}
+                          disabled={Boolean(reportValidationError) || reportRecords.length === 0}
                           startIcon={reportDialogMeta.icon}
                           sx={{
                             textTransform: "none",
