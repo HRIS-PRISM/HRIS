@@ -444,6 +444,53 @@ const formatReportDate = (value) => {
   });
 };
 
+const formatReportWeekday = (value) => {
+  const [year, month, day] = String(value).split("-").map(Number);
+  if (!year || !month || !day) return "";
+  return new Date(year, month - 1, day, 12).toLocaleDateString("en-US", { weekday: "short" });
+};
+
+// ─── Calendar grid helpers (for the report date picker) ──────────────────
+const CALENDAR_WEEKDAY_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+
+const formatCalendarMonthLabel = (year, month) =>
+  new Date(year, month, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+const buildCalendarMonthsInRange = (startISO, endISO) => {
+  if (!startISO || !endISO) return [];
+  const [sy, sm] = startISO.split("-").map(Number);
+  const [ey, em] = endISO.split("-").map(Number);
+  if (!sy || !sm || !ey || !em) return [];
+  const months = [];
+  let year = sy;
+  let month = sm - 1;
+  const endYear = ey;
+  const endMonth = em - 1;
+  // Safety cap so a bad range can't spin forever
+  let guard = 0;
+  while ((year < endYear || (year === endYear && month <= endMonth)) && guard < 60) {
+    months.push({ year, month });
+    month += 1;
+    if (month > 11) { month = 0; year += 1; }
+    guard += 1;
+  }
+  return months;
+};
+
+const buildCalendarMonthGrid = (year, month) => {
+  const firstDay = new Date(year, month, 1);
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const startWeekday = firstDay.getDay();
+  const cells = Array.from({ length: startWeekday }, () => null);
+  for (let d = 1; d <= daysInMonth; d += 1) {
+    cells.push(`${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`);
+  }
+  while (cells.length % 7 !== 0) cells.push(null);
+  const weeks = [];
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+  return weeks;
+};
+
 const ATTENDANCE_REPORT_COLUMNS = [
   { key: "employeeNumber", label: "Employee No.", width: 25 },
   { key: "name", label: "Employee Name", width: 48 },
@@ -1226,7 +1273,7 @@ const AllAttendanceRecord = () => {
   useEffect(() => {
     setReportStartDate(startDate);
     setReportEndDate(endDate);
-    setSelectedReportDates(enumerateReportDates(startDate, endDate));
+    setSelectedReportDates([]);
   }, [startDate, endDate]);
 
   useEffect(() => {
@@ -1538,7 +1585,9 @@ const AllAttendanceRecord = () => {
       : reportEndDate;
     setReportStartDate(value);
     setReportEndDate(nextEnd);
-    setSelectedReportDates(value && nextEnd ? enumerateReportDates(value, nextEnd) : []);
+    setSelectedReportDates((prev) =>
+      value && nextEnd ? prev.filter((d) => d >= value && d <= nextEnd) : [],
+    );
   }, [endDate, reportEndDate, startDate]);
 
   const handleReportEndDateChange = useCallback((event) => {
@@ -1555,13 +1604,15 @@ const AllAttendanceRecord = () => {
       : reportStartDate;
     setReportEndDate(value);
     setReportStartDate(nextStart);
-    setSelectedReportDates(value && nextStart ? enumerateReportDates(nextStart, value) : []);
+    setSelectedReportDates((prev) =>
+      value && nextStart ? prev.filter((d) => d >= nextStart && d <= value) : [],
+    );
   }, [endDate, reportStartDate, startDate]);
 
   const resetReportDateRange = useCallback(() => {
     setReportStartDate(startDate);
     setReportEndDate(endDate);
-    setSelectedReportDates(enumerateReportDates(startDate, endDate));
+    setSelectedReportDates([]);
   }, [startDate, endDate]);
 
   const reportDateRangeError =
@@ -1579,6 +1630,10 @@ const AllAttendanceRecord = () => {
     () => enumerateReportDates(reportStartDate, reportEndDate),
     [reportStartDate, reportEndDate],
   );
+  const reportCalendarMonths = useMemo(
+    () => buildCalendarMonthsInRange(reportStartDate, reportEndDate),
+    [reportStartDate, reportEndDate],
+  );
   const reportRecordCounts = useMemo(
     () => records.reduce((counts, record) => {
       const date = record?._isoDate;
@@ -1592,6 +1647,8 @@ const AllAttendanceRecord = () => {
     () => new Set(selectedReportDates),
     [selectedReportDates],
   );
+  const reportAllDatesSelected =
+    reportAvailableDates.length > 0 && selectedReportDates.length === reportAvailableDates.length;
   const toggleReportDate = useCallback((date) => {
     setSelectedReportDates((previous) => {
       if (previous.includes(date)) {
@@ -1704,7 +1761,7 @@ const AllAttendanceRecord = () => {
     if (!records.length || reportAction) return;
     setReportStartDate(startDate);
     setReportEndDate(endDate);
-    setSelectedReportDates(enumerateReportDates(startDate, endDate));
+    setSelectedReportDates([]);
     setReportDialog({ open: true, action });
     setError("");
   }, [endDate, records.length, reportAction, startDate]);
@@ -2352,60 +2409,195 @@ const AllAttendanceRecord = () => {
                               Select dates
                             </Typography>
                             <Box sx={{ display: "flex", gap: 0.5 }}>
-                              <Button onClick={selectAllReportDates} disabled={reportAvailableDates.length === 0} size="small" sx={{ color: T.accent, textTransform: "none", fontWeight: 700, fontSize: "0.68rem", py: 0.25 }}>
-                                Select all
+                              <Button
+                                onClick={reportAllDatesSelected ? clearReportDates : selectAllReportDates}
+                                disabled={reportAvailableDates.length === 0}
+                                variant={reportAllDatesSelected ? "contained" : "outlined"}
+                                size="small"
+                                sx={{
+                                  textTransform: "none",
+                                  fontWeight: 700,
+                                  fontSize: "0.68rem",
+                                  py: 0.25,
+                                  px: 1,
+                                  borderRadius: "6px",
+                                  minWidth: 0,
+                                  ...(reportAllDatesSelected
+                                    ? {
+                                        color: "#fff",
+                                        bgcolor: T.accent,
+                                        boxShadow: "none",
+                                        "&:hover": { bgcolor: T.accentDark },
+                                        "&:active": { bgcolor: T.accentDark },
+                                      }
+                                    : {
+                                        color: T.accent,
+                                        borderColor: alpha(T.accent, 0.4),
+                                        "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent },
+                                        "&:active": { bgcolor: T.accentHover },
+                                      }),
+                                }}
+                              >
+                                {reportAllDatesSelected ? "Selected All" : "Select All"}
                               </Button>
-                              <Button onClick={clearReportDates} disabled={selectedReportDates.length === 0} size="small" sx={{ color: T.muted, textTransform: "none", fontWeight: 700, fontSize: "0.68rem", py: 0.25 }}>
+                              <Button
+                                onClick={clearReportDates}
+                                disabled={selectedReportDates.length === 0}
+                                variant="outlined"
+                                size="small"
+                                sx={{
+                                  color: T.muted,
+                                  borderColor: alpha(T.muted, 0.35),
+                                  textTransform: "none",
+                                  fontWeight: 700,
+                                  fontSize: "0.68rem",
+                                  py: 0.25,
+                                  px: 1,
+                                  minWidth: 0,
+                                  borderRadius: "6px",
+                                  "&:hover": { bgcolor: alpha(T.muted, 0.08), borderColor: T.muted },
+                                  "&:active": { bgcolor: alpha(T.muted, 0.14) },
+                                }}
+                              >
                                 Clear
                               </Button>
                             </Box>
                           </Box>
-                          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(68px, 1fr))", gap: 0.6, maxHeight: 180, overflowY: "auto", p: 0.5, border: `1px solid ${T.accentBorder}`, borderRadius: "8px", bgcolor: "#fafafa" }}>
-                            {reportAvailableDates.map((date) => {
-                              const selected = reportSelectedDateSet.has(date);
-                              const count = reportRecordCounts[date] || 0;
+                          <Typography sx={{ fontSize: "0.68rem", color: T.muted, mb: 1 }}>
+                            Click on the calendar to pick the dates you want. Nothing is selected yet.
+                          </Typography>
+                          <Box
+                            sx={{
+                              maxHeight: 320,
+                              overflowY: "auto",
+                              border: `1px solid ${T.accentBorder}`,
+                              borderRadius: "10px",
+                              bgcolor: "#fafafa",
+                              p: 1.25,
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: 1.5,
+                            }}
+                          >
+                            {reportCalendarMonths.map(({ year, month }) => {
+                              const weeks = buildCalendarMonthGrid(year, month);
                               return (
-                                <Button
-                                  key={date}
-                                  type="button"
-                                  variant={selected ? "contained" : "outlined"}
-                                  onClick={() => toggleReportDate(date)}
-                                  aria-pressed={selected}
-                                  aria-label={`${selected ? "Deselect" : "Select"} ${formatReportDate(date)}`}
-                                  sx={{
-                                    minWidth: 0,
-                                    px: 0.5,
-                                    py: 0.55,
-                                    borderRadius: "7px",
-                                    textTransform: "none",
-                                    fontSize: "0.68rem",
-                                    fontWeight: 700,
-                                    lineHeight: 1.1,
-                                    color: selected ? "#fff" : T.text,
-                                    borderColor: selected ? T.accent : T.accentBorder,
-                                    bgcolor: selected ? T.accent : "#fff",
-                                    "&:hover": { borderColor: T.accent, bgcolor: selected ? T.accentDark : T.accentFaint },
-                                  }}
-                                >
-                                  <Typography component="span" sx={{ display: "block", fontSize: "0.68rem", fontWeight: 800, color: "inherit" }}>
-                                    {formatReportDateShort(date)}
+                                <Box key={`${year}-${month}`}>
+                                  <Typography
+                                    sx={{
+                                      fontSize: "0.72rem",
+                                      fontWeight: 800,
+                                      color: T.accent,
+                                      textAlign: "center",
+                                      mb: 0.6,
+                                    }}
+                                  >
+                                    {formatCalendarMonthLabel(year, month)}
                                   </Typography>
-                                  <Typography component="span" sx={{ display: "block", fontSize: "0.58rem", fontWeight: 600, color: selected ? "rgba(255,255,255,0.78)" : T.faint }}>
-                                    {count} {count === 1 ? "punch" : "punches"}
-                                  </Typography>
-                                </Button>
+                                  <Box sx={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 0.4, mb: 0.4 }}>
+                                    {CALENDAR_WEEKDAY_LABELS.map((wd) => (
+                                      <Typography
+                                        key={wd}
+                                        sx={{
+                                          textAlign: "center",
+                                          fontSize: "0.6rem",
+                                          fontWeight: 700,
+                                          color: T.faint,
+                                          textTransform: "uppercase",
+                                        }}
+                                      >
+                                        {wd}
+                                      </Typography>
+                                    ))}
+                                  </Box>
+                                  {weeks.map((week, wIdx) => (
+                                    <Box key={wIdx} sx={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 0.4, mb: 0.4 }}>
+                                      {week.map((date, dIdx) => {
+                                        if (!date) return <Box key={dIdx} />;
+                                        const isSelectable = date >= reportStartDate && date <= reportEndDate;
+                                        const selected = reportSelectedDateSet.has(date);
+                                        const count = reportRecordCounts[date] || 0;
+                                        const hasNoPunches = count === 0;
+                                        const dayNum = Number(date.split("-")[2]);
+                                        return (
+                                          <Tooltip
+                                            key={date}
+                                            title={
+                                              !isSelectable
+                                                ? "Outside the loaded period"
+                                                : `${formatReportDate(date)} · ${count} punch${count === 1 ? "" : "es"}`
+                                            }
+                                          >
+                                            <Box
+                                              component="button"
+                                              type="button"
+                                              disabled={!isSelectable}
+                                              onClick={() => isSelectable && toggleReportDate(date)}
+                                              aria-pressed={selected}
+                                              aria-label={`${selected ? "Deselect" : "Select"} ${formatReportDate(date)}`}
+                                              sx={{
+                                                position: "relative",
+                                                width: "100%",
+                                                aspectRatio: "1 / 1",
+                                                display: "flex",
+                                                flexDirection: "column",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                                borderRadius: "8px",
+                                                border: selected ? `1.5px solid ${T.accent}` : "1px solid transparent",
+                                                bgcolor: !isSelectable ? "transparent" : selected ? T.accent : "#fff",
+                                                cursor: isSelectable ? "pointer" : "default",
+                                                fontFamily: "inherit",
+                                                opacity: !isSelectable ? 0.3 : 1,
+                                                transition: "all 0.12s",
+                                                "&:hover": isSelectable
+                                                  ? { borderColor: T.accent, bgcolor: selected ? T.accentDark : T.accentFaint }
+                                                  : {},
+                                              }}
+                                            >
+                                              <Typography
+                                                sx={{
+                                                  fontSize: "0.78rem",
+                                                  fontWeight: 700,
+                                                  color: !isSelectable ? T.faint : selected ? "#fff" : T.text,
+                                                }}
+                                              >
+                                                {dayNum}
+                                              </Typography>
+                                              {isSelectable && (
+                                                <Box
+                                                  sx={{
+                                                    width: 4,
+                                                    height: 4,
+                                                    borderRadius: "50%",
+                                                    mt: 0.15,
+                                                    bgcolor: selected
+                                                      ? "rgba(255,255,255,0.85)"
+                                                      : hasNoPunches
+                                                        ? "transparent"
+                                                        : T.accent,
+                                                  }}
+                                                />
+                                              )}
+                                            </Box>
+                                          </Tooltip>
+                                        );
+                                      })}
+                                    </Box>
+                                  ))}
+                                </Box>
                               );
                             })}
                           </Box>
                         </Box>
 
                         <Box sx={{ mt: 1.5, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1.5 }}>
-                          <Typography sx={{ fontSize: "0.72rem", color: reportValidationError ? "error.main" : T.muted, fontWeight: 600 }}>
+                          <Typography sx={{ fontSize: "0.72rem", color: reportDateRangeError ? "error.main" : T.muted, fontWeight: 600 }}>
                             {reportValidationError || `${selectedReportDates.length} date${selectedReportDates.length === 1 ? "" : "s"} selected · ${reportRecords.length} matching punch${reportRecords.length === 1 ? "" : "es"}`}
                           </Typography>
                           <Button
                             onClick={resetReportDateRange}
-                            disabled={reportStartDate === startDate && reportEndDate === endDate && selectedReportDates.length === reportAvailableDates.length}
+                            disabled={reportStartDate === startDate && reportEndDate === endDate && selectedReportDates.length === 0}
                             size="small"
                             sx={{ color: T.accent, textTransform: "none", fontWeight: 700, fontSize: "0.7rem", flexShrink: 0 }}
                           >
