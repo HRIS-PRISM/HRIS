@@ -1931,6 +1931,7 @@ const OfficialTimeForm = ({
   const [editViewRecords, setEditViewRecords] = useState([]);
   const [editViewScheduleView, setEditViewScheduleView] = useState("workDays");
   const [editViewSaving, setEditViewSaving] = useState(false);
+  const [editViewStartDate, setEditViewStartDate] = useState("");
   const [editViewEndDate, setEditViewEndDate] = useState("");
 
   const [showScheduleModal, setShowScheduleModal] = useState(false);
@@ -2313,7 +2314,7 @@ const OfficialTimeForm = ({
       setFound(allRows.length > 0);
       notifyScheduleSaved();
     } catch (err) {
-      showToast(err?.response?.data?.message || "Couldn't delete this inactive official time.");
+      showToast(err?.response?.data?.message || err?.response?.data?.error || "Couldn't delete this official time.");
     } finally {
       setDeletingSchedule(false);
     }
@@ -2432,6 +2433,7 @@ const OfficialTimeForm = ({
   const handleStartEditViewSchedule = useCallback(() => {
     setEditViewRecords(deepClone(viewScheduleRecords));
     setEditViewScheduleView(viewScheduleView);
+    setEditViewStartDate(normalizeDateStr(viewScheduleInfo?.startDate) || "");
     setEditViewEndDate(normalizeDateStr(viewScheduleInfo?.endDate) || "");
     setIsEditingViewSchedule(true);
   }, [viewScheduleRecords, viewScheduleView, viewScheduleInfo]);
@@ -2439,13 +2441,16 @@ const OfficialTimeForm = ({
   const handleCancelEditViewSchedule = useCallback(() => {
     setIsEditingViewSchedule(false);
     setEditViewRecords([]);
-    setEditViewEndDate("");
+    setEditViewEndDate(""); setEditViewStartDate("");
   }, []);
 
   const handleSaveEditedSchedule = useCallback(async () => {
     if (!viewScheduleInfo || !employeeID) return;
+    const origStartDate = normalizeDateStr(viewScheduleInfo.startDate);
+    const newStartDate = editViewStartDate || origStartDate;
     const newEndDate = editViewEndDate || normalizeDateStr(viewScheduleInfo.endDate);
-    if (newEndDate && normalizeDateStr(viewScheduleInfo.startDate) && newEndDate < normalizeDateStr(viewScheduleInfo.startDate)) {
+    if (!newStartDate) { showToast("Start date is required."); return; }
+    if (newEndDate && newEndDate < newStartDate) {
       showToast("End date cannot be before start date."); return;
     }
     const overlapResult = checkTimeOverlaps(editViewRecords);
@@ -2459,23 +2464,25 @@ const OfficialTimeForm = ({
     try {
       await axios.put(
         `${API_BASE_URL}/officialtimetable/${employeeID}`,
-        { startDate: viewScheduleInfo.startDate, endDate: newEndDate || viewScheduleInfo.endDate, origEndDate: normalizeDateStr(viewScheduleInfo.endDate), records: editViewRecords },
+        { startDate: newStartDate, endDate: newEndDate || viewScheduleInfo.endDate, origStartDate, origEndDate: normalizeDateStr(viewScheduleInfo.endDate), records: editViewRecords },
         getAuthHeaders(),
       );
       showToast("Schedule updated successfully.");
-      logOfficialTimeEdit({ targetEmployeeNumber: employeeID, targetName: selectedEmployee?.name || employeeID, periodStart: normalizeDateStr(viewScheduleInfo.startDate), periodEnd: newEndDate || normalizeDateStr(viewScheduleInfo.endDate) });
+      logOfficialTimeEdit({ targetEmployeeNumber: employeeID, targetName: selectedEmployee?.name || employeeID, periodStart: newStartDate, periodEnd: newEndDate || normalizeDateStr(viewScheduleInfo.endDate) });
       setIsEditingViewSchedule(false);
       setEditViewRecords([]);
-      setEditViewEndDate("");
+      setEditViewEndDate(""); setEditViewStartDate("");
       const res = await axios.get(`${API_BASE_URL}/officialtimetable/${employeeID}`, officialTimeGetConfig(true));
       const allRows = res.data || [];
       stampServerRecords(allRows);
       setRecords(deepClone(allRows));
       setFound(allRows.length > 0);
-      const normStart = normalizeDateStr(viewScheduleInfo.startDate);
+      const normStart = newStartDate;
       const normEnd = normalizeDateStr(newEndDate || viewScheduleInfo.endDate);
       setViewScheduleRecords(allRows.filter((r) => normalizeDateStr(r.startDate) === normStart && normalizeDateStr(r.endDate) === normEnd));
-      setViewScheduleInfo((prev) => prev ? { ...prev, endDate: newEndDate || prev.endDate } : prev);
+      setViewScheduleInfo((prev) => prev ? { ...prev, startDate: newStartDate, endDate: newEndDate || prev.endDate } : prev);
+      // Keep the edited block selected even though its dates (and key) changed
+      setActiveScheduleKey(`${normStart}|${normEnd}`);
       notifyScheduleSaved();
     } catch (err) {
       const msg = err.response?.data?.message || err.response?.data?.error || err.message || "Error updating schedule.";
@@ -2485,7 +2492,7 @@ const OfficialTimeForm = ({
     } finally {
       setEditViewSaving(false);
     }
-  }, [viewScheduleInfo, employeeID, editViewRecords, editViewEndDate, showToast, stampServerRecords, selectedEmployee, notifyScheduleSaved]);
+  }, [viewScheduleInfo, employeeID, editViewRecords, editViewStartDate, editViewEndDate, showToast, stampServerRecords, selectedEmployee, notifyScheduleSaved]);
 
   // ── Upload ──
   const handleAnalyzeFile = useCallback(async () => {
@@ -3291,7 +3298,7 @@ const OfficialTimeForm = ({
                                     setViewScheduleView("workDays");
                                     setIsEditingViewSchedule(false);
                                     setEditViewRecords([]);
-                                    setEditViewEndDate("");
+                                    setEditViewEndDate(""); setEditViewStartDate("");
                                     setShowViewScheduleModal(true);
                                   }}
                                   sx={{ width: 26, height: 26, border: `0.5px solid ${T.accentBorder}`, borderRadius: 1.5, color: T.faint, "&:hover": { borderColor: T.accent, color: T.accent, bgcolor: T.accentFaint } }}
@@ -3360,7 +3367,7 @@ const OfficialTimeForm = ({
                                             setViewScheduleView("workDays");
                                             setIsEditingViewSchedule(false);
                                             setEditViewRecords([]);
-                                            setEditViewEndDate("");
+                                            setEditViewEndDate(""); setEditViewStartDate("");
                                             setShowViewScheduleModal(true);
                                           }}
                                           sx={{ width: 22, height: 22, border: `0.5px solid ${T.accentBorder}`, borderRadius: 1.25, color: T.faint, "&:hover": { borderColor: T.accent, color: T.accent, bgcolor: T.accentFaint } }}
@@ -3368,6 +3375,32 @@ const OfficialTimeForm = ({
                                           <Visibility sx={{ fontSize: 11.5 }} />
                                         </IconButton>
                                       </Tooltip>
+                                      {(isActive || isOfficialTimeAdmin) && (
+                                        <Tooltip title={isActive ? "Edit this schedule" : "Edit this inactive schedule (admin)"}>
+                                          <IconButton size="small"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              const normStart = normalizeDateStr(v.startDate);
+                                              const normEnd = normalizeDateStr(v.endDate);
+                                              const rows = [...records.filter((r) => normalizeDateStr(r.startDate) === normStart && normalizeDateStr(r.endDate) === normEnd)].sort((a, b) => DAYS_ORDER.indexOf(a.day) - DAYS_ORDER.indexOf(b.day));
+                                              setActiveScheduleKey(v.key);
+                                              setViewScheduleInfo({ academicYear: v.academicYear, startDate: v.startDate, endDate: v.endDate, status: v.status });
+                                              setViewScheduleRecords(rows);
+                                              setViewScheduleView("workDays");
+                                              // Open straight into edit mode
+                                              setEditViewRecords(deepClone(rows));
+                                              setEditViewScheduleView("workDays");
+                                              setEditViewStartDate(normStart);
+                                              setEditViewEndDate(normEnd);
+                                              setIsEditingViewSchedule(true);
+                                              setShowViewScheduleModal(true);
+                                            }}
+                                            sx={{ width: 22, height: 22, border: `0.5px solid ${T.accentBorder}`, borderRadius: 1.25, color: T.faint, "&:hover": { borderColor: T.accent, color: T.accent, bgcolor: T.accentFaint } }}
+                                          >
+                                            <Edit sx={{ fontSize: 11.5 }} />
+                                          </IconButton>
+                                        </Tooltip>
+                                      )}
                                       {(!isActive || isOfficialTimeAdmin) && (
                                         <Tooltip title={isActive ? "Delete this ACTIVE schedule (admin)" : "Delete inactive official time"}>
                                           <IconButton size="small"
@@ -3435,7 +3468,7 @@ const OfficialTimeForm = ({
                               setViewScheduleView("workDays");
                               setIsEditingViewSchedule(false);
                               setEditViewRecords([]);
-                              setEditViewEndDate("");
+                              setEditViewEndDate(""); setEditViewStartDate("");
                               setShowViewScheduleModal(true);
                             }}
                             sx={{ borderColor: T.accentBorder, color: T.accent, textTransform: "none", fontWeight: 600, "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent } }}
@@ -3968,7 +4001,7 @@ const OfficialTimeForm = ({
           {/* ── View/Edit Schedule Modal ── */}
           <Dialog
             open={showViewScheduleModal}
-            onClose={() => { setShowViewScheduleModal(false); setIsEditingViewSchedule(false); setEditViewRecords([]); setEditViewEndDate(""); }}
+            onClose={() => { setShowViewScheduleModal(false); setIsEditingViewSchedule(false); setEditViewRecords([]); setEditViewEndDate(""); setEditViewStartDate(""); }}
             maxWidth={false}
             PaperProps={{ sx: { borderRadius: "16px", overflow: "hidden", width: "96vw", maxWidth: "1500px" } }}
           >
@@ -3984,28 +4017,38 @@ const OfficialTimeForm = ({
                   </Typography>
                 </Box>
               </Box>
-              {dialogCloseBtn(() => { setShowViewScheduleModal(false); setIsEditingViewSchedule(false); setEditViewRecords([]); setEditViewEndDate(""); })}
+              {dialogCloseBtn(() => { setShowViewScheduleModal(false); setIsEditingViewSchedule(false); setEditViewRecords([]); setEditViewEndDate(""); setEditViewStartDate(""); })}
             </Box>
             <Box sx={{ bgcolor: "#fff", px: 3, pt: 2.5, pb: 0 }}>
               {viewScheduleInfo && (
                 <>
                   <Box sx={{ display: "flex", flexWrap: "wrap", gap: 3, mb: 2.5, p: 2, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, borderRadius: "12px", alignItems: "flex-end" }}>
-                    {[
-                      { label: "Academic Year", value: viewScheduleInfo.academicYear || "—" },
-                      { label: "Start Date", value: formatDateLong(viewScheduleInfo.startDate) || formatDateOnly(viewScheduleInfo.startDate) },
-                    ].map(({ label, value }) => (
-                      <Box key={label}>
-                        <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: T.accent, textTransform: "uppercase", letterSpacing: "0.4px" }}>{label}</Typography>
-                        <Typography sx={{ fontWeight: 600, color: T.text, fontSize: "0.88rem", mt: 0.25 }}>{value}</Typography>
-                      </Box>
-                    ))}
+                    <Box>
+                      <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: T.accent, textTransform: "uppercase", letterSpacing: "0.4px" }}>Academic Year</Typography>
+                      <Typography sx={{ fontWeight: 600, color: T.text, fontSize: "0.88rem", mt: 0.25 }}>{viewScheduleInfo.academicYear || "—"}</Typography>
+                    </Box>
+                    <Box>
+                      <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: T.accent, textTransform: "uppercase", letterSpacing: "0.4px", mb: 0.5 }}>
+                        Start Date
+                        {isEditingViewSchedule && <Box component="span" sx={{ ml: 0.75, fontSize: "0.65rem", color: "#2e7d32", fontWeight: 600, textTransform: "none" }}>(editable)</Box>}
+                      </Typography>
+                      {isEditingViewSchedule ? (
+                        <TextField size="small" type="date" InputLabelProps={{ shrink: true }} value={editViewStartDate} onChange={(e) => setEditViewStartDate(e.target.value)} inputProps={{ max: editViewEndDate || undefined }}
+                          sx={{ bgcolor: "#fff", minWidth: 160, "& .MuiOutlinedInput-root": { fontSize: "0.85rem", borderRadius: "8px", "&.Mui-focused fieldset": { borderColor: T.accent } }, "& .MuiOutlinedInput-notchedOutline": { borderColor: T.accent } }}
+                        />
+                      ) : (
+                        <Typography sx={{ fontWeight: 600, color: T.text, fontSize: "0.88rem" }}>
+                          {formatDateLong(viewScheduleInfo.startDate) || formatDateOnly(viewScheduleInfo.startDate)}
+                        </Typography>
+                      )}
+                    </Box>
                     <Box>
                       <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: T.accent, textTransform: "uppercase", letterSpacing: "0.4px", mb: 0.5 }}>
                         End Date
                         {isEditingViewSchedule && <Box component="span" sx={{ ml: 0.75, fontSize: "0.65rem", color: "#2e7d32", fontWeight: 600, textTransform: "none" }}>(editable)</Box>}
                       </Typography>
                       {isEditingViewSchedule ? (
-                        <TextField size="small" type="date" InputLabelProps={{ shrink: true }} value={editViewEndDate} onChange={(e) => setEditViewEndDate(e.target.value)} inputProps={{ min: normalizeDateStr(viewScheduleInfo.startDate) || undefined }}
+                        <TextField size="small" type="date" InputLabelProps={{ shrink: true }} value={editViewEndDate} onChange={(e) => setEditViewEndDate(e.target.value)} inputProps={{ min: editViewStartDate || normalizeDateStr(viewScheduleInfo.startDate) || undefined }}
                           sx={{ bgcolor: "#fff", minWidth: 160, "& .MuiOutlinedInput-root": { fontSize: "0.85rem", borderRadius: "8px", "&.Mui-focused fieldset": { borderColor: T.accent } }, "& .MuiOutlinedInput-notchedOutline": { borderColor: T.accent } }}
                         />
                       ) : (

@@ -4023,10 +4023,13 @@ router.delete(
         });
       }
 
+      // Admin roles (supervisorStatus.bypassed) may delete a period
+      // regardless of status, matching the Delete button the UI shows them.
+      const isAdminBypass = Boolean(supervisorStatus.bypassed);
       const activeCount = rows
         .filter((r) => String(r.status || "").toLowerCase() === "active")
         .reduce((sum, r) => sum + Number(r.cnt || 0), 0);
-      if (activeCount > 0) {
+      if (activeCount > 0 && !isAdminBypass) {
         return res.status(409).json({
           message:
             "Only inactive official time can be deleted. Set this schedule inactive first, or delete a different period.",
@@ -4039,7 +4042,7 @@ router.delete(
            WHERE employeeID = ?
              AND DATE(startDate) = ?
              AND DATE(endDate) = ?
-             AND LOWER(status) = 'inactive'`,
+             ${isAdminBypass ? "" : "AND LOWER(status) = 'inactive'"}`,
           [employeeID, startDate, endDate],
           (err, deleteResult) => (err ? reject(err) : resolve(deleteResult)),
         );
@@ -4048,7 +4051,7 @@ router.delete(
       const deletedCount = Number(result?.affectedRows || 0);
       if (!deletedCount) {
         return res.status(404).json({
-          message: "No inactive official time was deleted for that period.",
+          message: "No official time was deleted for that period.",
         });
       }
 
@@ -4066,7 +4069,9 @@ router.delete(
             startDate,
             endDate,
             rowCount: deletedCount,
-            notes: "Deleted inactive official time period",
+            notes: activeCount > 0
+              ? "Deleted ACTIVE official time period (admin)"
+              : "Deleted inactive official time period",
           }),
         );
       } catch (e) {
@@ -4081,7 +4086,7 @@ router.delete(
       });
 
       return res.json({
-        message: "Inactive official time deleted.",
+        message: activeCount > 0 ? "Active official time deleted." : "Inactive official time deleted.",
         deletedCount,
         startDate,
         endDate,
@@ -4125,7 +4130,7 @@ router.put(
       ]))
     )
       return;
-    const { startDate, endDate, origEndDate, records, saveSupervisorHistory } = req.body || {};
+    const { startDate, endDate, origStartDate, origEndDate, records, saveSupervisorHistory } = req.body || {};
 
     if (!startDate)
       return res.status(400).json({ message: "startDate is required." });
@@ -4141,6 +4146,9 @@ router.put(
     const normalizedStartDate = normDate(startDate);
     const normalizedEndDate = normDate(endDate);
     const normalizedOrigEndDate = origEndDate ? normDate(origEndDate) : null;
+    // origStartDate identifies the period when the start date itself is being
+    // changed; older clients omit it, meaning the start date is unchanged.
+    const normalizedOrigStartDate = origStartDate ? normDate(origStartDate) : normalizedStartDate;
 
     if (!normalizedStartDate)
       return res.status(400).json({ message: "Invalid startDate format." });
@@ -4148,6 +4156,8 @@ router.put(
       return res.status(400).json({ message: "Invalid endDate format." });
     if (origEndDate && normalizedOrigEndDate === null)
       return res.status(400).json({ message: "Invalid origEndDate format." });
+    if (origStartDate && !normalizedOrigStartDate)
+      return res.status(400).json({ message: "Invalid origStartDate format." });
 
     // [FIX] origEndDate is now mandatory — it's the only reliable way to
     // identify exactly which schedule block the client meant to edit.
@@ -4180,7 +4190,11 @@ router.put(
         });
     }
 
+    const lookupStartDate = normalizedOrigStartDate;
     const lookupEndDate = normalizedOrigEndDate;
+    // Admin roles may edit a period regardless of status; everyone else is
+    // limited to the currently active schedule.
+    const statusClause = supervisorStatus.bypassed ? "" : " AND status = 'active'";
 
     try {
       // [FIX] Strict existence check: the (startDate, lookupEndDate) pair
@@ -4190,26 +4204,58 @@ router.put(
       // updating a different period.
       const matchCheck = await new Promise((resolve, reject) => {
         db.query(
-          `SELECT COUNT(*) AS cnt FROM officialtime
-           WHERE employeeID = ? AND startDate = ? AND endDate = ? AND status = 'active'`,
-          [employeeID, normalizedStartDate, lookupEndDate],
+          `SELECT COUNT(*) AS cnt,
+                  SUM(LOWER(status) = 'active') AS activeCnt
+           FROM officialtime
+           WHERE employeeID = ? AND startDate = ? AND endDate = ?${statusClause}`,
+          [employeeID, lookupStartDate, lookupEndDate],
           (err, rows) => (err ? reject(err) : resolve(rows || [])),
         );
       });
 
       if (!matchCheck.length || Number(matchCheck[0].cnt) === 0) {
         return res.status(404).json({
-          message: `This schedule (startDate ${normalizedStartDate}, endDate ${lookupEndDate}) is not currently the active period for employee ${employeeID}, so it can't be edited. It may already have been superseded by a newer schedule — refresh and try again.`,
+          message: `This schedule (startDate ${lookupStartDate}, endDate ${lookupEndDate}) is not currently the active period for employee ${employeeID}, so it can't be edited. It may already have been superseded by a newer schedule — refresh and try again.`,
         });
+      }
+
+      // When the dates move, an active period must not overlap any other
+      // active period (same rule as creating a schedule), excluding itself.
+      const datesChanged =
+        normalizedStartDate !== lookupStartDate || normalizedEndDate !== lookupEndDate;
+      if (datesChanged && Number(matchCheck[0].activeCnt || 0) > 0) {
+        const others = await new Promise((resolve, reject) => {
+          db.query(
+            `SELECT DISTINCT startDate, endDate FROM officialtime
+             WHERE employeeID = ? AND status = 'active'
+               AND startDate IS NOT NULL AND endDate IS NOT NULL
+               AND NOT (DATE(startDate) = ? AND DATE(endDate) = ?)`,
+            [employeeID, lookupStartDate, lookupEndDate],
+            (err, rows) => (err ? reject(err) : resolve(rows || [])),
+          );
+        });
+        const newS = new Date(normalizedStartDate).getTime();
+        const newE = new Date(normalizedEndDate).getTime();
+        const clash = others.find((row) => {
+          const s = new Date(row.startDate).getTime();
+          const e = new Date(row.endDate).getTime();
+          return newS < e && s < newE;
+        });
+        if (clash) {
+          return res.status(409).json({
+            message: `The new date range (${normalizedStartDate}–${normalizedEndDate}) overlaps another active schedule (${normDate(clash.startDate)}–${normDate(clash.endDate)}) for employee ${employeeID}. Choose different dates.`,
+          });
+        }
       }
 
       let updatedCount = 0;
       for (const r of records) {
         const result = await new Promise((resolve, reject) => {
           db.query(
-            `UPDATE officialtime SET endDate=?, officialTimeIN=?, officialBreaktimeIN=?, officialBreaktimeOUT=?, officialTimeOUT=?, officialHonorariumTimeIN=?, officialHonorariumTimeOUT=?, officialServiceCreditTimeIN=?, officialServiceCreditTimeOUT=?, officialOverTimeIN=?, officialOverTimeOUT=?, breaktime=?
-           WHERE employeeID=? AND startDate=? AND endDate=? AND day=? AND status='active'`,
+            `UPDATE officialtime SET startDate=?, endDate=?, officialTimeIN=?, officialBreaktimeIN=?, officialBreaktimeOUT=?, officialTimeOUT=?, officialHonorariumTimeIN=?, officialHonorariumTimeOUT=?, officialServiceCreditTimeIN=?, officialServiceCreditTimeOUT=?, officialOverTimeIN=?, officialOverTimeOUT=?, breaktime=?
+           WHERE employeeID=? AND startDate=? AND endDate=? AND day=?${statusClause}`,
             [
+              normalizedStartDate,
               normalizedEndDate,
               r.officialTimeIN ?? null,
               r.officialBreaktimeIN ?? null,
@@ -4223,7 +4269,7 @@ router.put(
               r.officialOverTimeOUT ?? null,
               r.breaktime ?? null,
               employeeID,
-              normalizedStartDate,
+              lookupStartDate,
               lookupEndDate,
               r.day ?? null,
             ],
