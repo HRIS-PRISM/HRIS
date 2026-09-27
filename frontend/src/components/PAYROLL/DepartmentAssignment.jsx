@@ -589,6 +589,12 @@ const DepartmentAssignment = () => {
   const [isEditingModal, setIsEditingModal]             = useState(false);
 
   const showSnackbar = (msg, sev = 'success') => setSnackbar({ open: true, message: msg, severity: sev });
+  // Surface the real cause (server down, validation error) instead of a generic message
+  const describeRequestError = (err, fallback) => {
+    if (!err?.response) return 'Cannot reach the server. Check that the backend is running, then try again.';
+    const d = err.response.data;
+    return (typeof d === 'string' && d) || d?.error || d?.message || fallback;
+  };
   const { hasAccess, loading: accessLoading } = usePageAccess('department-assignment');
 
   useEffect(() => { fetchAssignments(); fetchDepartmentList(); fetchAppendix33DeptScopes(); }, []);
@@ -757,7 +763,7 @@ const DepartmentAssignment = () => {
       }
       setOriginalAssignment({ ...editAssignment });
       setIsEditingModal(false);
-    } catch { showSnackbar('Failed to update assignment.', 'error'); }
+    } catch (err) { showSnackbar(describeRequestError(err, 'Failed to update assignment.'), 'error'); }
   };
 
   const handleDelete = async (id) => {
@@ -776,10 +782,10 @@ const DepartmentAssignment = () => {
           setIsEditingModal(false);
         }
       }
-    } catch { showSnackbar('Failed to delete assignment.', 'error'); }
+    } catch (err) { showSnackbar(describeRequestError(err, 'Failed to delete assignment.'), 'error'); }
   };
 
-  const handleOpenModal = async (department) => {
+  const handleOpenModal = async (department, focusAssignment = null) => {
     setSelectedDepartment(department);
     setEditAssignment(null);
     setOriginalAssignment(null);
@@ -800,9 +806,9 @@ const DepartmentAssignment = () => {
     }));
     setDeptEmpDetails(map);
 
-    // Auto-select first member
+    // Auto-select the searched member, otherwise the first member
     if (department.employees.length > 0) {
-      const first = department.employees[0];
+      const first = (focusAssignment && department.employees.find((e) => e.id === focusAssignment.id)) || department.employees[0];
       setEditAssignment({ ...first });
       setOriginalAssignment({ ...first });
       if (first.employeeNumber) {
@@ -841,6 +847,14 @@ const DepartmentAssignment = () => {
     return (d.code?.toLowerCase() || '').includes(term) || (d.description?.toLowerCase() || '').includes(term) ||
            d.employees.some((e) => (e.name?.toLowerCase() || '').includes(term) || (e.employeeNumber?.toString() || '').includes(term));
   });
+
+  // Employee-level matches so users can find a person without opening each department
+  const employeeSearchTerm = searchTerm.trim().toLowerCase();
+  const matchedEmployees = employeeSearchTerm
+    ? departmentData.flatMap((d) => d.employees
+        .filter((e) => (e.name?.toLowerCase() || '').includes(employeeSearchTerm) || (e.employeeNumber?.toString().toLowerCase() || '').includes(employeeSearchTerm))
+        .map((e) => ({ assignment: e, department: d })))
+    : [];
 
   const filteredModalMembers = selectedDepartment ? selectedDepartment.employees.filter((emp) => {
     const detail = deptEmpDetails[emp.employeeNumber];
@@ -1047,6 +1061,43 @@ const DepartmentAssignment = () => {
                 </Box>
 
                 <Box sx={{ flexGrow: 1, overflowY: 'auto', p: 2, ...scrollbarSx }}>
+                  {matchedEmployees.length > 0 && (
+                    <Box sx={{ mb: 2 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                        <PersonIcon sx={{ fontSize: 15, color: T.accent }} />
+                        <Typography sx={{ fontSize: '0.65rem', fontWeight: 700, color: T.accent, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                          Matching Employees ({matchedEmployees.length})
+                        </Typography>
+                      </Box>
+                      <Box sx={{ maxHeight: 260, overflowY: 'auto', border: `1px solid ${T.accentBorder}`, borderRadius: 1.5, ...scrollbarSx }}>
+                        {matchedEmployees.map(({ assignment, department }) => (
+                          <Box
+                            key={assignment.id}
+                            onClick={() => handleOpenModal(department, assignment)}
+                            sx={{ display: 'flex', alignItems: 'center', gap: 1.5, px: 1.5, py: 1, cursor: 'pointer', borderBottom: `1px solid ${alpha(T.accent, 0.06)}`, '&:last-child': { borderBottom: 'none' }, '&:hover': { bgcolor: T.rowHover } }}
+                          >
+                            <Avatar sx={{ width: 28, height: 28, bgcolor: alpha(T.accent, 0.1), color: T.accent, fontSize: '0.7rem', fontWeight: 700 }}>
+                              {(assignment.name || '?').charAt(0).toUpperCase()}
+                            </Avatar>
+                            <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+                              <Typography noWrap sx={{ fontSize: '0.8rem', fontWeight: 600, color: T.text }}>{assignment.name || 'Unknown'}</Typography>
+                              <Typography noWrap sx={{ fontSize: '0.7rem', color: T.muted }}>#{assignment.employeeNumber}</Typography>
+                            </Box>
+                            <Box sx={{ display: 'flex', gap: 0.5, flexShrink: 0, alignItems: 'center' }}>
+                              <Tooltip title={department.description || department.code}>
+                                <Chip label={department.code} size="small" sx={{ height: 20, fontSize: '0.68rem', fontWeight: 700, bgcolor: alpha(T.accent, 0.1), color: T.accent }} />
+                              </Tooltip>
+                              {assignment.budgetCode && (
+                                <Tooltip title="Budget department">
+                                  <Chip label={`Budget: ${assignment.budgetCode}`} size="small" sx={{ height: 20, fontSize: '0.68rem', fontWeight: 700, bgcolor: alpha('#b8860b', 0.1), color: '#8a6100' }} />
+                                </Tooltip>
+                              )}
+                            </Box>
+                          </Box>
+                        ))}
+                      </Box>
+                    </Box>
+                  )}
                   {filteredDepartmentData.length === 0 ? (
                     <Box sx={{ py: 10, textAlign: 'center' }}>
                       <Box sx={{ width: 72, height: 72, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
