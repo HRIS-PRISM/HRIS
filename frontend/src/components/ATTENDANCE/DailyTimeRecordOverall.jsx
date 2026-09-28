@@ -23,6 +23,7 @@ import {
   Schedule,
   ExpandMore,
   CheckCircle,
+  Timelapse,
 } from '@mui/icons-material';
 import PrintIcon from '@mui/icons-material/Print';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
@@ -135,6 +136,8 @@ import {
   DTR_INDICATOR_OPTIONS,
   defaultDtrIndicatorVisibility,
   isDtrCellWatermarkText,
+  loadDtrDeductionsVisible,
+  persistDtrDeductionsVisible,
   formatDtrPdfFileName,
   formatDtrBulkPdfFileName,
 } from '../../utils/dtrFormatHelpers';
@@ -645,6 +648,10 @@ const DailyTimeRecordFaculty = ({
     loadDtrIndicatorVisibility,
   );
   const [indicatorMenuAnchor, setIndicatorMenuAnchor] = useState(null);
+  /** Late / U-time deduction values on the form. Display only, persisted. */
+  const [showDeductions, setShowDeductions] = useState(
+    loadDtrDeductionsVisible,
+  );
   const [computationMenuAnchor, setComputationMenuAnchor] = useState(null);
   const dtrRef = useRef(null);
 
@@ -1188,7 +1195,7 @@ const DailyTimeRecordFaculty = ({
       isRestoringRef.current = false;
     }, 350);
     return () => clearTimeout(t);
-  }, [showOfficialTimeOnDtr, dtrType, printQuincena, printRangeStart, printRangeEnd, indicatorVisibility]);
+  }, [showOfficialTimeOnDtr, dtrType, printQuincena, printRangeStart, printRangeEnd, indicatorVisibility, showDeductions]);
 
   useEffect(() => () => stopObserver(), [stopObserver]);
 
@@ -3445,6 +3452,7 @@ const DailyTimeRecordFaculty = ({
       records: rangedRecords,
       officialTime: officialTimesForUser,
       showOfficialTimeOnDtr,
+      showDeductions,
       indicatorVisibility,
       startDate: displayPeriod.startDate || startDate,
       endDate: displayPeriod.endDate || endDate,
@@ -3583,6 +3591,53 @@ const DailyTimeRecordFaculty = ({
           }}
         >
           {indicatorButtonLabel}
+        </AccentButton>
+      </span>
+    </Tooltip>
+  );
+
+  const toggleDeductions = () => {
+    setShowDeductions((prev) => {
+      const next = !prev;
+      persistDtrDeductionsVisible(next);
+      return next;
+    });
+  };
+
+  const renderDeductionsButton = () => (
+    <Tooltip
+      title={
+        showDeductions
+          ? 'Deductions (Late / U-time) are shown. Click to hide them.'
+          : 'Deductions (Late / U-time) are hidden. Click to show them.'
+      }
+      placement="top"
+    >
+      <span>
+        <AccentButton
+          variant={showDeductions ? 'outlined' : 'contained'}
+          size="small"
+          aria-label="Toggle DTR deductions"
+          aria-pressed={showDeductions}
+          startIcon={<Timelapse sx={{ fontSize: '15px !important' }} />}
+          onClick={toggleDeductions}
+          className="no-print"
+          sx={{
+            height: 32,
+            fontSize: '0.75rem',
+            fontWeight: 700,
+            px: 1.5,
+            color: showDeductions ? T.accent : '#fff',
+            bgcolor: showDeductions ? '#fff' : T.accent,
+            borderColor: T.accent,
+            boxShadow: showDeductions ? 'none' : `0 2px 8px ${alpha(T.accent, 0.3)}`,
+            '&:hover': {
+              bgcolor: showDeductions ? T.accentFaint : T.accentDark,
+              borderColor: T.accent,
+            },
+          }}
+        >
+          {showDeductions ? 'Deductions' : 'Deductions off'}
         </AccentButton>
       </span>
     </Tooltip>
@@ -4871,6 +4926,7 @@ const DailyTimeRecordFaculty = ({
                               }}
                             >
                               {renderIndicatorsButton()}
+                              {renderDeductionsButton()}
                               <Tooltip
                                 placement="top"
                                 title={
@@ -4976,14 +5032,14 @@ const DailyTimeRecordFaculty = ({
                                   ?
                                 </AccentButton>
                               </Tooltip>
-                              <PictureAsPdfIcon
+                              {/* <PictureAsPdfIcon
                                 sx={{
                                   fontSize: 13,
                                   color: alpha(T.accent, 0.45),
                                   flexShrink: 0,
                                 }}
-                              />
-                              <Typography
+                              /> */}
+                              {/* <Typography
                                 sx={{ fontSize: '0.7rem', color: T.faint }}
                               >
                                 Download generates a PDF of the DTR for{' '}
@@ -4992,7 +5048,7 @@ const DailyTimeRecordFaculty = ({
                                 {printQuincena !== 'full'
                                   ? ` · ${printPeriodCaption}`
                                   : ''}
-                              </Typography>
+                              </Typography> */}
                             </Box>
                             <Box
                               sx={{
@@ -5997,6 +6053,7 @@ const DailyTimeRecordFaculty = ({
                                 }}
                               >
                                 {renderIndicatorsButton()}
+                                {renderDeductionsButton()}
                                 <FormControl
                                   size="small"
                                   sx={{ minWidth: 130, bgcolor: '#fff' }}
@@ -6374,6 +6431,7 @@ const DailyTimeRecordFaculty = ({
               >
                 <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
                   {renderIndicatorsButton()}
+                  {renderDeductionsButton()}
                   <AccentButton
                     variant="contained"
                     onClick={handlePrintAllSelected}
