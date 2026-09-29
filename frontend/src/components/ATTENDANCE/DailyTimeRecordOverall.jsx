@@ -179,15 +179,6 @@ const T = {
   divider: 'rgba(0,0,0,0.08)',
 };
 
-const EMPLOYMENT_CATEGORY_OPTIONS = [
-  { value: 0, label: 'JO Graduate', color: '#F57C00', shortLabel: 'JO Graduate' },
-  { value: 1, label: 'JO UnderGrad', color: '#E64A19', shortLabel: 'JO UnderGrad' },
-  { value: 2, label: 'Regular Non-Teaching', color: '#2E7D32', shortLabel: 'Non-Teaching' },
-  { value: 3, label: 'Regular Teaching (30Hrs)', color: '#1565C0', shortLabel: 'Teaching' },
-  { value: 4, label: 'Regular Designated (40Hrs)', color: '#7B1FA2', shortLabel: 'Designated' },
-  { value: 5, label: 'Other', color: '#00796B', shortLabel: 'Other' },
-];
-
 /**
  * Map an employee's computed attendance module type to the same coarse
  * "personnel scope" bucket used on suspension records (personnel_scope).
@@ -682,6 +673,9 @@ const DailyTimeRecordFaculty = ({
   const abortControllerRef = useRef(null);
   /** Monotonic id so aborted batch fetches do not leave loading flags stuck. */
   const batchFetchGenRef = useRef(0);
+  /** Finished batches per (period + load scope) — see "Batch cache" below. */
+  const batchCacheRef = useRef(new Map());
+  const currentBatchKeyRef = useRef('');
   /** Last time batch/single data was fully loaded — used to skip tab-focus spam. */
   const lastDataFreshAtRef = useRef(0);
 
@@ -1999,6 +1993,12 @@ const DailyTimeRecordFaculty = ({
           fetchRecordsRef.current?.({ quiet: true });
         return;
       }
+      // Attendance changed: cached batches for other months/scopes may be stale.
+      if (changedIDs.length > 0 || isBulk) {
+        const keep = batchCacheRef.current.get(currentBatchKeyRef.current);
+        batchCacheRef.current.clear();
+        if (keep) batchCacheRef.current.set(currentBatchKeyRef.current, keep);
+      }
       if (!startDate || !endDate || allUsersDTR.length === 0) return;
       if (changedIDs.length === 0 && !isBulk) return;
       if (debounceTimer) clearTimeout(debounceTimer);
@@ -2453,12 +2453,59 @@ const DailyTimeRecordFaculty = ({
     userStatusMap,
   ]);
 
-  // Reload when the month or the load scope (Department / Employment Category /
-  // Employee Status) changes — the batch only ever holds the chosen employees.
+  // ─── Batch cache ───────────────────────────────────────────────────────
+  // A finished batch is kept per (period + load scope), so switching back to a
+  // month / scope you already loaded — or Individual ↔ Batch — is instant
+  // instead of re-downloading every employee. Live changes still arrive through
+  // the socket quiet refresh, which also drops the other cached batches.
+  const BATCH_CACHE_TTL_MS = 10 * 60 * 1000;
+  const BATCH_CACHE_MAX = 6;
+  const batchKey = `${startDate}|${endDate}|${batchScopeDept}|${batchScopeCat}|${batchScopeStatus}`;
+
+  // Snapshot the batch once every row has finished loading
   useEffect(() => {
-    if (viewMode === 'multiple' && startDate && endDate) fetchAllUsersDTR();
+    const key = currentBatchKeyRef.current;
+    if (viewMode !== 'multiple' || !key || key !== batchKey) return;
+    if (!allUsersDTR.length || allUsersDTR.some((u) => u._loading)) return;
+    const cache = batchCacheRef.current;
+    cache.delete(key); // re-insert = most recent
+    cache.set(key, {
+      at: Date.now(),
+      users: allUsersDTR,
+      officialTimes: batchOfficialTimesMap,
+      computedLate: computedLateByEmployee,
+      halfDays: halfDayDatesByEmployee,
+      printStatus: printStatusMap,
+    });
+    while (cache.size > BATCH_CACHE_MAX) cache.delete(cache.keys().next().value);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startDate, endDate, viewMode, batchScopeDept, batchScopeCat, batchScopeStatus]);
+  }, [allUsersDTR, batchOfficialTimesMap, computedLateByEmployee, halfDayDatesByEmployee, printStatusMap]);
+
+  // Load when the month or the load scope (Department / Employment Category /
+  // Employee Status) changes — from the cache when that batch was loaded recently.
+  useEffect(() => {
+    if (viewMode !== 'multiple' || !startDate || !endDate) return;
+    // Already showing this batch (e.g. Individual → Batch and back): keep it.
+    if (currentBatchKeyRef.current === batchKey && allUsersDTR.length) return;
+    const cached = batchCacheRef.current.get(batchKey);
+    currentBatchKeyRef.current = batchKey;
+    if (cached && Date.now() - cached.at < BATCH_CACHE_TTL_MS) {
+      if (abortControllerRef.current) abortControllerRef.current.abort();
+      batchFetchGenRef.current += 1; // any in-flight load for another month is now stale
+      setAllUsersDTR(cached.users);
+      setBatchOfficialTimesMap(cached.officialTimes);
+      setComputedLateByEmployee(cached.computedLate);
+      setHalfDayDatesByEmployee(cached.halfDays);
+      setPrintStatusMap(cached.printStatus);
+      setSelectedUsers(new Set());
+      setCurrentPage(1);
+      setLoadingAllUsers(false);
+      setLoadPhase('');
+      return;
+    }
+    fetchAllUsersDTR();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batchKey, viewMode]);
 
   // Employment categories in use (Employment Category module labels) for the scope picker
   const batchScopeCatOptions = useMemo(() => {
@@ -2704,11 +2751,13 @@ const DailyTimeRecordFaculty = ({
           (u.departmentCode || u.rawUser?.departmentCode || '') ===
           departmentFilter,
       );
+    // Employment Category module label ("Group | Type"), not the old numeric id
     if (employmentCategoryFilter !== '')
       filtered = filtered.filter((u) => {
-        const cat =
-          u.rawUser?.employmentCategory ?? u.employmentCategory ?? null;
-        return cat !== null && cat === parseInt(employmentCategoryFilter);
+        const label = empCatMap[String(u.employeeNumber)]?.label || '';
+        return employmentCategoryFilter === '__UNASSIGNED__'
+          ? !label
+          : label === employmentCategoryFilter;
       });
     if (registrationStatusFilter)
       filtered = filtered.filter(
@@ -2756,7 +2805,10 @@ const DailyTimeRecordFaculty = ({
         ).toLowerCase();
         const emp = String(u.employeeNumber || '').toLowerCase();
         const device = (u.devicePersonName || '').toLowerCase();
-        return full.includes(q) || emp.includes(q) || device.includes(q);
+        const category = (empCatMap[String(u.employeeNumber)]?.label || '').toLowerCase();
+        const dept = String(u.departmentCode || u.rawUser?.departmentCode || '').toLowerCase();
+        return full.includes(q) || emp.includes(q) || device.includes(q)
+          || category.includes(q) || dept.includes(q);
       });
     }
     return sortEmployeesByLastName(filtered, (u) => u.fullName || u.lastName || u);
@@ -2767,6 +2819,7 @@ const DailyTimeRecordFaculty = ({
     printStatusMap,
     departmentFilter,
     employmentCategoryFilter,
+    empCatMap,
     registrationStatusFilter,
     dtrType,
     batchSearchTrimmed,
@@ -2864,25 +2917,19 @@ const DailyTimeRecordFaculty = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode, startDate, endDate, pageNeedsHydrateKey, dtrType]);
 
-  const getCategoryLabel = (id) =>
-    EMPLOYMENT_CATEGORY_OPTIONS.find(
-      (option) => String(option.value) === String(id),
-    )?.label || 'Unknown';
-  const getCategoryShortLabel = (id) =>
-    EMPLOYMENT_CATEGORY_OPTIONS.find(
-      (option) => String(option.value) === String(id),
-    )?.shortLabel || getCategoryLabel(id);
-  const getCategoryColor = (id) =>
-    EMPLOYMENT_CATEGORY_OPTIONS.find(
-      (option) => String(option.value) === String(id),
-    )?.color || '#757575';
+  /** An employee's category from the Employment Category module: { label, colorHex } or null. */
+  const employmentCategoryOf = (empNum) => {
+    const c = empCatMap[String(empNum ?? '').trim()];
+    return c?.label ? c : null;
+  };
+  const safeCategoryColor = (hex) => (/^#[0-9A-Fa-f]{3,8}$/.test(String(hex || '').trim()) ? hex : '#757575');
 
   const resolveBulkPdfFilterLabels = () => ({
     department: departmentFilter || '',
     employmentCategory:
-      employmentCategoryFilter !== ''
-        ? getCategoryShortLabel(employmentCategoryFilter)
-        : '',
+      employmentCategoryFilter === '__UNASSIGNED__'
+        ? 'No category'
+        : employmentCategoryFilter || '',
   });
 
   const resolvePdfFileName = (users) => {
@@ -5607,13 +5654,19 @@ const DailyTimeRecordFaculty = ({
                                       );
                                       setCurrentPage(1);
                                     }}
-                                    sx={selectSx}
+                                    sx={{ ...selectSx, maxWidth: 260 }}
                                     displayEmpty
-                                    renderValue={(v) =>
-                                      v !== ''
-                                        ? getCategoryLabel(v)
-                                        : 'All Categories'
-                                    }
+                                    renderValue={(v) => {
+                                      if (v === '') return 'All Categories';
+                                      if (v === '__UNASSIGNED__') return 'No category';
+                                      const c = batchScopeCatOptions.find((o) => o.label === v);
+                                      return (
+                                        <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75, maxWidth: '100%' }}>
+                                          <Box component="span" sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: safeCategoryColor(c?.colorHex), flexShrink: 0 }} />
+                                          <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v}</Box>
+                                        </Box>
+                                      );
+                                    }}
                                   >
                                     <MenuItem
                                       value=""
@@ -5621,17 +5674,23 @@ const DailyTimeRecordFaculty = ({
                                     >
                                       All Categories
                                     </MenuItem>
-                                    {EMPLOYMENT_CATEGORY_OPTIONS.map(
-                                      (option) => (
-                                        <MenuItem
-                                          key={option.value}
-                                          value={option.value}
-                                          sx={{ fontSize: '0.82rem' }}
-                                        >
-                                          {option.label}
-                                        </MenuItem>
-                                      ),
-                                    )}
+                                    <MenuItem
+                                      value="__UNASSIGNED__"
+                                      sx={{ fontSize: '0.82rem' }}
+                                    >
+                                      No category
+                                    </MenuItem>
+                                    {/* Employment Category module labels */}
+                                    {batchScopeCatOptions.map((option) => (
+                                      <MenuItem
+                                        key={option.label}
+                                        value={option.label}
+                                        sx={{ fontSize: '0.82rem', gap: 0.75 }}
+                                      >
+                                        <Box component="span" sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: safeCategoryColor(option.colorHex), flexShrink: 0, display: 'inline-block' }} />
+                                        {option.label}
+                                      </MenuItem>
+                                    ))}
                                   </Select>
                                 </FormControl>
                               </Box>
@@ -6035,36 +6094,35 @@ const DailyTimeRecordFaculty = ({
                                         <TableCell>
                                           {isLoading ? (
                                             '—'
-                                          ) : (
-                                            <Chip
-                                              label={getCategoryLabel(
-                                                user.rawUser
-                                                  ?.employmentCategory ??
-                                                  user.employmentCategory ??
-                                                  null,
-                                              )}
-                                              size="small"
-                                              sx={{
-                                                bgcolor: alpha(
-                                                  getCategoryColor(
-                                                    user.rawUser
-                                                      ?.employmentCategory ??
-                                                      user.employmentCategory,
-                                                  ),
-                                                  0.1,
-                                                ),
-                                                color: getCategoryColor(
-                                                  user.rawUser
-                                                    ?.employmentCategory ??
-                                                    user.employmentCategory,
-                                                ),
-                                                border: `1px solid ${getCategoryColor(user.rawUser?.employmentCategory ?? user.employmentCategory)}`,
-                                                fontWeight: 600,
-                                                fontSize: '0.68rem',
-                                                height: 20,
-                                              }}
-                                            />
-                                          )}
+                                          ) : (() => {
+                                            // Employment Category module (label + colour)
+                                            const cat = employmentCategoryOf(user.employeeNumber);
+                                            if (!cat) {
+                                              return (
+                                                <Typography sx={{ fontSize: '0.72rem', color: T.faint, fontStyle: 'italic' }}>
+                                                  Not set
+                                                </Typography>
+                                              );
+                                            }
+                                            const color = safeCategoryColor(cat.colorHex);
+                                            return (
+                                              <Tooltip title={cat.label}>
+                                                <Chip
+                                                  label={cat.label}
+                                                  size="small"
+                                                  sx={{
+                                                    bgcolor: alpha(color, 0.1),
+                                                    color,
+                                                    border: `1px solid ${alpha(color, 0.5)}`,
+                                                    fontWeight: 600,
+                                                    fontSize: '0.68rem',
+                                                    height: 20,
+                                                    maxWidth: 220,
+                                                  }}
+                                                />
+                                              </Tooltip>
+                                            );
+                                          })()}
                                         </TableCell>
                                         <TableCell>
                                           {isLoading ? (

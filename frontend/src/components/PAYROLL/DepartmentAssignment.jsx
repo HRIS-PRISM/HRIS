@@ -1865,9 +1865,9 @@ const DepartmentAssignment = () => {
                           <Box component="span" sx={{ fontWeight: 700, color: T.text }}>Already assigned?</Box> — a field left blank keeps what the employee already has, so you can set the department and the budget in separate steps. To clear a value, open the employee’s record and use Edit.
                         </Typography>
                       </Box>
-                      <Typography sx={{ fontSize: '0.67rem', color: T.faint, mt: 0.85, pt: 0.85, borderTop: `1px solid ${T.hairline}`, lineHeight: 1.5 }}>
+                      {/* <Typography sx={{ fontSize: '0.67rem', color: T.faint, mt: 0.85, pt: 0.85, borderTop: `1px solid ${T.hairline}`, lineHeight: 1.5 }}>
                         Choosing above swaps the list. Departments come from the Appendix 33 layout; employment categories come from the Employment Category set-up (same list as the Employee Category module). Only targets enabled in the Appendix 33 layout change the export, and this field never changes the department the employee is assigned to.
-                      </Typography>
+                      </Typography> */}
                     </Box>
                   </Box>
                 </Box>
