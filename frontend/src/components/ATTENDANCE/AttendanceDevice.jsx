@@ -934,6 +934,23 @@ const RestoredStatusChip = () => {
   );
 };
 
+/** /users row -> the fields the All Users list needs (name as "First Middle Last Ext"). */
+const toRegisteredUser = (u) => {
+  const employeeNumber = String(u?.employeeNumber ?? '').trim();
+  if (!employeeNumber) return null;
+  const name = [u.firstName, u.middleName, u.lastName, u.nameExtension]
+    .map((p) => String(p || '').trim())
+    .filter(Boolean)
+    .join(' ');
+  return {
+    employeeNumber,
+    name,
+    firstName: String(u.firstName || '').trim(),
+    lastName: String(u.lastName || '').trim(),
+    status: u.status || 'Default',
+  };
+};
+
 const formatFullName = (fullName) => {
   if (!fullName) return '';
   const cleaned = String(fullName).trim().replace(/\s+/g, ' ');
@@ -1260,6 +1277,14 @@ const ViewAttendanceRecord = () => {
   const [selectedLockedRows, setSelectedLockedRows] = useState(() => new Set());
   const [bulkRestoring, setBulkRestoring] = useState(false);
   const [registeredEmployeeSet, setRegisteredEmployeeSet] = useState(() => new Set());
+  // Registered users with name + status (from /users) — the All Users list is
+  // built from these, Active employees first.
+  const [registeredUsers, setRegisteredUsers] = useState([]);
+  // All Users: 'Active' (default) | '' (everyone) | '__NOT_ACTIVE__'
+  const [userStatusFilter, setUserStatusFilter] = useState('Active');
+  // True while the non-active employees are still being added in the background
+  const [loadingOtherUsers, setLoadingOtherUsers] = useState(false);
+  const allUsersLoadIdRef = useRef(0);
   // Top-level page tabs: "device" (Device Record — filter + table/insights) vs "facial" (Facial Live list only)
   const [topTab, setTopTab] = useState('device');
   // Sub-tab within the Device Record tab
@@ -1432,6 +1457,7 @@ const ViewAttendanceRecord = () => {
             if (num) next.add(num);
           });
           setRegisteredEmployeeSet(next);
+          setRegisteredUsers(list.map(toRegisteredUser).filter(Boolean));
         }
       } catch (err) {
         console.error('Error loading employee reference data:', err);
@@ -1521,6 +1547,8 @@ const ViewAttendanceRecord = () => {
         return dc === departmentCodeFilter;
       });
     }
+    if (userStatusFilter === 'Active') f = f.filter((u) => u.status === 'Active');
+    else if (userStatusFilter === '__NOT_ACTIVE__') f = f.filter((u) => u.status !== 'Active');
     if (empCatFilter) {
       f = f.filter((u) => {
         const label = empCatMap?.[String(u.employeeNumber)]?.label || '';
@@ -1538,6 +1566,7 @@ const ViewAttendanceRecord = () => {
     departmentAssignmentsMap,
     empCatFilter,
     empCatMap,
+    userStatusFilter,
     trimmedSearch,
   ]);
 
@@ -1826,88 +1855,61 @@ const ViewAttendanceRecord = () => {
       showSnackbar('Please select a month first', 'warning');
       return;
     }
+    // A newer load (or a realtime refresh) makes this one's late results stale
+    const loadId = ++allUsersLoadIdRef.current;
+    const isCurrent = () => allUsersLoadIdRef.current === loadId;
+
     setLoadingAllUsers(true);
-    if (syncDevice) {
-      setLoadPhase('Syncing device records to database…');
-    } else {
-      setLoadPhase('Refreshing employee list…');
-    }
+    setLoadingOtherUsers(false);
+    setLoadPhase('Loading active employees…');
+
+    const toRow = (u, recordsCount, deviceName = '') => {
+      const dn = u.name || deviceName || u.employeeNumber || 'Unknown';
+      return {
+        employeeNumber: u.employeeNumber,
+        firstName: u.firstName || dn.split(' ')[0],
+        lastName: u.lastName || dn.split(' ').slice(1).join(' '),
+        fullName: dn,
+        status: u.status || 'Default',
+        recordsCount,
+        hasRecords: recordsCount > 0,
+      };
+    };
+
+    let countByPerson = new Map();
+    let users = registeredUsers;
     try {
-      if (syncDevice) {
-        const bulkRes = await axios.post(
-          `${API_BASE_URL}/attendance/api/bulk-auto-save`,
-          { startDate, endDate },
-          getAuthHeaders(),
-        );
-        const bulkMsg = bulkRes.data?.message;
-        if (bulkMsg) showSnackbar(bulkMsg, 'success');
-      }
-      setLoadPhase('Loading employee list…');
-      const [usersRes, summaryRes] = await Promise.all([
-        axios.get(
-          `${API_BASE_URL}/attendance/api/all-device-users`,
-          getAuthHeaders(),
-        ),
+      // 1. Record counts for the period + the registered users (already loaded
+      //    with the page; fetched here only if that has not finished yet).
+      const [summaryRes, usersRes] = await Promise.all([
         axios.post(
           `${API_BASE_URL}/attendance/api/device-attendance-summary`,
           { startDate, endDate },
           getAuthHeaders(),
         ),
+        users.length ? Promise.resolve(null) : axios.get(`${API_BASE_URL}/users`, getAuthHeaders()),
       ]);
-
-      let users = usersRes.data || [];
-      if (registeredEmployeeSet.size > 0) {
-        users = users.filter((u) =>
-          registeredEmployeeSet.has(String(u?.PersonID ?? '').trim()),
-        );
+      if (!isCurrent()) return;
+      if (usersRes) {
+        const list = Array.isArray(usersRes.data) ? usersRes.data : usersRes.data?.data || [];
+        users = list.map(toRegisteredUser).filter(Boolean);
+        setRegisteredUsers(users);
       }
-      const summaryRows = Array.isArray(summaryRes.data)
-        ? summaryRes.data
-        : [];
+      countByPerson = new Map(
+        (Array.isArray(summaryRes.data) ? summaryRes.data : [])
+          .filter((row) => row?.PersonID != null && row.PersonID !== '')
+          .map((row) => [String(row.PersonID).trim(), Number(row.recordsCount) || 0]),
+      );
 
-      let dm = departmentAssignmentsMap || {};
-      if (
-        departmentCodeFilter &&
-        Object.keys(dm).length === 0 &&
-        !loadingDepartments
-      ) {
-        dm = await fetchDepartmentsAndAssignments();
-      }
-      if (departmentCodeFilter) {
-        users = users.filter((u) => {
-          const dc = dm[String(u?.PersonID ?? '')] || '';
-          if (departmentCodeFilter === '__UNASSIGNED__') return !dc;
-          return dc === departmentCodeFilter;
-        });
-      }
-
-      const countByPerson = new Map();
-      for (const row of summaryRows) {
-        const pid = row?.PersonID;
-        if (pid == null || pid === '') continue;
-        const pidStr = String(pid).trim();
-        if (registeredEmployeeSet.size > 0 && !registeredEmployeeSet.has(pidStr)) continue;
-        countByPerson.set(pidStr, Number(row.recordsCount) || 0);
-      }
-
-      const all = users.map((user) => {
-        const empNo = user?.PersonID;
-        const dn = user?.PersonName || empNo || 'Unknown';
-        const n = countByPerson.get(String(empNo)) ?? 0;
-        return {
-          employeeNumber: empNo,
-          firstName: dn.split(' ')[0],
-          lastName: dn.split(' ').slice(1).join(' '),
-          fullName: dn,
-          recordsCount: n,
-          hasRecords: n > 0,
-        };
-      });
-
-      setAllUsersDTR(sortEmployeesByLastName(all));
-      const withRecs = all.filter((u) => u.hasRecords).length;
+      // 2. Active employees first — shown straight away.
+      const active = users
+        .filter((u) => u.status === 'Active')
+        .map((u) => toRow(u, countByPerson.get(u.employeeNumber) ?? 0));
+      setAllUsersDTR(sortEmployeesByLastName(active));
+      if (syncDevice) setCurrentPage(1); // not on the automatic realtime refresh
+      const withRecs = active.filter((u) => u.hasRecords).length;
       showSnackbar(
-        `Loaded ${all.length} registered users (${withRecs} with device records in this period)`,
+        `Loaded ${active.length} active employees (${withRecs} with device records in this period)`,
         'success',
       );
     } catch (err) {
@@ -1916,9 +1918,46 @@ const ViewAttendanceRecord = () => {
         'Error fetching users: ' + (err.response?.data?.error || err.message),
         'error',
       );
-    } finally {
-      setLoadingAllUsers(false);
-      setLoadPhase('');
+      if (isCurrent()) { setLoadingAllUsers(false); setLoadPhase(''); }
+      return;
+    }
+    setLoadingAllUsers(false);
+    setLoadPhase('');
+
+    // 3. Background: the other (non-active) employees who use the device. The
+    //    all-history device list is the slow part, so it no longer blocks the page.
+    setLoadingOtherUsers(true);
+    axios.get(`${API_BASE_URL}/attendance/api/all-device-users`, getAuthHeaders())
+      .then((res) => {
+        if (!isCurrent()) return;
+        const deviceNames = new Map(
+          (Array.isArray(res.data) ? res.data : [])
+            .map((d) => [String(d?.PersonID ?? '').trim(), d?.PersonName || '']),
+        );
+        const others = users
+          .filter((u) => u.status !== 'Active' && deviceNames.has(u.employeeNumber))
+          .map((u) => toRow(u, countByPerson.get(u.employeeNumber) ?? 0, deviceNames.get(u.employeeNumber)));
+        setAllUsersDTR((prev) => {
+          const have = new Set(prev.map((p) => String(p.employeeNumber)));
+          return sortEmployeesByLastName([...prev, ...others.filter((o) => !have.has(o.employeeNumber))]);
+        });
+      })
+      .catch((err) => console.error('Error loading non-active device users:', err))
+      .finally(() => { if (isCurrent()) setLoadingOtherUsers(false); });
+
+    // 4. Background: copy the period's device records into the attendance table.
+    //    Counts above come straight from the device table, so nothing waits on
+    //    this; if it changes anything, the realtime refresh reloads the list.
+    if (syncDevice) {
+      axios.post(`${API_BASE_URL}/attendance/api/bulk-auto-save`, { startDate, endDate }, getAuthHeaders())
+        .then((bulkRes) => {
+          const bulkMsg = bulkRes.data?.message;
+          if (bulkMsg && isCurrent()) showSnackbar(bulkMsg, 'success');
+        })
+        .catch((err) => {
+          console.error('Error syncing device records:', err);
+          if (isCurrent()) showSnackbar('Device records could not be synced: ' + (err.response?.data?.error || err.message), 'warning');
+        });
     }
   };
 
@@ -2655,6 +2694,27 @@ const goToComputationModule = async (selectedComputationType) => {
                 ))}
               </Select>
             </FormControl>
+          </Box>
+          <FormSectionLabel icon={FilterList}>Employee Status</FormSectionLabel>
+          <Box sx={{ mb: 0.75 }}>
+            <FormControl fullWidth size="small">
+              <Select
+                value={userStatusFilter}
+                onChange={(e) => { setUserStatusFilter(e.target.value); setCurrentPage(1); }}
+                displayEmpty
+                sx={compactSelectSx}
+              >
+                <MenuItem value="Active" sx={{ fontSize: '0.76rem' }}>Active employees</MenuItem>
+                <MenuItem value="" sx={{ fontSize: '0.76rem' }}>All employees</MenuItem>
+                <MenuItem value="__NOT_ACTIVE__" sx={{ fontSize: '0.76rem' }}>Not active</MenuItem>
+              </Select>
+            </FormControl>
+            {loadingOtherUsers && userStatusFilter !== 'Active' && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mt: 0.5, ml: 0.25 }}>
+                <CircularProgress size={10} sx={{ color: T.accent }} />
+                <Typography sx={{ fontSize: '0.66rem', color: T.muted }}>Loading non-active employees…</Typography>
+              </Box>
+            )}
           </Box>
           <Button
             variant="contained"
