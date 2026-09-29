@@ -1231,6 +1231,8 @@ const ViewAttendanceRecord = () => {
   const [departmentAssignmentsMap, setDepartmentAssignmentsMap] = useState({});
   const [departmentCodeFilter, setDepartmentCodeFilter] = useState('');
   const [loadingDepartments, setLoadingDepartments] = useState(false);
+  // All Users: employment category filter (labels come from empCatMap)
+  const [empCatFilter, setEmpCatFilter] = useState('');
 
   const [rowsPerPage, setRowsPerPage] = useState(20);
   const [currentPage, setCurrentPage] = useState(1);
@@ -1519,6 +1521,13 @@ const ViewAttendanceRecord = () => {
         return dc === departmentCodeFilter;
       });
     }
+    if (empCatFilter) {
+      f = f.filter((u) => {
+        const label = empCatMap?.[String(u.employeeNumber)]?.label || '';
+        if (empCatFilter === '__UNASSIGNED__') return !label;
+        return label === empCatFilter;
+      });
+    }
     if (!trimmedSearch) return f;
     const q = trimmedSearch.toLowerCase();
     return f.filter((u) => u._searchText.includes(q));
@@ -1527,8 +1536,21 @@ const ViewAttendanceRecord = () => {
     recordFilter,
     departmentCodeFilter,
     departmentAssignmentsMap,
+    empCatFilter,
+    empCatMap,
     trimmedSearch,
   ]);
+
+  // Employment categories in use, for the All Users category picker
+  const empCatOptions = useMemo(() => {
+    const seen = new Map();
+    Object.values(empCatMap || {}).forEach((c) => {
+      if (c?.label && !seen.has(c.label)) seen.set(c.label, c.colorHex || '#757575');
+    });
+    return [...seen.entries()]
+      .map(([label, colorHex]) => ({ label, colorHex }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [empCatMap]);
 
   const selectedCountInFiltered = useMemo(() => {
     let c = 0;
@@ -2609,6 +2631,26 @@ const goToComputationModule = async (selectedComputationType) => {
                 {departments.map((d) => (
                   <MenuItem key={d.id ?? d.code} value={d.code} sx={{ fontSize: '0.76rem' }}>
                     {d.code}{d.description ? ` — ${d.description}` : ''}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Box>
+          <FormSectionLabel icon={FilterList}>Employment Category</FormSectionLabel>
+          <Box sx={{ mb: 0.75 }}>
+            <FormControl fullWidth size="small">
+              <Select
+                value={empCatFilter}
+                onChange={(e) => { setEmpCatFilter(e.target.value); setCurrentPage(1); }}
+                displayEmpty
+                sx={compactSelectSx}
+              >
+                <MenuItem value="" sx={{ fontSize: '0.76rem' }}>All Employment Categories</MenuItem>
+                <MenuItem value="__UNASSIGNED__" sx={{ fontSize: '0.76rem' }}>Unassigned</MenuItem>
+                {empCatOptions.map((c) => (
+                  <MenuItem key={c.label} value={c.label} sx={{ fontSize: '0.76rem', gap: 0.75 }}>
+                    <Box component="span" sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: c.colorHex, flexShrink: 0, display: 'inline-block' }} />
+                    {c.label}
                   </MenuItem>
                 ))}
               </Select>
