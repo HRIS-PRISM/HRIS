@@ -789,6 +789,13 @@ const DailyTimeRecordFaculty = ({
   const [singlePrintStatus, setSinglePrintStatus] = useState('');
   const [employeeSearchLoading, setEmployeeSearchLoading] = useState(false);
   const [departmentAssignmentsMap, setDepartmentAssignmentsMap] = useState({});
+  // Batch Printing load scope — chosen before a month is loaded, so only these
+  // employees are fetched and hydrated (same filters as Attendance Device → All Users).
+  const [batchScopeDept, setBatchScopeDept] = useState('');
+  const [batchScopeCat, setBatchScopeCat] = useState('');
+  const [batchScopeStatus, setBatchScopeStatus] = useState('Active'); // 'Active' | '' | '__NOT_ACTIVE__'
+  // employeeNumber -> users.status ('Active', 'Inactive', 'Default', …)
+  const [userStatusMap, setUserStatusMap] = useState(null);
   const [empCatMap, setEmpCatMap] = useState({});
   const [sexMap, setSexMap] = useState({});
 
@@ -813,12 +820,26 @@ const DailyTimeRecordFaculty = ({
     let cancelled = false;
     (async () => {
       try {
-        const [assignRes, empCatRes, personsRes] = await Promise.allSettled([
+        const [assignRes, empCatRes, personsRes, usersRes] = await Promise.allSettled([
           axios.get(`${API_BASE_URL}/api/department-assignment`, getAuthHeaders()),
           axios.get(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`, getAuthHeaders()),
           axios.get(`${API_BASE_URL}/personalinfo/person_table`, getAuthHeaders()),
+          axios.get(`${API_BASE_URL}/users`, getAuthHeaders()),
         ]);
         if (cancelled) return;
+        // Employee status for the Batch Printing "Employee Status" scope; {} on
+        // failure so the batch never waits on it forever.
+        {
+          const statusMap = {};
+          if (usersRes.status === 'fulfilled') {
+            const list = Array.isArray(usersRes.value.data) ? usersRes.value.data : usersRes.value.data?.data || [];
+            list.forEach((u) => {
+              const num = String(u?.employeeNumber ?? '').trim();
+              if (num) statusMap[num] = u.status || 'Default';
+            });
+          }
+          setUserStatusMap(statusMap);
+        }
         if (assignRes.status === 'fulfilled') {
           const map = {};
           (Array.isArray(assignRes.value.data) ? assignRes.value.data : []).forEach((a) => {
@@ -2097,14 +2118,55 @@ const DailyTimeRecordFaculty = ({
       ]);
       if (signal.aborted || !isLatest()) return;
 
-      const empList = empRes.data || [];
+      // Status lookup normally arrives with the page; fetch it now if a month was
+      // picked before it finished, so the "Active" scope never empties the batch.
+      let statusMap = userStatusMap;
+      if (batchScopeStatus && statusMap == null) {
+        try {
+          const uRes = await axios.get(`${API_BASE_URL}/users`, cfg());
+          const list = Array.isArray(uRes.data) ? uRes.data : uRes.data?.data || [];
+          statusMap = {};
+          list.forEach((u) => {
+            const num = String(u?.employeeNumber ?? '').trim();
+            if (num) statusMap[num] = u.status || 'Default';
+          });
+          setUserStatusMap(statusMap);
+        } catch {
+          statusMap = null; // unknown — skip the status scope rather than drop everyone
+        }
+        if (signal.aborted || !isLatest()) return;
+      }
+
+      // Load scope (Department / Employment Category / Employee Status chosen in
+      // the left panel): only these employees are hydrated, which is what makes
+      // a filtered batch fast.
+      const inBatchScope = (emp) => {
+        const key = String(emp.personID ?? '').trim();
+        if (batchScopeStatus && statusMap) {
+          const isActive = statusMap[key] === 'Active';
+          if (batchScopeStatus === 'Active' ? !isActive : isActive) return false;
+        }
+        if (batchScopeDept) {
+          const dc = departmentAssignmentsMap[key] || '';
+          if (batchScopeDept === '__UNASSIGNED__' ? dc : dc !== batchScopeDept) return false;
+        }
+        if (batchScopeCat) {
+          const label = empCatMap[key]?.label || '';
+          if (batchScopeCat === '__UNASSIGNED__' ? label : label !== batchScopeCat) return false;
+        }
+        return true;
+      };
+      const fullList = empRes.data || [];
+      const empList = fullList.filter(inBatchScope);
       if (empList.length === 0) {
         if (!quiet) {
           setAllUsersDTR([]);
           setBatchOfficialTimesMap({});
           showAlert(
             'No Records Found',
-            'No attendance records found for the selected date range.',
+            fullList.length
+              ? 'No employees match the selected Department / Employment Category / Employee Status for this date range.'
+              : 'No attendance records found for the selected date range.',
           );
         }
         return;
@@ -2385,12 +2447,29 @@ const DailyTimeRecordFaculty = ({
     departmentAssignmentsMap,
     empCatMap,
     refreshHolidaysAndSuspensions,
+    batchScopeDept,
+    batchScopeCat,
+    batchScopeStatus,
+    userStatusMap,
   ]);
 
+  // Reload when the month or the load scope (Department / Employment Category /
+  // Employee Status) changes — the batch only ever holds the chosen employees.
   useEffect(() => {
     if (viewMode === 'multiple' && startDate && endDate) fetchAllUsersDTR();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startDate, endDate, viewMode]);
+  }, [startDate, endDate, viewMode, batchScopeDept, batchScopeCat, batchScopeStatus]);
+
+  // Employment categories in use (Employment Category module labels) for the scope picker
+  const batchScopeCatOptions = useMemo(() => {
+    const seen = new Map();
+    Object.values(empCatMap || {}).forEach((c) => {
+      if (c?.label && !seen.has(c.label)) seen.set(c.label, c.colorHex || '#757575');
+    });
+    return [...seen.entries()]
+      .map(([label, colorHex]) => ({ label, colorHex }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [empCatMap]);
 
   // ─── Month click ────────────────────────────────────────────────────────
   const handleMonthClick = (idx) => {
@@ -4216,6 +4295,83 @@ const DailyTimeRecordFaculty = ({
           Show official time on DTR
         </Typography>
       </Box>
+
+      {/* Batch load scope — only these employees are loaded for the month.
+          Compact 2-column layout so the filter panel fits without scrolling. */}
+      {viewMode === 'multiple' && (() => {
+        const scopeLabelSx = {
+          fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.08em',
+          textTransform: 'uppercase', color: alpha(T.accent, 0.5), mb: 0.4,
+        };
+        const scopeSelectSx = {
+          ...selectSx,
+          fontSize: '0.76rem',
+          '& .MuiSelect-select': { py: '6px', pl: 1.25, display: 'flex', alignItems: 'center', gap: 0.75 },
+        };
+        const itemSx = { fontSize: '0.78rem' };
+        return (
+          <Box sx={{ mt: 1.75 }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, mb: 1 }}>
+              <Box sx={{ minWidth: 0 }}>
+                <Typography sx={scopeLabelSx}>Department</Typography>
+                <FormControl fullWidth size="small">
+                  <Select value={batchScopeDept} onChange={(e) => setBatchScopeDept(e.target.value)}
+                    displayEmpty sx={scopeSelectSx}
+                    renderValue={(v) => (v === '' ? 'All' : v === '__UNASSIGNED__' ? 'Unassigned' : v)}>
+                    <MenuItem value="" sx={itemSx}>All Departments</MenuItem>
+                    <MenuItem value="__UNASSIGNED__" sx={itemSx}>Unassigned</MenuItem>
+                    {departments.map((d) => (
+                      <MenuItem key={d.code} value={d.code} sx={itemSx}>
+                        {d.code}{d.description ? ` — ${d.description}` : ''}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Box>
+              <Box sx={{ minWidth: 0 }}>
+                <Typography sx={scopeLabelSx}>Employee Status</Typography>
+                <FormControl fullWidth size="small">
+                  <Select value={batchScopeStatus} onChange={(e) => setBatchScopeStatus(e.target.value)}
+                    displayEmpty sx={scopeSelectSx}
+                    renderValue={(v) => (v === 'Active' ? 'Active' : v === '__NOT_ACTIVE__' ? 'Not active' : 'All')}>
+                    <MenuItem value="Active" sx={itemSx}>Active employees</MenuItem>
+                    <MenuItem value="" sx={itemSx}>All employees</MenuItem>
+                    <MenuItem value="__NOT_ACTIVE__" sx={itemSx}>Not active</MenuItem>
+                  </Select>
+                </FormControl>
+              </Box>
+            </Box>
+            <Typography sx={scopeLabelSx}>Employment Category</Typography>
+            <FormControl fullWidth size="small">
+              <Select value={batchScopeCat} onChange={(e) => setBatchScopeCat(e.target.value)}
+                displayEmpty sx={scopeSelectSx}
+                renderValue={(v) => {
+                  if (v === '') return 'All Employment Categories';
+                  if (v === '__UNASSIGNED__') return 'Unassigned';
+                  const c = batchScopeCatOptions.find((o) => o.label === v);
+                  return (
+                    <>
+                      <Box component="span" sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: c?.colorHex || T.muted, flexShrink: 0 }} />
+                      <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v}</Box>
+                    </>
+                  );
+                }}>
+                <MenuItem value="" sx={itemSx}>All Employment Categories</MenuItem>
+                <MenuItem value="__UNASSIGNED__" sx={itemSx}>Unassigned</MenuItem>
+                {batchScopeCatOptions.map((c) => (
+                  <MenuItem key={c.label} value={c.label} sx={{ ...itemSx, gap: 0.75 }}>
+                    <Box component="span" sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: c.colorHex, flexShrink: 0, display: 'inline-block' }} />
+                    {c.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <Typography sx={{ fontSize: '0.64rem', color: T.muted, mt: 0.5, lineHeight: 1.35 }}>
+              Only these employees are loaded; changing a filter reloads the batch.
+            </Typography>
+          </Box>
+        );
+      })()}
 
       {viewMode === 'multiple' && (
         <Box
