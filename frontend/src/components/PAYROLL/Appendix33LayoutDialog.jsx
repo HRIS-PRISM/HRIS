@@ -317,16 +317,24 @@ const Appendix33LayoutDialog = ({ open, onClose, getAuthHeaders, onMessage, onBu
     if (!empTypesByGroup[group]) empTypesByGroup[group] = [];
     empTypesByGroup[group].push(row);
   });
-  // Dedupe by typeName (same subcategory can appear under multiple classifications)
+  // One row per typeName: the export maps categories by subcategory name only, so
+  // e.g. "Academic 30 | Tempo" and "Academic 40 | Tempo" share one "Tempo" block.
+  // Every group the name covers is listed so that is visible here.
   const uniqueEmpTypes = [];
-  const seenTypeName = new Set();
+  const byTypeName = new Map();
   Object.keys(empTypesByGroup).sort().forEach((group) => {
     empTypesByGroup[group].forEach((row) => {
-      if (seenTypeName.has(row.typeName)) return;
-      seenTypeName.add(row.typeName);
-      uniqueEmpTypes.push(row);
+      const existing = byTypeName.get(row.typeName);
+      if (existing) {
+        if (!existing.groups.includes(group)) existing.groups.push(group);
+        return;
+      }
+      const entry = { ...row, groups: [group] };
+      byTypeName.set(row.typeName, entry);
+      uniqueEmpTypes.push(entry);
     });
   });
+  uniqueEmpTypes.forEach((row) => { row.parentGroup = row.groups.join(' + '); });
   extraEmpMapped.forEach((typeName) => {
     uniqueEmpTypes.push({ id: `extra-${typeName}`, parentGroup: 'Mapped only', typeName });
   });
@@ -462,6 +470,7 @@ const Appendix33LayoutDialog = ({ open, onClose, getAuthHeaders, onMessage, onBu
                           <strong>{row.typeName}</strong>
                           <Box component="span" sx={{ color: T.muted, display: 'block', fontSize: '0.68rem' }}>
                             {row.parentGroup}
+                            {row.groups?.length > 1 ? ' · exported together' : ''}
                             {defaults.employmentTypes?.[row.typeName] ? ` · default ${defaults.employmentTypes[row.typeName]}` : ''}
                           </Box>
                         </Typography>

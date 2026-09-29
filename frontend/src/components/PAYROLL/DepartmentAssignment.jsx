@@ -5,6 +5,7 @@ import {
   Box, Grid, Modal, IconButton, CircularProgress, Snackbar, Alert,
   Paper, ToggleButton, ToggleButtonGroup, List, ListItem, Card,
   Typography, Fade, Avatar, Tooltip, Button, TextField, Chip, Checkbox, MenuItem, Pagination,
+  Radio, RadioGroup, FormControlLabel,
 } from '@mui/material';
 import {
   Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon,
@@ -263,6 +264,12 @@ const dropdownSx = (maxHeight = 220) => ({
   ...scrollbarSx,
 });
 
+/** Dropdown-style fields (department code, budget target) show a pointer, like a select. */
+const dropdownFieldSx = {
+  '& .MuiOutlinedInput-root, & .MuiOutlinedInput-input': { cursor: 'pointer' },
+  '& .Mui-disabled, & .Mui-disabled .MuiOutlinedInput-input': { cursor: 'default' },
+};
+
 const optionItemSx = {
   py: 0.9, px: 1.5, cursor: 'pointer',
   borderBottom: `1px solid ${T.hairline}`,
@@ -519,7 +526,7 @@ const DeptCodeAutocomplete = ({ value, onChange, departmentList = [], placeholde
     <Box sx={{ position: 'relative', width: '100%' }} ref={ref}>
       <FieldInput value={query} onChange={(e) => { setQuery(e.target.value); onChange(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)} onKeyDown={(e) => e.key === 'Escape' && setOpen(false)}
-        placeholder={placeholder} disabled={disabled} fullWidth autoComplete="off" size="small"
+        placeholder={placeholder} disabled={disabled} fullWidth autoComplete="off" size="small" sx={dropdownFieldSx}
         InputProps={{
           startAdornment: <DomainIcon sx={{ color: T.muted, mr: 1, fontSize: 16 }} />,
           endAdornment: <IconButton size="small" sx={{ color: T.muted }} onClick={() => setOpen((p) => !p)} disabled={disabled}>{open ? <ExpandLessIcon sx={{ fontSize: 16 }} /> : <ExpandMoreIcon sx={{ fontSize: 16 }} />}</IconButton>,
@@ -620,6 +627,7 @@ const BudgetTargetAutocomplete = ({
         fullWidth
         autoComplete="off"
         size="small"
+        sx={dropdownFieldSx}
         error={Boolean(validationError)}
         helperText={validationError}
         InputProps={{
@@ -711,37 +719,62 @@ const BudgetTargetAutocomplete = ({
   );
 };
 
-// ── Budget Target Kind Toggle ─────────────────────────────────
-// Two kinds of payroll charge target exist, so the field offers both: a department
-// tab, or an employment-category tab. Switching kinds changes the option list, so
-// the caller clears the chosen value on change.
-const BudgetKindToggle = ({ value, onChange, disabled = false }) => (
-  <ToggleButtonGroup
-    value={budgetTargetKind(value)}
-    exclusive
-    size="small"
-    disabled={disabled}
-    onChange={(_, v) => v && onChange(v)}
-    sx={{
-      mb: 1, p: '3px', bgcolor: T.canvasDeep, borderRadius: 1.25, gap: '3px',
-      '& .MuiToggleButtonGroup-grouped': { border: 0, borderRadius: '7px !important', m: 0 },
-      '& .MuiToggleButton-root': {
-        px: 1.5, py: 0.35,
-        fontSize: '0.72rem', fontWeight: 700, textTransform: 'none', letterSpacing: '0.005em',
-        color: T.muted,
-        '&:hover': { bgcolor: T.accentHover },
-        '&.Mui-selected': { bgcolor: '#fff', color: T.accent, boxShadow: T.soft },
-        '&.Mui-selected:hover': { bgcolor: '#fff' },
-      },
-    }}
-  >
-    <ToggleButton value={BUDGET_TARGET_DEPARTMENT}>Department</ToggleButton>
-    <ToggleButton value={BUDGET_TARGET_CATEGORY}>Employment Category</ToggleButton>
-  </ToggleButtonGroup>
+// ── Budget Target Kind (radio buttons) ────────────────────────
+// A plain choice of how the budget is assigned: by department tab or by
+// employment-category tab. Switching kinds changes the option list below, so the
+// caller clears the chosen value on change.
+const BudgetKindToggle = ({ value, onChange, disabled = false }) => {
+  const current = budgetTargetKind(value);
+  const labelSx = { fontSize: '0.78rem', fontWeight: 600, color: T.text, cursor: disabled ? 'default' : 'pointer', userSelect: 'none' };
+  const radioSx = { p: 0.5, color: T.accentBorder, '&.Mui-checked': { color: T.accent } };
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap', mb: 0.75 }}>
+      <Typography sx={{ fontSize: '0.74rem', fontWeight: 600, color: T.muted }}>Assign by:</Typography>
+      <RadioGroup
+        row
+        aria-label="Assign budget by"
+        value={current}
+        onChange={(e) => { if (e.target.value !== current) onChange(e.target.value); }}
+        sx={{ gap: 1.5 }}
+      >
+        <FormControlLabel
+          value={BUDGET_TARGET_DEPARTMENT}
+          disabled={disabled}
+          control={<Radio size="small" sx={radioSx} />}
+          label="Department"
+          sx={{ m: 0, cursor: disabled ? 'default' : 'pointer', '& .MuiFormControlLabel-label': labelSx }}
+        />
+        <FormControlLabel
+          value={BUDGET_TARGET_CATEGORY}
+          disabled={disabled}
+          control={<Radio size="small" sx={radioSx} />}
+          label="Employment Category"
+          sx={{ m: 0, cursor: disabled ? 'default' : 'pointer', '& .MuiFormControlLabel-label': labelSx }}
+        />
+      </RadioGroup>
+    </Box>
+  );
+};
+
+/** Employee number followed by their employment category (colour dot + label). */
+const EmpNumberLine = ({ number, category, fontSize = '0.72rem' }) => (
+  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
+    <Typography sx={{ fontSize, color: T.muted, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>#{number}</Typography>
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
+      <Box sx={{
+        width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+        bgcolor: category?.label ? hexColor(category.colorHex) : 'transparent',
+        border: category?.label ? 'none' : `1px dashed ${T.faint}`,
+      }} />
+      <Typography noWrap sx={{ fontSize, color: category?.label ? T.text : T.faint, fontStyle: category?.label ? 'normal' : 'italic' }}>
+        {category?.label || 'No employment category'}
+      </Typography>
+    </Box>
+  </Box>
 );
 
 // ── Single Employee Autocomplete ──────────────────────────────
-const SingleEmployeeAutocomplete = ({ value, onChange, selectedEmployee, onEmployeeSelect, placeholder = 'Search employee…', disabled = false }) => {
+const SingleEmployeeAutocomplete = ({ value, onChange, selectedEmployee, onEmployeeSelect, placeholder = 'Search employee…', disabled = false, empCatLabels = {} }) => {
   const [query, setQuery]     = useState('');
   const [employees, setEmps]  = useState([]);
   const [loading, setLoading] = useState(false);
@@ -756,8 +789,8 @@ const SingleEmployeeAutocomplete = ({ value, onChange, selectedEmployee, onEmplo
     document.addEventListener('mousedown', h); return () => document.removeEventListener('mousedown', h);
   }, []);
 
-  const search    = async (q)   => { setLoading(true); try { const r = await axios.get(`${API_BASE_URL}/Remittance/employees/search?q=${encodeURIComponent(q)}`, getAuthHeaders()); setEmps(r.data); } catch { setEmps([]); } finally { setLoading(false); } };
-  const fetchAll  = async ()    => { setLoading(true); try { const r = await axios.get(`${API_BASE_URL}/Remittance/employees/search`, getAuthHeaders()); setEmps(r.data); } catch { setEmps([]); } finally { setLoading(false); } };
+  const search    = async (q)   => { setLoading(true); try { const r = await axios.get(`${API_BASE_URL}/Remittance/employees/search?sort=surname&q=${encodeURIComponent(q)}`, getAuthHeaders()); setEmps(r.data); } catch { setEmps([]); } finally { setLoading(false); } };
+  const fetchAll  = async ()    => { setLoading(true); try { const r = await axios.get(`${API_BASE_URL}/Remittance/employees/search?sort=surname`, getAuthHeaders()); setEmps(r.data); } catch { setEmps([]); } finally { setLoading(false); } };
   const fetchById = async (num) => { try { const r = await axios.get(`${API_BASE_URL}/Remittance/employees/${num}`, getAuthHeaders()); onEmployeeSelect(r.data); setQuery(r.data.name || ''); } catch { /* silent */ } };
 
   return (
@@ -787,11 +820,11 @@ const SingleEmployeeAutocomplete = ({ value, onChange, selectedEmployee, onEmplo
               {employees.map((emp) => (
                 <ListItem key={emp.employeeNumber} button onClick={() => { onEmployeeSelect(emp); setQuery(emp.name); setOpen(false); onChange(emp.employeeNumber); }}
                   sx={{ ...optionItemSx, py: 1 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0 }}>
                     <Avatar sx={{ width: 28, height: 28, fontSize: '0.72rem', bgcolor: T.accent, color: '#fff', fontWeight: 700 }}>{emp.name?.charAt(0)?.toUpperCase() || '?'}</Avatar>
-                    <Box>
-                      <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.text }}>{emp.name}</Typography>
-                      <Typography sx={{ fontSize: '0.72rem', color: T.muted, fontVariantNumeric: 'tabular-nums' }}>#{emp.employeeNumber}</Typography>
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.text }}>{emp.surnameFirst || emp.name}</Typography>
+                      <EmpNumberLine number={emp.employeeNumber} category={empCatLabels[String(emp.employeeNumber ?? '').trim()]} />
                     </Box>
                   </Box>
                 </ListItem>
@@ -1074,8 +1107,8 @@ const DepartmentAssignment = () => {
     setEmpListLoading(true);
     try {
       const url = q.trim().length >= 2
-        ? `${API_BASE_URL}/Remittance/employees/search?q=${encodeURIComponent(q)}`
-        : `${API_BASE_URL}/Remittance/employees/search`;
+        ? `${API_BASE_URL}/Remittance/employees/search?sort=surname&q=${encodeURIComponent(q)}`
+        : `${API_BASE_URL}/Remittance/employees/search?sort=surname`;
       const r = await axios.get(url, getAuthHeaders());
       setEmpList(r.data);
     } catch { setEmpList([]); } finally { setEmpListLoading(false); }
@@ -1100,15 +1133,28 @@ const DepartmentAssignment = () => {
    * "<parentGroup> | <typeName>" (the module's categoryLabel) plus colorHex.
    * That label is the value stored as the budget target.
    */
-  const empTypeOptions = useMemo(
-    () => empTypeConfigs
-      .filter((t) => Number(t.isActive) === 1)
+  const empTypeOptions = useMemo(() => {
+    const active = empTypeConfigs.filter((t) => Number(t.isActive) === 1);
+    // The export charges a category by its type name only, so the same type name
+    // under several groups (e.g. "Tempo" in Academic 30 and Academic 40) is one
+    // Appendix 33 block — say so on each of those options.
+    const groupsByType = new Map();
+    active.forEach((t) => {
+      const key = String(t.typeName || '').trim().toUpperCase();
+      if (!groupsByType.has(key)) groupsByType.set(key, []);
+      if (t.parentGroup) groupsByType.get(key).push(t.parentGroup);
+    });
+    return active
       .map((t) => {
         const label = t.parentGroup ? `${t.parentGroup} | ${t.typeName}` : t.typeName;
+        const others = (groupsByType.get(String(t.typeName || '').trim().toUpperCase()) || [])
+          .filter((g) => g !== t.parentGroup);
         return {
           code: label,
           label,
-          description: t.parentGroup || '',
+          description: others.length
+            ? `${t.parentGroup || ''} · same Appendix 33 block as ${others.map((g) => `${g} | ${t.typeName}`).join(', ')}`
+            : (t.parentGroup || ''),
           colorHex: t.colorHex || '',
           // rows saved before the label was adopted hold the bare type name
           altKey: String(t.typeName || '').trim().toUpperCase(),
@@ -1118,9 +1164,8 @@ const DepartmentAssignment = () => {
             : (appendix33EmpTypeNameSet.has(label.trim().toUpperCase())
               || appendix33EmpTypeNameSet.has(categoryMatchKey(label)) ? 'allowed' : 'blocked'),
         };
-      }),
-    [empTypeConfigs, appendix33ScopesLoaded, appendix33EmpTypeNameSet],
-  );
+      });
+  }, [empTypeConfigs, appendix33ScopesLoaded, appendix33EmpTypeNameSet]);
 
   const empTypeNameSet = useMemo(
     () => new Set(empTypeOptions.map((o) => String(o.code || '').trim().toUpperCase()).filter(Boolean)),
@@ -1635,7 +1680,7 @@ const DepartmentAssignment = () => {
 
                   {!selectMode && (
                     <Box>
-                      <SingleEmployeeAutocomplete value={singleEmpNum} onChange={setSingleEmpNum} selectedEmployee={singleEmployee} onEmployeeSelect={setSingleEmployee} placeholder="Search employee to assign…" />
+                      <SingleEmployeeAutocomplete value={singleEmpNum} onChange={setSingleEmpNum} selectedEmployee={singleEmployee} onEmployeeSelect={setSingleEmployee} placeholder="Search employee to assign…" empCatLabels={empCatLabels} />
                       {singleEmployee && (
                         <Box sx={{ mt: 1 }}>
                           <EmployeeCard
@@ -1706,8 +1751,8 @@ const DepartmentAssignment = () => {
                               <Checkbox checked={isSel} onChange={() => toggleEmp(emp)} onClick={(e) => e.stopPropagation()} size="small" sx={{ p: 0, color: T.accentBorder, '&.Mui-checked': { color: T.accent }, flexShrink: 0 }} />
                               <Avatar sx={{ width: 28, height: 28, fontSize: '0.7rem', bgcolor: isSel ? T.accent : 'rgba(0,0,0,0.08)', color: isSel ? '#fff' : T.muted, fontWeight: 700, transition: 'all 0.15s', flexShrink: 0 }}>{emp.name?.charAt(0)?.toUpperCase() || '?'}</Avatar>
                               <Box sx={{ flex: 1, minWidth: 0 }}>
-                                <Typography noWrap sx={{ fontSize: '0.8rem', fontWeight: 700, color: isSel ? T.accent : T.text }}>{emp.name}</Typography>
-                                <Typography sx={{ fontSize: '0.68rem', color: T.muted, fontVariantNumeric: 'tabular-nums' }}>#{emp.employeeNumber}</Typography>
+                                <Typography noWrap sx={{ fontSize: '0.8rem', fontWeight: 700, color: isSel ? T.accent : T.text }}>{emp.surnameFirst || emp.name}</Typography>
+                                <EmpNumberLine number={emp.employeeNumber} category={empCatLabels[String(emp.employeeNumber ?? '').trim()]} fontSize="0.68rem" />
                               </Box>
                               {(() => {
                                 const cur = employeeStatusByNum.get(String(emp.employeeNumber));
@@ -2434,6 +2479,7 @@ const DepartmentAssignment = () => {
                                         onChange={(num) => setEditAssignment((p) => ({ ...p, employeeNumber: num }))}
                                         selectedEmployee={selectedEditEmployee}
                                         onEmployeeSelect={setSelectedEditEmployee}
+                                        empCatLabels={empCatLabels}
                                       />
                                       {selectedEditEmployee && (
                                         <Box sx={{ mt: 1.5 }}>

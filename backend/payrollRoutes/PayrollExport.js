@@ -243,18 +243,24 @@ router.get('/export-appendix33/scopes', authenticateToken, requireAdmin, (req, r
           return res.status(500).json({ error: 'Could not read employment categories' });
         }
 
+        // Categories are mapped by typeName alone, so one entry can cover the same
+        // subcategory in several groups (e.g. "Tempo" under Academic 30 and
+        // Academic 40). Keep every group so the menu says who is included.
         const empMeta = new Map();
         (empRows || []).forEach((row) => {
-          if (!empMeta.has(row.typeName)) {
-            empMeta.set(row.typeName, row.parentGroup || '');
-          }
+          const groups = empMeta.get(row.typeName) || [];
+          const group = row.parentGroup || '';
+          if (group && !groups.includes(group)) groups.push(group);
+          empMeta.set(row.typeName, groups);
         });
 
         const employmentTypes = empNames.map((typeName) => {
           const scope = resolveScopeTemplate(maps.employmentTypes[typeName], typeName);
+          const groups = empMeta.get(typeName) || [];
           return {
             typeName,
-            parentGroup: empMeta.get(typeName) || '',
+            parentGroup: groups.join(' + '),
+            parentGroups: groups,
             templateKey: scope?.key || '',
             generated: Boolean(scope?.blueprintKey),
           };
