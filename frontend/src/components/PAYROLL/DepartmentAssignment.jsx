@@ -4,7 +4,7 @@ import axios from 'axios';
 import {
   Box, Grid, Modal, IconButton, CircularProgress, Snackbar, Alert,
   Paper, ToggleButton, ToggleButtonGroup, List, ListItem, Card,
-  Typography, Fade, Avatar, Tooltip, Button, TextField, Chip, Checkbox, MenuItem,
+  Typography, Fade, Avatar, Tooltip, Button, TextField, Chip, Checkbox, MenuItem, Pagination,
 } from '@mui/material';
 import {
   Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon,
@@ -928,6 +928,7 @@ const DepartmentAssignment = () => {
   const [empListLoading, setEmpListLoading] = useState(false);
   const [employeeQueue, setEmployeeQueue]   = useState([]);
   const empDebRef                           = useRef(null);
+  const recordsScrollRef                    = useRef(null);
 
   const [searchTerm, setSearchTerm] = useState('');
   // Record filters — employment category (the employee's own), department and
@@ -942,6 +943,9 @@ const DepartmentAssignment = () => {
   const [filterExport, setFilterExport] = useState('');
   // Every employee (assigned or not) with their current department code / budget
   const [statusRows, setStatusRows] = useState([]);
+  // Employees view pagination
+  const [empPage, setEmpPage] = useState(0);
+  const [empPageSize, setEmpPageSize] = useState(25);
   const [loading, setLoading]       = useState(false);
   const [viewMode, setViewMode]     = useState('employees');
   const [snackbar, setSnackbar]     = useState({ open: false, message: '', severity: 'success' });
@@ -969,6 +973,8 @@ const DepartmentAssignment = () => {
 
   useEffect(() => { fetchAssignments(); fetchDepartmentList(); fetchAppendix33DeptScopes(); fetchEmploymentTypeConfig(); fetchEmploymentCategoryLabels(); }, []);
   useEffect(() => { if (selectMode) fetchEmpList(''); }, [selectMode]); // eslint-disable-line
+  // A new search or filter starts the Employees view on its first page
+  useEffect(() => { setEmpPage(0); }, [searchTerm, filterEmpCat, filterDept, filterBudget, filterSetup, filterExport, empPageSize]);
 
   const fetchAssignments = async () => {
     try {
@@ -1510,6 +1516,13 @@ const DepartmentAssignment = () => {
       .some((v) => String(v || '').toLowerCase().includes(term));
   });
 
+  // Only one page of rows is rendered — drawing every employee (each with its
+  // tooltips) at once is what made the view lag.
+  const empPageCount = Math.max(1, Math.ceil(filteredEmployeeStatus.length / empPageSize));
+  const empPageSafe = Math.min(empPage, empPageCount - 1);
+  const empPageStart = empPageSafe * empPageSize;
+  const pagedEmployeeStatus = filteredEmployeeStatus.slice(empPageStart, empPageStart + empPageSize);
+
   /** Open an employee from the Employees view: their record if assigned, else the assign form. */
   const openEmployeeStatus = (e) => {
     if (e.assignmentId) {
@@ -1885,7 +1898,7 @@ const DepartmentAssignment = () => {
                     InputProps={{ startAdornment: <SearchIcon sx={{ fontSize: 16, color: T.muted, mr: 0.75 }} /> }} />
                 </Box>
 
-                <Box sx={{ flexGrow: 1, overflowY: 'auto', p: 2, bgcolor: '#fff', ...scrollbarSx }}>
+                <Box ref={recordsScrollRef} sx={{ flexGrow: 1, overflowY: 'auto', p: 2, bgcolor: '#fff', ...scrollbarSx }}>
                   {viewMode !== 'employees' && matchedEmployees.length > 0 && (
                     <Box sx={{ mb: 2 }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
@@ -1985,7 +1998,7 @@ const DepartmentAssignment = () => {
                               <Typography key={col} sx={{ fontSize: '0.72rem', fontWeight: 700, color: T.muted }}>{col}</Typography>
                             ))}
                           </Box>
-                          {filteredEmployeeStatus.map((e, i) => {
+                          {pagedEmployeeStatus.map((e, i) => {
                             const s = setupStatusOf(e.code, e.budgetCode);
                             const notSet = <Typography sx={{ fontSize: '0.72rem', color: T.faint, fontStyle: 'italic' }}>Not set</Typography>;
                             return (
@@ -2057,6 +2070,39 @@ const DepartmentAssignment = () => {
                     </>
                   )}
                 </Box>
+
+                {viewMode === 'employees' && filteredEmployeeStatus.length > 0 && (
+                  <Box sx={{
+                    px: 2.5, py: 1, borderTop: `1px solid ${T.divider}`, bgcolor: T.canvas, flexShrink: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1.5, flexWrap: 'wrap',
+                  }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography sx={{ fontSize: '0.72rem', color: T.muted, fontVariantNumeric: 'tabular-nums' }}>
+                        {empPageStart + 1}–{empPageStart + pagedEmployeeStatus.length} of {filteredEmployeeStatus.length}
+                      </Typography>
+                      <FieldInput select size="small" value={empPageSize}
+                        onChange={(ev) => setEmpPageSize(Number(ev.target.value))}
+                        sx={{ width: 92, '& .MuiOutlinedInput-root': { fontSize: '0.75rem' }, '& .MuiSelect-select': { py: 0.5 } }}
+                        inputProps={{ 'aria-label': 'Rows per page' }}>
+                        {[25, 50, 100].map((n) => <MenuItem key={n} value={n}>{n} / page</MenuItem>)}
+                      </FieldInput>
+                    </Box>
+                    <Pagination
+                      count={empPageCount}
+                      page={empPageSafe + 1}
+                      onChange={(_, p) => {
+                        setEmpPage(p - 1);
+                        if (recordsScrollRef.current) recordsScrollRef.current.scrollTop = 0;
+                      }}
+                      size="small"
+                      siblingCount={1}
+                      sx={{
+                        '& .MuiPaginationItem-root': { fontSize: '0.75rem', fontWeight: 600, color: T.muted },
+                        '& .MuiPaginationItem-root.Mui-selected': { bgcolor: T.accent, color: '#fff', '&:hover': { bgcolor: T.accentDark } },
+                      }}
+                    />
+                  </Box>
+                )}
               </SectionCard>
             </Grid>
           </Grid>
