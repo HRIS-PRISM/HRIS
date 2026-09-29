@@ -111,11 +111,15 @@ function parseExportPeriod(source = {}) {
   const effectiveDepartmentCases = [];
   const effectiveDepartmentParams = [];
   if (allowedEmploymentTypes.length) {
+    // A category target is stored as the module's label "Group | Type", so it
+    // matches the layout either whole or by the type name after the last " | ".
+    const empMarks = allowedEmploymentTypes.map(() => '?').join(',');
     effectiveDepartmentCases.push(
-      `WHEN ${isCategoryTargetSql} AND bd.budgetCode IN (${allowedEmploymentTypes.map(() => '?').join(',')}) `
+      `WHEN ${isCategoryTargetSql} AND (bd.budgetCode IN (${empMarks}) `
+        + `OR SUBSTRING_INDEX(bd.budgetCode, ' | ', -1) IN (${empMarks})) `
         + "THEN CONCAT('@emp:', bd.budgetCode)",
     );
-    effectiveDepartmentParams.push(...allowedEmploymentTypes);
+    effectiveDepartmentParams.push(...allowedEmploymentTypes, ...allowedEmploymentTypes);
   }
   if (allowedDepartments.length) {
     effectiveDepartmentCases.push(
@@ -132,9 +136,11 @@ function parseExportPeriod(source = {}) {
     where += ` AND ${effectiveDepartmentSql} = ?`;
     params.push(...effectiveDepartmentParams, department);
   } else if (employmentType) {
-    // The category's own employees, plus anyone whose pay is charged to it.
-    where += ` AND (etc.typeName = ? OR (${isCategoryTargetSql} AND bd.budgetCode = ?))`;
-    params.push(employmentType, employmentType);
+    // The category's own employees, plus anyone whose pay is charged to it
+    // (stored as "Group | Type", so match the whole label or its type name).
+    where += ` AND (etc.typeName = ? OR (${isCategoryTargetSql} AND `
+      + `(bd.budgetCode = ? OR SUBSTRING_INDEX(bd.budgetCode, ' | ', -1) = ?)))`;
+    params.push(employmentType, employmentType, employmentType);
   } else if (includeAll) {
     // Only employees under an enabled department, employment category, or charge target.
     const parts = [];
@@ -144,8 +150,11 @@ function parseExportPeriod(source = {}) {
     }
     if (allowedEmploymentTypes.length) {
       const marks = allowedEmploymentTypes.map(() => '?').join(',');
-      parts.push(`(etc.typeName IN (${marks}) OR (${isCategoryTargetSql} AND bd.budgetCode IN (${marks})))`);
-      params.push(...allowedEmploymentTypes, ...allowedEmploymentTypes);
+      parts.push(
+        `(etc.typeName IN (${marks}) OR (${isCategoryTargetSql} AND `
+          + `(bd.budgetCode IN (${marks}) OR SUBSTRING_INDEX(bd.budgetCode, ' | ', -1) IN (${marks}))))`,
+      );
+      params.push(...allowedEmploymentTypes, ...allowedEmploymentTypes, ...allowedEmploymentTypes);
     }
     where += ` AND (${parts.join(' OR ')})`;
   }

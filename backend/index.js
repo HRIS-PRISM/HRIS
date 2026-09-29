@@ -666,8 +666,9 @@ const ensureDepartmentAssignmentBudgetTarget = [
   `ALTER TABLE department_assignment ADD COLUMN budgetCode VARCHAR(50) NULL COMMENT 'Optional payroll charge target (department code or employment category)' AFTER code`,
   `ALTER TABLE department_assignment ADD COLUMN budgetType VARCHAR(30) NULL COMMENT 'department | employment_category' AFTER budgetCode`,
   // Employment category names are employment_type_config.typeName (up to 100 chars),
-  // so the original VARCHAR(50) is too short for them.
-  `ALTER TABLE department_assignment MODIFY COLUMN budgetCode VARCHAR(200) NULL COMMENT 'Optional payroll charge target (department code or employment category name)'`,
+  // and the module's label adds "<parentGroup> | " in front of it, so the original
+  // VARCHAR(50) is too short for them.
+  `ALTER TABLE department_assignment MODIFY COLUMN budgetCode VARCHAR(255) NULL COMMENT 'Optional payroll charge target (department code or employment category label)'`,
 ];
 ensureDepartmentAssignmentBudgetTarget
   .reduce(

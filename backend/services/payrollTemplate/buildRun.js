@@ -37,18 +37,24 @@ function resolveDepartmentScope(code, maps) {
 
 /**
  * The same lookup for the other axis: a payroll charge target that names an
- * employment category (employment_type_config.typeName) enabled in the layout.
+ * employment category enabled in the layout. The target is stored either as the
+ * Employment Category module's label ("Group | Type") or as the bare type name,
+ * while the layout map is keyed by type name.
  *
- * @param {string} typeName
+ * @param {string} value
  * @param {{departments: Object, employmentTypes: Object}} maps
  * @returns {{key:string, blueprintKey:string|null}|null}
  */
-function resolveEmploymentTypeScope(typeName, maps) {
-  const normalized = typeName == null ? '' : String(typeName).trim();
+function resolveEmploymentTypeScope(value, maps) {
+  const normalized = value == null ? '' : String(value).trim();
   if (!normalized) return null;
 
+  const candidates = [normalized.toUpperCase()];
+  const sep = normalized.indexOf('|');
+  if (sep > -1) candidates.push(normalized.slice(sep + 1).trim().toUpperCase());
+
   const matchingKey = Object.keys(maps.employmentTypes || {}).find(
-    (key) => String(key).trim().toUpperCase() === normalized.toUpperCase(),
+    (key) => candidates.includes(String(key).trim().toUpperCase()),
   );
   if (!matchingKey) return null;
 

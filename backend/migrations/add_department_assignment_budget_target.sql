@@ -24,8 +24,8 @@ SET @has_budget_code := (
 );
 SET @sql_budget_code := IF(
   @has_budget_code = 0,
-  'ALTER TABLE department_assignment ADD COLUMN budgetCode VARCHAR(200) NULL COMMENT ''Optional payroll charge target (department code or employment category name)'' AFTER code',
-  'ALTER TABLE department_assignment MODIFY COLUMN budgetCode VARCHAR(200) NULL COMMENT ''Optional payroll charge target (department code or employment category name)'''
+  'ALTER TABLE department_assignment ADD COLUMN budgetCode VARCHAR(255) NULL COMMENT ''Optional payroll charge target (department code or employment category label)'' AFTER code',
+  'ALTER TABLE department_assignment MODIFY COLUMN budgetCode VARCHAR(255) NULL COMMENT ''Optional payroll charge target (department code or employment category label)'''
 );
 PREPARE stmt_budget_code FROM @sql_budget_code;
 EXECUTE stmt_budget_code;
