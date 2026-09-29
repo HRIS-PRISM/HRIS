@@ -35,25 +35,45 @@ function resolveDepartmentScope(code, maps) {
   return resolveScopeTemplate(maps.departments[matchingKey], matchingKey);
 }
 
+/**
+ * The same lookup for the other axis: a payroll charge target that names an
+ * employment category (employment_type_config.typeName) enabled in the layout.
+ *
+ * @param {string} typeName
+ * @param {{departments: Object, employmentTypes: Object}} maps
+ * @returns {{key:string, blueprintKey:string|null}|null}
+ */
+function resolveEmploymentTypeScope(typeName, maps) {
+  const normalized = typeName == null ? '' : String(typeName).trim();
+  if (!normalized) return null;
+
+  const matchingKey = Object.keys(maps.employmentTypes || {}).find(
+    (key) => String(key).trim().toUpperCase() === normalized.toUpperCase(),
+  );
+  if (!matchingKey) return null;
+
+  return resolveScopeTemplate(maps.employmentTypes[matchingKey], matchingKey);
+}
+
 function resolveRowScope(row, maps) {
-  // A valid budget department is the payroll charge and takes precedence over
-  // the employee's real department. If a previously saved override is no longer
+  // A valid budget target is the payroll charge and takes precedence over the
+  // employee's real department. The target is either a department code or an
+  // employment category name — department_assignment.budgetType says which — so
+  // it is resolved on its own axis. If a previously saved target is no longer
   // enabled, ignore it and fall back to the real department rather than routing
-  // the employee through an unrelated employment category.
+  // the employee through an unrelated block.
   const budget = row.budgetDepartment == null ? '' : String(row.budgetDepartment).trim();
-  const realCode = row.department == null ? '' : String(row.department).trim();
-  const budgetScope = resolveDepartmentScope(budget, maps);
+  const budgetIsCategory = String(row.budgetType || '').trim().toLowerCase() === 'employment_category';
+  const budgetScope = budgetIsCategory
+    ? resolveEmploymentTypeScope(budget, maps)
+    : resolveDepartmentScope(budget, maps);
   if (budgetScope) return budgetScope;
 
+  const realCode = row.department == null ? '' : String(row.department).trim();
   const departmentScope = resolveDepartmentScope(realCode, maps);
   if (departmentScope) return departmentScope;
 
-  const typeName = row.employmentTypeName == null ? '' : String(row.employmentTypeName).trim();
-  if (typeName && maps.employmentTypes?.[typeName]) {
-    const resolved = resolveScopeTemplate(maps.employmentTypes[typeName], typeName);
-    if (resolved) return resolved;
-  }
-  return null;
+  return resolveEmploymentTypeScope(row.employmentTypeName, maps);
 }
 
 /** @returns {string|null} template key only, kept for callers that do not need the blueprint */

@@ -2086,6 +2086,135 @@
     });
   });
 
+  // ─── Bulk fetch: every summary overlapping a period ────────────────────────
+  //
+  // The single-employee GET above requires personID, which forces the UI to
+  // be driven one person at a time. This returns every summary whose period
+  // overlaps [startDate, endDate] in one round trip so Attendance Summary can
+  // list a whole department / month and filter client-side.
+  //
+  // Visibility matches /officialtime/month-coverage: admins see everyone,
+  // supervisors see only their own departments. The department / person_table
+  // joins are pre-aggregated so a person with several assignment rows still
+  // yields exactly one row per summary record.
+  router.get(
+    '/api/overall_attendance_record/bulk',
+    authenticateToken,
+    (req, res) => {
+      const startDate = normalizeYmd(req.query.startDate);
+      const endDate = normalizeYmd(req.query.endDate);
+      if (!startDate || !endDate) {
+        return res
+          .status(400)
+          .json({ message: 'startDate and endDate are required.' });
+      }
+      if (startDate > endDate) {
+        return res
+          .status(400)
+          .json({ message: 'startDate must be on or before endDate.' });
+      }
+
+      const personFilter = String(req.query.personID ?? '').trim();
+      // Accepts either a department code or its description, because the roster
+      // that feeds the picker exposes the human-readable name (month-coverage
+      // returns department_table.description).
+      const departmentFilter = String(req.query.department ?? '').trim();
+
+      const query = `
+        SELECT
+          oar.*,
+          da.code AS code,
+          dt.description AS departmentName,
+          pt.firstName,
+          pt.middleName,
+          pt.lastName,
+          pt.nameExtension
+        FROM
+          overall_attendance_record oar
+        LEFT JOIN (
+          SELECT employeeNumber, MAX(code) AS code
+          FROM department_assignment
+          WHERE employeeNumber IS NOT NULL AND employeeNumber != ''
+          GROUP BY employeeNumber
+        ) da
+          ON da.employeeNumber = oar.personID
+        LEFT JOIN department_table dt
+          ON dt.code = da.code
+        LEFT JOIN (
+          SELECT
+            agencyEmployeeNum,
+            MAX(firstName)      AS firstName,
+            MAX(middleName)     AS middleName,
+            MAX(lastName)       AS lastName,
+            MAX(nameExtension)  AS nameExtension
+          FROM person_table
+          WHERE agencyEmployeeNum IS NOT NULL AND agencyEmployeeNum != ''
+          GROUP BY agencyEmployeeNum
+        ) pt
+          ON pt.agencyEmployeeNum = oar.personID
+        WHERE
+          oar.startDate <= ?
+          AND oar.endDate >= ?
+          AND (? = '' OR oar.personID = ?)
+          AND (? = '' OR da.code = ? OR dt.description = ?)
+          AND (
+            EXISTS (
+              SELECT 1
+              FROM users currentUser
+              WHERE currentUser.employeeNumber = ?
+                AND LOWER(currentUser.role) IN (
+                  'superadmin',
+                  'technical',
+                  'administrator',
+                  'admin'
+                )
+            )
+            OR
+            EXISTS (
+              SELECT 1
+              FROM supervisor_assignment sa
+              JOIN department_assignment supervisorScope
+                ON supervisorScope.employeeNumber = oar.personID
+              WHERE sa.supervisorEmployeeNumber = ?
+                AND sa.departmentCode = supervisorScope.code
+            )
+          )
+        ORDER BY
+          oar.personID ASC,
+          oar.endDate DESC
+        LIMIT 2000
+      `;
+
+      const loggedInEmployeeNumber =
+        req.user?.employeeNumber || req.user?.username || '';
+
+      db.query(
+        query,
+        [
+          endDate,
+          startDate,
+          personFilter,
+          personFilter,
+          departmentFilter,
+          departmentFilter,
+          departmentFilter,
+          loggedInEmployeeNumber,
+          loggedInEmployeeNumber,
+        ],
+        (error, results) => {
+          if (error) {
+            console.error('Error fetching bulk overall attendance records:', error);
+            return res.status(500).json({ message: 'Database error', error });
+          }
+          res.status(200).json({
+            message: 'Overall attendance records fetched successfully',
+            data: results || [],
+          });
+        },
+      );
+    },
+  );
+
   // List absent dates across employees (for Absences Report)
   router.get('/api/overall_attendance_absences', authenticateToken, (req, res) => {
     const { from, to, limitDays } = req.query;

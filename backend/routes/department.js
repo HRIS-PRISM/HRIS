@@ -7,23 +7,51 @@ const { notifyPayrollChanged } = require('../socket/socketService');
 
 router.use(authenticateToken, requireAdmin);
 
-// Payroll budget department: optional code telling the Appendix 33 export which
-// department tab an employee's pay is charged to. Blank is stored as NULL so the
-// export falls back to the real department.
-const normalizeBudgetCode = (value) => {
+// Payroll budget target: optional override telling the Appendix 33 export which
+// tab an employee's pay is charged to. Two kinds of target are allowed, chosen in
+// the Department Assignment form:
+//   department          -> a department code from department_table / the layout
+//   employment_category -> a employment_type_config.typeName from the layout
+// Blank is stored as NULL so the export falls back to the real department.
+const BUDGET_TYPE_DEPARTMENT = 'department';
+const BUDGET_TYPE_EMPLOYMENT = 'employment_category';
+
+const normalizeBudgetType = (value) => (
+  String(value || '').trim().toLowerCase() === BUDGET_TYPE_EMPLOYMENT
+    ? BUDGET_TYPE_EMPLOYMENT
+    : BUDGET_TYPE_DEPARTMENT
+);
+
+/**
+ * Stored value for the target: upper-cased department code, or the layout's own
+ * spelling of an employment category name so the export can match it exactly.
+ */
+const normalizeBudgetCode = (value, budgetType = BUDGET_TYPE_DEPARTMENT) => {
   if (value === undefined || value === null) return null;
   const trimmed = String(value).trim();
-  return trimmed === '' ? null : trimmed.toUpperCase();
+  if (trimmed === '') return null;
+  if (budgetType === BUDGET_TYPE_EMPLOYMENT) {
+    const layoutName = Object.keys(getResolved().employmentTypes || {})
+      .find((name) => String(name).trim().toUpperCase() === trimmed.toUpperCase());
+    return layoutName ? String(layoutName).trim() : trimmed;
+  }
+  return trimmed.toUpperCase();
 };
 
-const validateBudgetCode = (budgetCode) => {
+const allowedBudgetValues = (values) => new Set(
+  Object.keys(values || {}).map((v) => String(v).trim().toUpperCase()).filter(Boolean),
+);
+
+const validateBudgetCode = (budgetCode, budgetType = BUDGET_TYPE_DEPARTMENT) => {
   if (!budgetCode) return null;
-  const allowed = new Set(
-    Object.keys(getResolved().departments || {})
-      .map((code) => String(code).trim().toUpperCase())
-      .filter(Boolean),
-  );
-  if (!allowed.has(budgetCode.toUpperCase())) {
+  const maps = getResolved();
+  if (budgetType === BUDGET_TYPE_EMPLOYMENT) {
+    if (!allowedBudgetValues(maps.employmentTypes).has(String(budgetCode).toUpperCase())) {
+      return `Employment category "${budgetCode}" is not enabled in the Appendix 33 layout's employment-category tab.`;
+    }
+    return null;
+  }
+  if (!allowedBudgetValues(maps.departments).has(String(budgetCode).toUpperCase())) {
     return `Budget department "${budgetCode}" is not enabled in the Appendix 33 layout's department tab.`;
   }
   return null;
@@ -143,15 +171,16 @@ router.get('/api/department-assignment/:id', (req, res) => {
 // POST: Add a new department assignment
 router.post('/api/department-assignment', (req, res) => {
   const { code, name, employeeNumber } = req.body;
-  const budgetCode = normalizeBudgetCode(req.body.budgetCode);
+  const budgetType = normalizeBudgetType(req.body.budgetType);
+  const budgetCode = normalizeBudgetCode(req.body.budgetCode, budgetType);
   if (!code || !employeeNumber)
     return res.status(400).send('Code and Employee Number are required');
 
-  const budgetError = validateBudgetCode(budgetCode);
+  const budgetError = validateBudgetCode(budgetCode, budgetType);
   if (budgetError) return res.status(422).json({ error: budgetError });
 
-  const sql = `INSERT INTO department_assignment (code, budgetCode, name, employeeNumber) VALUES (?, ?, ?, ?)`;
-  db.query(sql, [code, budgetCode, name, employeeNumber], (err, result) => {
+  const sql = `INSERT INTO department_assignment (code, budgetCode, budgetType, name, employeeNumber) VALUES (?, ?, ?, ?, ?)`;
+  db.query(sql, [code, budgetCode, budgetType, name, employeeNumber], (err, result) => {
     if (err) {
       try {
         logAudit(req.user, 'Insert Failed', 'department_assignment', null, employeeNumber);
@@ -178,9 +207,11 @@ router.post('/api/department-assignment', (req, res) => {
       id: result.insertId,
       employeeNumber,
       code,
+      budgetCode,
+      budgetType,
     });
 
-    res.status(201).json({ id: result.insertId, code, name, employeeNumber });
+    res.status(201).json({ id: result.insertId, code, budgetCode, budgetType, name, employeeNumber });
   });
 });
 
@@ -188,13 +219,14 @@ router.post('/api/department-assignment', (req, res) => {
 router.put('/api/department-assignment/:id', (req, res) => {
   const { id } = req.params;
   const { code, name, employeeNumber } = req.body;
-  const budgetCode = normalizeBudgetCode(req.body.budgetCode);
+  const budgetType = normalizeBudgetType(req.body.budgetType);
+  const budgetCode = normalizeBudgetCode(req.body.budgetCode, budgetType);
 
-  const budgetError = validateBudgetCode(budgetCode);
+  const budgetError = validateBudgetCode(budgetCode, budgetType);
   if (budgetError) return res.status(422).json({ error: budgetError });
 
-  const sql = `UPDATE department_assignment SET code = ?, budgetCode = ?, name = ?, employeeNumber = ? WHERE id = ?`;
-  db.query(sql, [code, budgetCode, name, employeeNumber, id], (err, result) => {
+  const sql = `UPDATE department_assignment SET code = ?, budgetCode = ?, budgetType = ?, name = ?, employeeNumber = ? WHERE id = ?`;
+  db.query(sql, [code, budgetCode, budgetType, name, employeeNumber, id], (err, result) => {
     if (err) {
       try {
         logAudit(req.user, 'Update Failed', 'department_assignment', id, employeeNumber);
@@ -215,6 +247,8 @@ router.put('/api/department-assignment/:id', (req, res) => {
       id,
       employeeNumber,
       code,
+      budgetCode,
+      budgetType,
     });
 
     res.send('Department assignment updated successfully');

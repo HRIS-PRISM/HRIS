@@ -113,7 +113,9 @@ The following routes are still in `index.old.js` and need to be moved to organiz
 - `DELETE /api/department-table/:id`
 - `GET /api/department-assignment`
 - `GET /api/department-assignment/:id`
-- `POST /api/department-assignment`
+- `POST /api/department-assignment` — the body also accepts the optional payroll charge
+  override `budgetCode` + `budgetType` (`department` | `employment_category`). Both must be
+  enabled in the Appendix 33 layout, and a blank `budgetCode` means "use the assigned department".
 - `PUT /api/department-assignment/:id`
 - `DELETE /api/department-assignment/:id`
 

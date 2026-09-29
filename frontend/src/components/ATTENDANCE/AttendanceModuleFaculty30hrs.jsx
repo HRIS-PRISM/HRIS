@@ -1,5 +1,5 @@
 import API_BASE_URL from '../../apiConfig';
-  import React, { useState, useEffect, useRef, useCallback } from 'react';
+  import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
   import axios from 'axios';
   import {
     Box,
@@ -108,6 +108,7 @@ import API_BASE_URL from '../../apiConfig';
     countSuggestedHalfDays,
   } from '../../utils/halfDayReview';
   import HalfDayReviewDialog from './HalfDayReviewDialog';
+  import AttendanceRosterSidebar, { pad2, rosterDisplayName } from './AttendanceRosterSidebar';
   import { buildDisplayName } from './attendanceModuleEmployeeSearch';
   import {
     HalfDayTotalColumnHeader,
@@ -123,6 +124,7 @@ import API_BASE_URL from '../../apiConfig';
     isHalfDayByTimeInOutOnly,
     computeOfficialWindowRenderedSec,
   } from '../../utils/officialAttendanceFromDailyRows';
+  import { resolveAttendanceModuleFromEmployment } from '../../utils/earningsEmpCatRules';
   import {
     ZERO_HM,
     formatDurationHhMm,
@@ -1532,6 +1534,27 @@ const filterApplicableSuspensionsForFaculty = (suspensionByDate, employeeBranch)
     const [pendingSavedOverall, setPendingSavedOverall] = useState(null);
     const [pendingProposedOverall, setPendingProposedOverall] = useState(null);
 
+    // ── Employee roster (right sidebar) ───────────────────────────────────
+    // Reuses /officialtime/month-coverage for the roster (already scoped to
+    // admins + the supervisor's own departments) and layers the Faculty 30hrs
+    // filter + "already saved a summary" status on top.
+    const nowForRoster = new Date();
+    const [rosterYear, setRosterYear] = useState(
+      initialContext?.selectedYear ?? nowForRoster.getFullYear(),
+    );
+    const [rosterMonth, setRosterMonth] = useState(
+      initialContext?.selectedMonth != null
+        ? initialContext.selectedMonth + 1
+        : nowForRoster.getMonth() + 1,
+    );
+    const [rosterRows, setRosterRows] = useState([]);
+    const [rosterLoading, setRosterLoading] = useState(false);
+    const [rosterError, setRosterError] = useState('');
+    const [rosterQuery, setRosterQuery] = useState('');
+    const [rosterFilter, setRosterFilter] = useState('all');
+    const [rosterDepartment, setRosterDepartment] = useState('');
+    const rosterReqRef = useRef(0);
+
     useEffect(() => {
       let timer;
       if (snackbar.open && snackbarCountdown > 0) timer = setInterval(() => setSnackbarCountdown((p) => p - 1), 1000);
@@ -1568,6 +1591,185 @@ const filterApplicableSuspensionsForFaculty = (suspensionByDate, employeeBranch)
         cancelled = true;
       };
     }, [employeeNumber]);
+
+    // ── Roster fetch ───────────────────────────────────────────────────────
+    // Three calls in parallel: the roster itself, the employment
+    // classifications used to keep the list Faculty 30hrs only, and
+    // person_table to backfill names that month-coverage's LEFT JOIN leaves
+    // empty. A fourth batched call then marks who already has a saved summary
+    // for the month. All year/month scoped, so the sidebar never shows a stale
+    // "saved" state after a Save to Summary.
+    const fetchRoster = useCallback(async () => {
+      const reqId = ++rosterReqRef.current;
+      setRosterLoading(true);
+      setRosterError('');
+      const year = rosterYear;
+      const month = rosterMonth;
+      const monthStart = `${year}-${pad2(month)}-01`;
+      const monthEnd = `${year}-${pad2(month)}-${pad2(new Date(year, month, 0).getDate())}`;
+      try {
+        const [coverageRes, catRes, personRes] = await Promise.all([
+          axios.get(`${API_BASE_URL}/officialtime/month-coverage`, {
+            ...getAuthHeaders(),
+            params: { year, month },
+          }),
+          axios
+            .get(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`, getAuthHeaders())
+            .catch(() => ({ data: [] })),
+          axios
+            .get(`${API_BASE_URL}/personalinfo/person_table`, getAuthHeaders())
+            .catch(() => ({ data: [] })),
+        ]);
+        if (reqId !== rosterReqRef.current) return;
+
+        const employees = Array.isArray(coverageRes.data?.employees)
+          ? coverageRes.data.employees
+          : [];
+
+        // employeeNumber → employment classification, so the list only shows
+        // people this module can actually compute for.
+        const catByEmp = {};
+        (Array.isArray(catRes.data) ? catRes.data : []).forEach((c) => {
+          if (!c?.employeeNumber) return;
+          catByEmp[String(c.employeeNumber)] = {
+            parentGroup: c.parentGroup,
+            typeName: c.typeName,
+            label: c.label || c.categoryLabel || '',
+          };
+        });
+
+        // employeeNumber → name. month-coverage builds fullName from a LEFT
+        // JOIN on person_table, so it comes back blank whenever that join
+        // misses; this is the same table the DTR hub reads, so it covers those
+        // cases.
+        const nameByEmp = {};
+        const personList = Array.isArray(personRes.data)
+          ? personRes.data
+          : personRes.data?.data || [];
+        personList.forEach((p) => {
+          const num = String(
+            p?.agencyEmployeeNum ?? p?.employeeNumber ?? '',
+          ).trim();
+          if (!num) return;
+          const name = rosterDisplayName(p);
+          if (name) nameByEmp[num] = name;
+        });
+
+        const faculty30 = employees.filter((e) => {
+          const cat = catByEmp[String(e.employeeNumber)];
+          // No assigned category → keep, so unclassified staff are still
+          // reachable; only drop categories that map to another module.
+          if (!cat) return true;
+          return resolveAttendanceModuleFromEmployment(cat) === MODULE_TYPES.FACULTY_30HRS;
+        });
+
+        // Who already has a summary row for this exact month?
+        let savedSet = new Set();
+        if (faculty30.length > 0) {
+          try {
+            const savedRes = await axios.post(
+              `${API_BASE_URL}/attendance/api/overall_attendance_record/daily-late-undertime/batch`,
+              {
+                startDate: monthStart,
+                endDate: monthEnd,
+                employeeNumbers: faculty30.map((e) => e.employeeNumber),
+              },
+              getAuthHeaders(),
+            );
+            if (reqId !== rosterReqRef.current) return;
+            const meta = savedRes.data?.metaByEmployee || {};
+            savedSet = new Set(Object.keys(meta).map((k) => String(k).trim()));
+          } catch {
+            // Status is a nicety — a failure here must not blank the roster.
+            if (reqId !== rosterReqRef.current) return;
+          }
+        }
+
+        setRosterRows(
+          faculty30.map((e) => {
+            const key = String(e.employeeNumber).trim();
+            return {
+              employeeNumber: e.employeeNumber,
+              // Prefer the coverage name, fall back to person_table. Last
+              // resort is the number, so a row is never blank.
+              fullName:
+                String(e.fullName || '').trim() ||
+                nameByEmp[key] ||
+                `#${key}`,
+              department: e.department || '',
+              hasOfficialTime: Boolean(e.covered),
+              saved: savedSet.has(key),
+            };
+          }),
+        );
+      } catch (err) {
+        if (reqId !== rosterReqRef.current) return;
+        setRosterRows([]);
+        setRosterError("Couldn't load the employee list.");
+        console.error('Faculty 30hrs roster fetch failed:', err);
+      } finally {
+        if (reqId === rosterReqRef.current) setRosterLoading(false);
+      }
+    }, [rosterYear, rosterMonth]);
+
+    useEffect(() => {
+      if (accessLoading || hasAccess === false) return;
+      fetchRoster();
+    }, [fetchRoster, accessLoading, hasAccess]);
+
+    // Month nav keeps year+month together — stepping back from January has to
+    // roll into the previous year, which a pair of independent setters would
+    // get wrong. Derive both from one Date instead.
+    const shiftRosterMonth = useCallback((delta) => {
+      const next = new Date(rosterYear, rosterMonth - 1 + delta, 1);
+      setRosterYear(next.getFullYear());
+      setRosterMonth(next.getMonth() + 1);
+    }, [rosterYear, rosterMonth]);
+
+    const rosterDepartments = useMemo(
+      () => [...new Set(rosterRows.map((r) => r.department).filter(Boolean))].sort(),
+      [rosterRows],
+    );
+
+    const visibleRosterRows = useMemo(() => {
+      let list = rosterRows;
+      if (rosterDepartment) list = list.filter((r) => r.department === rosterDepartment);
+      if (rosterFilter === 'done') list = list.filter((r) => r.saved);
+      else if (rosterFilter === 'missing') list = list.filter((r) => !r.saved);
+      const q = rosterQuery.trim().toLowerCase();
+      if (q) {
+        list = list.filter(
+          (r) =>
+            String(r.fullName || '').toLowerCase().includes(q) ||
+            String(r.employeeNumber || '').toLowerCase().includes(q),
+        );
+      }
+      return list;
+    }, [rosterRows, rosterDepartment, rosterFilter, rosterQuery]);
+
+    const rosterSummary = useMemo(() => ({
+      done: rosterRows.filter((r) => r.saved).length,
+      total: rosterRows.length,
+    }), [rosterRows]);
+
+    /** Load a roster employee into the module, switching the period to that month. */
+    const selectRosterEmployee = useCallback((row) => {
+      const num = String(row.employeeNumber || '').trim();
+      if (!num) return;
+      const year = rosterYear;
+      const month = rosterMonth;
+      setEmployeeNumber(num);
+      setEmployeeDisplayName(row.fullName || '');
+      setEmployeeSearchQuery(num);
+      setSelectedYear(year);
+      setSelectedMonth(month - 1);
+      setStartDate(`${year}-${pad2(month)}-01`);
+      setEndDate(`${year}-${pad2(month)}-${pad2(new Date(year, month, 0).getDate())}`);
+      setError('');
+      setSuccess('');
+    }, [rosterYear, rosterMonth]);
+
+
 
     useEffect(() => {
       if (attendanceData.length === 0) return;
@@ -2757,6 +2959,21 @@ const filterApplicableSuspensionsForFaculty = (suspensionByDate, employeeBranch)
             <Alert severity="success" onClose={() => setSuccess('')} sx={{ mb: 1.5, borderRadius: 2, fontSize: '0.82rem' }}>{success}</Alert>
           </Collapse>
 
+          {/* Two-column body: controls + results on the left, roster on the right.
+              The grid opens ABOVE the filter card so the sidebar runs the full
+              content height, matching the Non-Teaching and Faculty Designated
+              modules. */}
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 1fr) 300px' },
+              gap: 2,
+              alignItems: 'start',
+              width: '100%',
+              minWidth: 0,
+            }}
+          >
+          <Box sx={{ minWidth: 0, width: '100%' }}>
           {/* ── Controls Card — hidden in DTR sliding drawer ── */}
           {!embedded && (
           <SectionCard sx={{ mb: 2 }}>
@@ -3160,6 +3377,33 @@ const filterApplicableSuspensionsForFaculty = (suspensionByDate, employeeBranch)
             endDate={endDate}
             showSaveButton
           />
+          </Box>
+
+          {/* Employee roster — right sidebar. Sticky so it stays in view while
+              the results table scrolls, with the card capped to the viewport. */}
+          <Box sx={{ minWidth: 0, width: '100%', display: { xs: 'none', lg: 'block' }, position: 'sticky', top: 12 }}>
+            <AttendanceRosterSidebar
+              themeT={T}
+              year={rosterYear}
+              month={rosterMonth}
+              onShiftMonth={shiftRosterMonth}
+              rows={visibleRosterRows}
+              loading={rosterLoading}
+              error={rosterError}
+              filter={rosterFilter}
+              onFilter={setRosterFilter}
+              query={rosterQuery}
+              onQuery={setRosterQuery}
+              department={rosterDepartment}
+              onDepartment={setRosterDepartment}
+              departments={rosterDepartments}
+              onSelectEmployee={selectRosterEmployee}
+              selectedEmployeeNumber={employeeNumber}
+              doneCount={rosterSummary.done}
+              totalCount={rosterSummary.total}
+            />
+          </Box>
+          </Box>
 
           {/* ── No Official Time Modal ── */}
           <Dialog open={showNoOfficialTimeModal} onClose={() => setShowNoOfficialTimeModal(false)} maxWidth="sm" fullWidth

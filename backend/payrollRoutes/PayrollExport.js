@@ -39,6 +39,7 @@ const PAYROLL_SELECT = `
   SELECT
     pp.*,
     NULLIF(bd.budgetCode, '') AS budgetDepartment,
+    NULLIF(bd.budgetType, '') AS budgetType,
     etc.typeName AS employmentTypeName,
     etc.id AS employmentTypeId
   FROM payroll_processed pp
@@ -54,7 +55,7 @@ const PAYROLL_SELECT = `
   LEFT JOIN employment_type_config etc
     ON etc.id = ec.employmentCategory
   LEFT JOIN (
-    SELECT da1.employeeNumber, da1.budgetCode
+    SELECT da1.employeeNumber, da1.budgetCode, da1.budgetType
     FROM department_assignment da1
     INNER JOIN (
       SELECT employeeNumber, MAX(id) AS max_id
@@ -98,29 +99,53 @@ function parseExportPeriod(source = {}) {
   const params = [periodPrefix];
   let where = 'LEFT(pp.startDate, 7) = ?';
 
-  // Only an enabled budget code overrides the employee's real department.
-  // Older records may contain a code that was later disabled; those rows fall
+  // Only an enabled budget target overrides the employee's real department. The
+  // target is either a department code or an employment category name, and the two
+  // axes are kept apart: a row charged to an enabled department becomes that
+  // department, while a row charged to an enabled employment category becomes a
+  // marker no department filter can match — it belongs to that category's block.
+  // Older records may contain a target that was later disabled; those rows fall
   // back to their real department instead of disappearing from a scoped export.
-  const effectiveDepartmentSql = allowedDepartments.length
-    ? `CASE WHEN bd.budgetCode IN (${allowedDepartments.map(() => '?').join(',')}) THEN bd.budgetCode ELSE pp.department END`
+  const budgetKindSql = "COALESCE(bd.budgetType, 'department')";
+  const isCategoryTargetSql = `${budgetKindSql} = 'employment_category'`;
+  const effectiveDepartmentCases = [];
+  const effectiveDepartmentParams = [];
+  if (allowedEmploymentTypes.length) {
+    effectiveDepartmentCases.push(
+      `WHEN ${isCategoryTargetSql} AND bd.budgetCode IN (${allowedEmploymentTypes.map(() => '?').join(',')}) `
+        + "THEN CONCAT('@emp:', bd.budgetCode)",
+    );
+    effectiveDepartmentParams.push(...allowedEmploymentTypes);
+  }
+  if (allowedDepartments.length) {
+    effectiveDepartmentCases.push(
+      `WHEN NOT (${isCategoryTargetSql}) AND bd.budgetCode IN (${allowedDepartments.map(() => '?').join(',')}) `
+        + 'THEN bd.budgetCode',
+    );
+    effectiveDepartmentParams.push(...allowedDepartments);
+  }
+  const effectiveDepartmentSql = effectiveDepartmentCases.length
+    ? `CASE ${effectiveDepartmentCases.join(' ')} ELSE pp.department END`
     : 'pp.department';
 
   if (department && department.toLowerCase() !== 'all') {
     where += ` AND ${effectiveDepartmentSql} = ?`;
-    params.push(...allowedDepartments, department);
+    params.push(...effectiveDepartmentParams, department);
   } else if (employmentType) {
-    where += ' AND etc.typeName = ?';
-    params.push(employmentType);
+    // The category's own employees, plus anyone whose pay is charged to it.
+    where += ` AND (etc.typeName = ? OR (${isCategoryTargetSql} AND bd.budgetCode = ?))`;
+    params.push(employmentType, employmentType);
   } else if (includeAll) {
-    // Only employees under an enabled department or employment category.
+    // Only employees under an enabled department, employment category, or charge target.
     const parts = [];
     if (allowedDepartments.length) {
       parts.push(`${effectiveDepartmentSql} IN (${allowedDepartments.map(() => '?').join(',')})`);
-      params.push(...allowedDepartments, ...allowedDepartments);
+      params.push(...effectiveDepartmentParams, ...allowedDepartments);
     }
     if (allowedEmploymentTypes.length) {
-      parts.push(`etc.typeName IN (${allowedEmploymentTypes.map(() => '?').join(',')})`);
-      params.push(...allowedEmploymentTypes);
+      const marks = allowedEmploymentTypes.map(() => '?').join(',');
+      parts.push(`(etc.typeName IN (${marks}) OR (${isCategoryTargetSql} AND bd.budgetCode IN (${marks})))`);
+      params.push(...allowedEmploymentTypes, ...allowedEmploymentTypes);
     }
     where += ` AND (${parts.join(' OR ')})`;
   }

@@ -658,19 +658,29 @@ ensureOverallDailyLateColumns.forEach((sql) => {
   });
 });
 
-// Payroll budget department: optional per-employee override used only by the
-// Appendix 33 export so an employee's pay can be charged to another department
-// tab while their real department (department_assignment.code) stays unchanged.
-const ensureDepartmentAssignmentBudgetCode = [
-  `ALTER TABLE department_assignment ADD COLUMN budgetCode VARCHAR(50) NULL COMMENT 'Optional budget department code for payroll export routing' AFTER code`,
+// Payroll budget target: optional per-employee override used only by the
+// Appendix 33 export so an employee's pay can be charged to another tab —
+// either a department code or an employment category — while their real
+// department (department_assignment.code) stays unchanged.
+const ensureDepartmentAssignmentBudgetTarget = [
+  `ALTER TABLE department_assignment ADD COLUMN budgetCode VARCHAR(50) NULL COMMENT 'Optional payroll charge target (department code or employment category)' AFTER code`,
+  `ALTER TABLE department_assignment ADD COLUMN budgetType VARCHAR(30) NULL COMMENT 'department | employment_category' AFTER budgetCode`,
+  // Employment category names are employment_type_config.typeName (up to 100 chars),
+  // so the original VARCHAR(50) is too short for them.
+  `ALTER TABLE department_assignment MODIFY COLUMN budgetCode VARCHAR(200) NULL COMMENT 'Optional payroll charge target (department code or employment category name)'`,
 ];
-ensureDepartmentAssignmentBudgetCode.forEach((sql) => {
-  db.query(sql, (err) => {
-    if (err && err.code !== 'ER_DUP_FIELDNAME') {
-      console.error('department_assignment column ensure:', err.message);
-    }
-  });
-});
+ensureDepartmentAssignmentBudgetTarget
+  .reduce(
+    (chain, sql) => chain.then(() => new Promise((resolve) => {
+      db.query(sql, (err) => {
+        if (err && err.code !== 'ER_DUP_FIELDNAME' && err.code !== 'ER_BAD_FIELD_ERROR') {
+          console.error('department_assignment column ensure:', err.message);
+        }
+        resolve();
+      });
+    })),
+    Promise.resolve(),
+  );
 
 db.query('DROP TABLE IF EXISTS dtr_computed_daily_late', (err) => {
   if (err) {
