@@ -126,6 +126,7 @@ app.use(
       'X-Appendix33-Template',
       'X-Appendix33-Template-Id',
       'X-Appendix33-Employees',
+      'X-Appendix33-Skipped-No-Budget',
     ],
   }),
 );

@@ -384,6 +384,15 @@ const categoryMatchKey = (value) => {
   return sep > -1 ? v.slice(sep + 1).trim() : v;
 };
 
+/**
+ * Budget filter key = the Appendix 33 tab a budget lands in. Category targets are
+ * matched by type name only (as the export does), so every group's "Tempo" shares
+ * one key; department targets are keyed by code.
+ */
+const budgetFilterKey = (code, kind) => (
+  isCategoryTarget(kind) ? `cat:${categoryMatchKey(code)}` : `dept:${String(code || '').trim().toUpperCase()}`
+);
+
 /** Sentinel for "the value is empty" in the records filter dropdowns. */
 const NO_FILTER = '__none__';
 
@@ -419,14 +428,14 @@ const SetFlag = ({ on, label, letter, compact = false }) => (
       <Box sx={{
         width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: '0.58rem', fontWeight: 800,
+        fontSize: '0.58rem', fontWeight: 800, fontFamily: (theme) => theme.typography.fontFamily,
         bgcolor: on ? T.okBg : 'transparent',
         color: on ? T.ok : T.faint,
         border: `1px ${on ? 'solid' : 'dashed'} ${on ? T.okBorder : T.faint}`,
       }}>{letter}</Box>
     ) : (
       <Box sx={{
-        display: 'inline-flex', alignItems: 'center', gap: 0.35, px: 0.75, height: 20, borderRadius: R.tag, flexShrink: 0,
+        display: 'inline-flex', alignItems: 'center', gap: 0.35, px: 0.75, height: 20, borderRadius: R.tag, flexShrink: 0, fontFamily: (theme) => theme.typography.fontFamily,
         fontSize: '0.64rem', fontWeight: 700,
         bgcolor: on ? T.okBg : 'transparent',
         color: on ? T.ok : T.faint,
@@ -448,36 +457,38 @@ const SetupFlags = ({ code, budgetCode, compact = false }) => (
 );
 
 // ── Appendix 33 export indicator ──────────────────────────────
-// status: 'allowed' | 'blocked' | 'unknown' | null (no charge target at all)
+// status: 'allowed' | 'blocked' | 'unknown' | 'nobudget' (no Budget Department set,
+// so the employee is left out of the export) | null (nothing to show)
 const APPENDIX33_BADGE = {
   allowed: { color: T.ok, bg: T.okBg, border: T.okBorder, Icon: CheckCircleIcon, label: 'Appendix 33' },
   blocked: { color: T.warn, bg: T.warnBg, border: T.warnBorder, Icon: ErrorOutlineIcon, label: 'Not in Appendix 33' },
+  nobudget: { color: T.muted, bg: 'rgba(0,0,0,0.04)', border: 'rgba(0,0,0,0.12)', Icon: RemoveIcon, label: 'Not exported' },
   unknown: { color: T.faint, bg: 'transparent', border: T.divider, Icon: HelpOutlineIcon, label: 'Appendix 33 ?' },
 };
 
-const appendix33Tip = (status, via) => {
-  const what = via ? 'The department (no budget override)' : 'This payroll charge';
-  if (status === 'allowed') return `${what} is allowed in the Appendix 33 payroll layout, so the export charges this tab.`;
-  if (status === 'blocked') return `${what} is not enabled in the Appendix 33 payroll layout, so the export has no tab to charge it to until it is allowed there.`;
+const appendix33Tip = (status) => {
+  if (status === 'allowed') return 'This budget is allowed in the Appendix 33 payroll layout, so the export charges this tab.';
+  if (status === 'blocked') return 'This budget is not enabled in the Appendix 33 payroll layout, so the export has no tab to charge it to until it is allowed there.';
+  if (status === 'nobudget') return 'No Budget Department set — this employee is left out of the Appendix 33 export until one is set.';
   return 'The Appendix 33 layout has not loaded yet.';
 };
 
-const Appendix33Badge = ({ status, via = false, compact = false }) => {
+const Appendix33Badge = ({ status, compact = false }) => {
   const cfg = status && APPENDIX33_BADGE[status];
   if (!cfg) return null;
   const { Icon } = cfg;
   return (
-    <Tooltip title={appendix33Tip(status, via)}>
+    <Tooltip title={appendix33Tip(status)}>
       {compact ? (
         <Icon sx={{ fontSize: 16, color: cfg.color, flexShrink: 0 }} />
       ) : (
         <Box sx={{
-          display: 'inline-flex', alignItems: 'center', gap: 0.4, px: 0.8, height: 22, borderRadius: R.tag, flexShrink: 0,
+          display: 'inline-flex', alignItems: 'center', gap: 0.4, px: 0.8, height: 22, borderRadius: R.tag, flexShrink: 0, fontFamily: (theme) => theme.typography.fontFamily,
           fontSize: '0.66rem', fontWeight: 700, whiteSpace: 'nowrap',
           color: cfg.color, bgcolor: cfg.bg, border: `1px solid ${cfg.border}`,
         }}>
           <Icon sx={{ fontSize: 12 }} />
-          {cfg.label}{via ? ' · via dept' : ''}
+          {cfg.label}
         </Box>
       )}
     </Tooltip>
@@ -485,18 +496,16 @@ const Appendix33Badge = ({ status, via = false, compact = false }) => {
 };
 
 /**
- * Sentence under a budget field saying whether the resulting payroll charge is
- * allowed in Appendix 33. A blocked budget target is already explained by the
- * field's own warning, so only the allowed / department-fallback cases speak here.
+ * Sentence under a budget field saying whether the employee will be in the
+ * Appendix 33 export. A blocked budget target is already explained by the field's
+ * own warning, so only the allowed / no-budget cases speak here.
  */
-const Appendix33Note = ({ status, target, noun, via = false }) => {
-  if (!status || status === 'unknown' || (status === 'blocked' && !via)) return null;
+const Appendix33Note = ({ status, target, noun }) => {
+  if (!status || status === 'unknown' || status === 'blocked') return null;
   const allowed = status === 'allowed';
-  const text = via
-    ? (allowed
-      ? `No budget override — pay is charged to department “${target}”, which is allowed in the Appendix 33 payroll.`
-      : `No budget override — department “${target}” is not enabled in the Appendix 33 layout’s department tab.`)
-    : `“${target}” is allowed in the Appendix 33 payroll — the export charges this ${noun}.`;
+  const text = allowed
+    ? `“${target}” is allowed in the Appendix 33 payroll — the export charges this ${noun}.`
+    : 'No Budget Department yet — this employee will be left out of the Appendix 33 export until one is set.';
   const Icon = allowed ? CheckCircleIcon : ErrorOutlineIcon;
   return (
     <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.6, mt: 0.75, ml: 0.5 }}>
@@ -574,7 +583,7 @@ const BudgetTargetAutocomplete = ({
   scopesLoaded = false,
   scopesLoading = false,
   scopesError = '',
-  placeholder = 'Same as department…',
+  placeholder = '',
   disabled = false,
 }) => {
   const [query, setQuery] = useState(value || '');
@@ -1191,15 +1200,34 @@ const DepartmentAssignment = () => {
       .sort((a, b) => a.label.localeCompare(b.label));
   }, [departmentData, empCatLabels]);
 
+  // One option per Appendix 33 tab: category targets are grouped by type name, so
+  // e.g. "Academic - 30 Hours | Tempo" and "Academic - 40 Hours | Tempo" are one
+  // "Tempo" option — the export puts both in the same TEMPO tab.
   const budgetFilterOptions = useMemo(() => {
-    const seen = new Map();
+    const byKey = new Map();
     departmentData.forEach((d) => d.employees.forEach((emp) => {
       const c = String(emp.budgetCode || '').trim();
-      if (c && !seen.has(c)) seen.set(c, budgetTargetKind(emp.budgetType));
+      if (!c) return;
+      const kind = budgetTargetKind(emp.budgetType);
+      const key = budgetFilterKey(c, kind);
+      if (!byKey.has(key)) {
+        const sep = c.lastIndexOf('|');
+        byKey.set(key, {
+          key,
+          kind,
+          code: c, // a representative stored value, for the Appendix 33 status
+          name: isCategoryTarget(kind) && sep > -1 ? c.slice(sep + 1).trim() : c,
+          groups: [],
+        });
+      }
+      if (isCategoryTarget(kind)) {
+        const sep = c.lastIndexOf('|');
+        const group = sep > -1 ? c.slice(0, sep).trim() : '';
+        const opt = byKey.get(key);
+        if (group && !opt.groups.includes(group)) opt.groups.push(group);
+      }
     }));
-    return [...seen.entries()]
-      .map(([code, kind]) => ({ code, kind }))
-      .sort((a, b) => a.code.localeCompare(b.code));
+    return [...byKey.values()].sort((a, b) => a.name.localeCompare(b.name));
   }, [departmentData]);
 
   const deptFilterOptions = useMemo(
@@ -1255,18 +1283,26 @@ const DepartmentAssignment = () => {
     return appendix33DeptCodeSet.has(v.toUpperCase()) ? 'allowed' : 'blocked';
   };
 
-  /** Status of the tab pay is actually charged to: the budget target, else the department. */
+  /**
+   * Export status of an assignment. The Appendix 33 export only includes employees
+   * with a Budget Department set, so no budget means "not exported" — the department
+   * alone is not enough.
+   */
   const chargeStatusOf = (a) => (
     String(a?.budgetCode || '').trim()
       ? appendix33StatusOf(a.budgetCode, a.budgetType)
-      : appendix33StatusOf(a?.code, BUDGET_TARGET_DEPARTMENT)
+      : 'nobudget'
   );
 
   /** The per-employee dropdown filters, shared by the department and employee views. */
   const passesRecordFilters = (emp) => {
     if (filterBudget) {
       const b = String(emp.budgetCode || '').trim();
-      if (filterBudget === NO_FILTER ? b !== '' : b !== filterBudget) return false;
+      if (filterBudget === NO_FILTER) {
+        if (b !== '') return false;
+      } else if (!b || budgetFilterKey(b, emp.budgetType) !== filterBudget) {
+        return false;
+      }
     }
     if (filterEmpCat) {
       const l = empCatLabels[String(emp.employeeNumber ?? '')]?.label || '';
@@ -1613,13 +1649,16 @@ const DepartmentAssignment = () => {
 
   const editBudgetWarning = editAssignment ? getBudgetScopeWarning(editAssignment.budgetCode, editAssignment.budgetType) : '';
 
-  // Appendix 33 indicator for the charge each form would produce
-  const assignViaDept = !String(assignBudgetCode || '').trim();
-  const assignChargeStatus = chargeStatusOf({ code: selectedCode, budgetCode: assignBudgetCode, budgetType: assignBudgetType });
-  const editViaDept = !String(editAssignment?.budgetCode || '').trim();
-  const editChargeStatus = editAssignment ? chargeStatusOf(editAssignment) : null;
   // What the single chosen employee already has, so re-assigning is a deliberate overwrite
   const singleCurrent = singleEmployee ? employeeStatusByNum.get(String(singleEmployee.employeeNumber)) : null;
+
+  // Appendix 33 indicator for what each form would save. A blank budget in the
+  // assign form keeps an existing one, so only warn when there is none to keep.
+  const assignKeepsBudget = !String(assignBudgetCode || '').trim() && !selectMode && Boolean(singleCurrent?.budgetCode);
+  const assignChargeStatus = assignKeepsBudget
+    ? null
+    : chargeStatusOf({ code: selectedCode, budgetCode: assignBudgetCode, budgetType: assignBudgetType });
+  const editChargeStatus = editAssignment ? chargeStatusOf(editAssignment) : null;
 
   return (
     <>
@@ -1701,7 +1740,7 @@ const DepartmentAssignment = () => {
                               <SetupFlags code={singleCurrent.code} budgetCode={singleCurrent.budgetCode} />
                               {singleCurrent.code && <Typography sx={{ fontSize: '0.7rem', color: T.text, fontWeight: 600 }}>{singleCurrent.code}</Typography>}
                               {singleCurrent.budgetCode && <Chip label={budgetChipLabel(singleCurrent.budgetCode, singleCurrent.budgetType)} size="small" sx={{ ...goldChipSx, height: 20 }} />}
-                              <Appendix33Badge status={chargeStatusOf(singleCurrent)} via={!singleCurrent.budgetCode} />
+                              <Appendix33Badge status={chargeStatusOf(singleCurrent)} />
                             </Box>
                           )}
                         </Box>
@@ -1790,7 +1829,7 @@ const DepartmentAssignment = () => {
                       scopesLoaded={budgetLoadedFor(assignBudgetType)}
                       scopesLoading={budgetLoadingFor(assignBudgetType)}
                       scopesError={budgetErrorFor(assignBudgetType)}
-                      placeholder="Same as department…"
+                      placeholder=""
                     />
                     {assignBudgetWarning && (
                       <Typography sx={{ fontSize: '0.7rem', color: T.warn, mt: 0.75, ml: 0.5, lineHeight: 1.45 }}>
@@ -1799,9 +1838,9 @@ const DepartmentAssignment = () => {
                     )}
                     <Appendix33Note
                       status={assignChargeStatus}
-                      target={assignViaDept ? selectedCode : assignBudgetCode}
+                      target={assignBudgetCode}
                       noun={budgetTargetNoun(assignBudgetType)}
-                      via={assignViaDept}
+                     
                     />
 
                     {/* Instructions for the 2 budget choices offered by the toggle above */}
@@ -1820,7 +1859,7 @@ const DepartmentAssignment = () => {
                           <Box component="span" sx={{ fontWeight: 700, color: T.text }}>2 · Employment Category</Box> — charges the pay to a category tab (e.g. Non-Teaching).
                         </Typography>
                         <Typography sx={{ fontSize: '0.7rem', color: T.muted, lineHeight: 1.5 }}>
-                          <Box component="span" sx={{ fontWeight: 700, color: T.text }}>Leave blank</Box> — the exported payroll follows the Department Code above.
+                          <Box component="span" sx={{ fontWeight: 700, color: T.text }}>Leave blank</Box> — the employee is <b>not included</b> in the Appendix 33 export until a budget is set.
                         </Typography>
                         <Typography sx={{ fontSize: '0.7rem', color: T.muted, lineHeight: 1.5 }}>
                           <Box component="span" sx={{ fontWeight: 700, color: T.text }}>Already assigned?</Box> — a field left blank keeps what the employee already has, so you can set the department and the budget in separate steps. To clear a value, open the employee’s record and use Edit.
@@ -1898,13 +1937,27 @@ const DepartmentAssignment = () => {
                     </FieldInput>
                     <FieldInput select size="small" label="Budget department"
                       value={filterBudget} onChange={(e) => setFilterBudget(e.target.value)}
+                      SelectProps={{
+                        renderValue: (v) => {
+                          if (v === NO_FILTER) return 'No budget (not exported)';
+                          const opt = budgetFilterOptions.find((o) => o.key === v);
+                          return opt ? budgetChipLabel(opt.name, opt.kind) : '';
+                        },
+                      }}
                       sx={{ flex: 1.2, minWidth: 170 }}>
                       <MenuItem value="">All budget targets</MenuItem>
-                      <MenuItem value={NO_FILTER}>No budget override</MenuItem>
+                      <MenuItem value={NO_FILTER}>No budget (not exported)</MenuItem>
                       {budgetFilterOptions.map((b) => (
-                        <MenuItem key={b.code} value={b.code} sx={{ gap: 0.75 }}>
+                        <MenuItem key={b.key} value={b.key} sx={{ gap: 0.75 }}>
                           <Appendix33Badge status={appendix33StatusOf(b.code, b.kind)} compact />
-                          {budgetChipLabel(b.code, b.kind)}
+                          <Box sx={{ minWidth: 0 }}>
+                            {budgetChipLabel(b.name, b.kind)}
+                            {b.groups.length > 1 && (
+                              <Typography component="span" sx={{ display: 'block', fontSize: '0.68rem', color: T.muted, lineHeight: 1.3 }}>
+                                {b.groups.join(' + ')} · one Appendix 33 tab
+                              </Typography>
+                            )}
+                          </Box>
                         </MenuItem>
                       ))}
                     </FieldInput>
@@ -1924,6 +1977,7 @@ const DepartmentAssignment = () => {
                       <MenuItem value="">All</MenuItem>
                       <MenuItem value="allowed">Allowed in Appendix 33</MenuItem>
                       <MenuItem value="blocked">Not in Appendix 33</MenuItem>
+                      <MenuItem value="nobudget">Not exported (no budget)</MenuItem>
                     </FieldInput>
                     {hasRecordFilters && (
                       <Tooltip title="Clear filters">
@@ -1975,7 +2029,7 @@ const DepartmentAssignment = () => {
                                   <Chip label={budgetChipLabel(assignment.budgetCode, assignment.budgetType)} size="small" sx={goldChipSx} />
                                 </Tooltip>
                               )}
-                              <Appendix33Badge status={chargeStatusOf(assignment)} via={!assignment.budgetCode} compact />
+                              <Appendix33Badge status={chargeStatusOf(assignment)} compact />
                               <SetupFlags code={assignment.code} budgetCode={assignment.budgetCode} compact />
                             </Box>
                           </Box>
@@ -2079,7 +2133,7 @@ const DepartmentAssignment = () => {
                                 </Box>
                                 <Box sx={{ minWidth: 118, display: 'flex', justifyContent: 'flex-start' }}>
                                   {chargeStatusOf(e)
-                                    ? <Appendix33Badge status={chargeStatusOf(e)} via={!e.budgetCode} />
+                                    ? <Appendix33Badge status={chargeStatusOf(e)} />
                                     : <Typography sx={{ fontSize: '0.72rem', color: T.faint }}>—</Typography>}
                                 </Box>
                               </Box>
@@ -2286,7 +2340,7 @@ const DepartmentAssignment = () => {
                                     </Typography>
                                   </Box>
                                   <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                    <Appendix33Badge status={chargeStatusOf(emp)} via={!emp.budgetCode} compact />
+                                    <Appendix33Badge status={chargeStatusOf(emp)} compact />
                                     <SetupFlags code={emp.code} budgetCode={emp.budgetCode} compact />
                                   </Box>
                                 </Box>
@@ -2339,6 +2393,28 @@ const DepartmentAssignment = () => {
                                         sx={{ height: 22, fontSize: '0.68rem', fontWeight: 700, bgcolor: alpha(T.accent, 0.05), color: T.accentMid, border: `1px solid ${alpha(T.accent, 0.15)}`, borderRadius: R.tag, '& .MuiChip-label': { px: 0.75 } }}
                                       />
                                     )}
+                                    {(() => {
+                                      // The employee's own employment category (Employment Category module)
+                                      const cat = empCatLabels[String(editAssignment.employeeNumber ?? '').trim()];
+                                      const color = cat?.label ? hexColor(cat.colorHex) : T.faint;
+                                      return (
+                                        <Tooltip title="Employment category">
+                                          <Chip
+                                            label={cat?.label || 'No employment category'}
+                                            size="small"
+                                            icon={<Box component="span" sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: cat?.label ? color : 'transparent', border: cat?.label ? 'none' : `1px dashed ${T.faint}`, ml: '8px !important' }} />}
+                                            sx={{
+                                              height: 22, fontSize: '0.68rem', fontWeight: 700, borderRadius: R.tag,
+                                              bgcolor: cat?.label ? alpha(color, 0.08) : 'transparent',
+                                              color: cat?.label ? T.text : T.faint,
+                                              fontStyle: cat?.label ? 'normal' : 'italic',
+                                              border: `1px ${cat?.label ? 'solid' : 'dashed'} ${cat?.label ? alpha(color, 0.35) : 'rgba(0,0,0,0.18)'}`,
+                                              '& .MuiChip-label': { px: 0.75 },
+                                            }}
+                                          />
+                                        </Tooltip>
+                                      );
+                                    })()}
                                     {editAssignment.budgetCode && (
                                       <Chip
                                         label={budgetChipLabel(editAssignment.budgetCode, editAssignment.budgetType)}
@@ -2349,7 +2425,7 @@ const DepartmentAssignment = () => {
                                         sx={goldChipSx}
                                       />
                                     )}
-                                    <Appendix33Badge status={chargeStatusOf(originalAssignment || editAssignment)} via={!(originalAssignment || editAssignment).budgetCode} />
+                                    <Appendix33Badge status={chargeStatusOf(originalAssignment || editAssignment)} />
                                     <SetupFlags code={(originalAssignment || editAssignment).code} budgetCode={(originalAssignment || editAssignment).budgetCode} />
                                   </Box>
                                 </Box>
@@ -2385,7 +2461,7 @@ const DepartmentAssignment = () => {
                                       <IconTile size={38}><DomainIcon sx={{ fontSize: 19 }} /></IconTile>
                                       <Box>
                                         <Typography sx={{ fontSize: '1rem', fontWeight: 700, color: T.accent, lineHeight: 1.2 }}>
-                                          {editAssignment.code || 'N/A'}
+                                          {editAssignment.code || 'Not set'}
                                         </Typography>
                                         {departmentList.find((d) => d.code === editAssignment.code)?.description && (
                                           <Typography sx={{ fontSize: '0.78rem', color: T.accentMid, mt: 0.2 }}>
@@ -2418,7 +2494,7 @@ const DepartmentAssignment = () => {
                                         scopesLoaded={budgetLoadedFor(editAssignment.budgetType)}
                                         scopesLoading={budgetLoadingFor(editAssignment.budgetType)}
                                         scopesError={budgetErrorFor(editAssignment.budgetType)}
-                                        placeholder="Same as department…"
+                                        placeholder=""
                                       />
                                       {editBudgetWarning && (
                                         <Typography sx={{ fontSize: '0.7rem', color: T.warn, mt: 0.75, ml: 0.5, lineHeight: 1.45 }}>
@@ -2427,9 +2503,9 @@ const DepartmentAssignment = () => {
                                       )}
                                       <Appendix33Note
                                         status={editChargeStatus}
-                                        target={editViaDept ? editAssignment.code : editAssignment.budgetCode}
+                                        target={editAssignment.budgetCode}
                                         noun={budgetTargetNoun(editAssignment.budgetType)}
-                                        via={editViaDept}
+                                       
                                       />
                                       <Typography sx={{ fontSize: '0.7rem', color: T.muted, mt: 0.85, ml: 0.5, lineHeight: 1.5 }}>
                                         Optional. Two choices: <b>Department</b> (charge the pay to another office tab) or <b>Employment Category</b> (charge the pay to a category tab from the Employment Category set-up). This employee’s department above stays unchanged, and leaving it blank uses the department above.
@@ -2450,15 +2526,15 @@ const DepartmentAssignment = () => {
                                         </IconTile>
                                         <Box sx={{ flex: 1, minWidth: 0 }}>
                                           <Typography sx={{ fontSize: '1rem', fontWeight: 700, color: editAssignment.budgetCode ? T.gold : T.muted, lineHeight: 1.2 }}>
-                                            {editAssignment.budgetCode || 'Same as department'}
+                                            {editAssignment.budgetCode || 'Not set'}
                                           </Typography>
                                           <Typography sx={{ fontSize: '0.75rem', color: T.muted, mt: 0.2 }}>
                                             {editAssignment.budgetCode
                                               ? `Pay is charged to this ${budgetTargetNoun(editAssignment.budgetType)} in the exported payroll`
-                                              : 'No budget override — uses the department above'}
+                                              : 'No budget set — left out of the Appendix 33 export'}
                                           </Typography>
                                         </Box>
-                                        <Appendix33Badge status={editChargeStatus} via={editViaDept} />
+                                        <Appendix33Badge status={editChargeStatus} />
                                       </Box>
                                       {editBudgetWarning && (
                                         <Typography sx={{ fontSize: '0.75rem', color: T.warn, mt: 0.85, ml: 0.5, lineHeight: 1.45 }}>

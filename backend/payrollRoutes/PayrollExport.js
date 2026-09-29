@@ -65,6 +65,15 @@ const PAYROLL_SELECT = `
   ) bd ON CAST(bd.employeeNumber AS CHAR) = CAST(pp.employeeNumber AS CHAR)
 `;
 
+/**
+ * Only employees whose Budget Department (payroll charge) has been set in Department
+ * Assignment go into the Appendix 33 export. A blank budget means the employee is
+ * not ready yet, so they are left out — even if their department is enabled — and
+ * the download reports how many were skipped.
+ */
+const hasBudgetTarget = (row) => String(row?.budgetDepartment ?? '').trim() !== '';
+const HAS_BUDGET_SQL = "NULLIF(TRIM(scoped.budgetDepartment), '') IS NOT NULL";
+
 function parseExportPeriod(source = {}) {
   const month = Number(source.month);
   const year = Number(source.year);
@@ -288,7 +297,9 @@ router.get('/export-appendix33/availability', authenticateToken, requireAdmin, (
   }
 
   db.query(
-    `SELECT COUNT(*) AS count FROM (${PAYROLL_SELECT} WHERE ${parsed.where}) AS scoped`,
+    `SELECT COUNT(*) AS total,
+            COALESCE(SUM(CASE WHEN ${HAS_BUDGET_SQL} THEN 1 ELSE 0 END), 0) AS count
+     FROM (${PAYROLL_SELECT} WHERE ${parsed.where}) AS scoped`,
     parsed.params,
     (err, rows) => {
       if (err) {
@@ -301,9 +312,15 @@ router.get('/export-appendix33/availability', authenticateToken, requireAdmin, (
       }
 
       const count = Number(rows?.[0]?.count || 0);
+      const skippedNoBudget = Math.max(0, Number(rows?.[0]?.total || 0) - count);
       res.json({
         available: count > 0,
         count,
+        skippedNoBudget,
+        error: count === 0 && skippedNoBudget > 0
+          ? `${skippedNoBudget} employee${skippedNoBudget === 1 ? ' has' : 's have'} finalized payroll for ${parsed.periodName} `
+            + 'but no Budget Department yet. Set it in Department Assignment to include them.'
+          : undefined,
         month: parsed.month,
         year: parsed.year,
         department: parsed.department || null,
@@ -352,14 +369,25 @@ router.post('/export-appendix33', authenticateToken, requireAdmin, (req, res) =>
     }
   }
 
-  db.query(query, params, (err, rows) => {
+  db.query(query, params, (err, scopedRows) => {
     if (err) {
       console.error('Appendix 33 export: query failed', err);
       return res.status(500).json({ error: 'Could not read finalized payroll' });
     }
 
-    if (!rows.length) {
+    if (!scopedRows.length) {
       return res.status(404).json({ error: emptyFilterMessage(parsed) });
+    }
+
+    // Employees with no Budget Department yet are not exported
+    const rows = scopedRows.filter(hasBudgetTarget);
+    const skippedNoBudget = scopedRows.length - rows.length;
+    if (!rows.length) {
+      return res.status(404).json({
+        error: `${skippedNoBudget} employee${skippedNoBudget === 1 ? ' has' : 's have'} finalized payroll for ${periodName} `
+          + 'but no Budget Department yet. Set it in Department Assignment to include them.',
+        skippedNoBudget,
+      });
     }
 
     let built;
@@ -442,6 +470,7 @@ router.post('/export-appendix33', authenticateToken, requireAdmin, (req, res) =>
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       res.setHeader('Content-Length', buffer.length);
       res.setHeader('X-Appendix33-Employees', String(rows.length));
+      res.setHeader('X-Appendix33-Skipped-No-Budget', String(skippedNoBudget));
       if (active) {
         res.setHeader('X-Appendix33-Template', encodeURIComponent(active.name));
         res.setHeader('X-Appendix33-Template-Id', active.id);
