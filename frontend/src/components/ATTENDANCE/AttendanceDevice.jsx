@@ -1285,6 +1285,8 @@ const ViewAttendanceRecord = () => {
   // True while the non-active employees are still being added in the background
   const [loadingOtherUsers, setLoadingOtherUsers] = useState(false);
   const allUsersLoadIdRef = useRef(0);
+  // Filters the current All Users list was loaded with ({dept, cat, status})
+  const [loadedUserScope, setLoadedUserScope] = useState(null);
   // Top-level page tabs: "device" (Device Record — filter + table/insights) vs "facial" (Facial Live list only)
   const [topTab, setTopTab] = useState('device');
   // Sub-tab within the Device Record tab
@@ -1861,7 +1863,7 @@ const ViewAttendanceRecord = () => {
 
     setLoadingAllUsers(true);
     setLoadingOtherUsers(false);
-    setLoadPhase('Loading active employees…');
+    setLoadPhase('Loading employees…');
 
     const toRow = (u, recordsCount, deviceName = '') => {
       const dn = u.name || deviceName || u.employeeNumber || 'Unknown';
@@ -1876,18 +1878,22 @@ const ViewAttendanceRecord = () => {
       };
     };
 
+    // The Department / Employment Category / Employee Status chosen before
+    // clicking Load decide WHO is loaded — only they are counted, shown and synced.
+    const scope = { dept: departmentCodeFilter, cat: empCatFilter, status: userStatusFilter };
+
     let countByPerson = new Map();
-    let users = registeredUsers;
+    let scoped = [];
     try {
-      // 1. Record counts for the period + the registered users (already loaded
-      //    with the page; fetched here only if that has not finished yet).
-      const [summaryRes, usersRes] = await Promise.all([
-        axios.post(
-          `${API_BASE_URL}/attendance/api/device-attendance-summary`,
-          { startDate, endDate },
-          getAuthHeaders(),
-        ),
+      // 1. Registered users (already loaded with the page; fetched here only if
+      //    that has not finished yet) and, for a department filter, the assignments.
+      let users = registeredUsers;
+      let dm = departmentAssignmentsMap || {};
+      const [usersRes, deptMap] = await Promise.all([
         users.length ? Promise.resolve(null) : axios.get(`${API_BASE_URL}/users`, getAuthHeaders()),
+        scope.dept && Object.keys(dm).length === 0 && !loadingDepartments
+          ? fetchDepartmentsAndAssignments()
+          : Promise.resolve(null),
       ]);
       if (!isCurrent()) return;
       if (usersRes) {
@@ -1895,23 +1901,50 @@ const ViewAttendanceRecord = () => {
         users = list.map(toRegisteredUser).filter(Boolean);
         setRegisteredUsers(users);
       }
+      if (deptMap) dm = deptMap;
+
+      scoped = users.filter((u) => {
+        if (scope.status === 'Active' && u.status !== 'Active') return false;
+        if (scope.status === '__NOT_ACTIVE__' && u.status === 'Active') return false;
+        if (scope.dept) {
+          const dc = dm[u.employeeNumber] || '';
+          if (scope.dept === '__UNASSIGNED__' ? dc : dc !== scope.dept) return false;
+        }
+        if (scope.cat) {
+          const label = empCatMap?.[u.employeeNumber]?.label || '';
+          if (scope.cat === '__UNASSIGNED__' ? label : label !== scope.cat) return false;
+        }
+        return true;
+      });
+      setLoadedUserScope(scope);
+
+      // 2. Record counts for the period — only for those employees.
+      setLoadPhase(`Counting device records for ${scoped.length} employee${scoped.length === 1 ? '' : 's'}…`);
+      const summaryRes = await axios.post(
+        `${API_BASE_URL}/attendance/api/device-attendance-summary`,
+        { startDate, endDate, personIds: scoped.map((u) => u.employeeNumber) },
+        getAuthHeaders(),
+      );
+      if (!isCurrent()) return;
       countByPerson = new Map(
         (Array.isArray(summaryRes.data) ? summaryRes.data : [])
           .filter((row) => row?.PersonID != null && row.PersonID !== '')
           .map((row) => [String(row.PersonID).trim(), Number(row.recordsCount) || 0]),
       );
 
-      // 2. Active employees first — shown straight away.
-      const active = users
+      // 3. Active employees in scope — shown straight away.
+      const active = scoped
         .filter((u) => u.status === 'Active')
         .map((u) => toRow(u, countByPerson.get(u.employeeNumber) ?? 0));
       setAllUsersDTR(sortEmployeesByLastName(active));
       if (syncDevice) setCurrentPage(1); // not on the automatic realtime refresh
-      const withRecs = active.filter((u) => u.hasRecords).length;
-      showSnackbar(
-        `Loaded ${active.length} active employees (${withRecs} with device records in this period)`,
-        'success',
-      );
+      if (scope.status === 'Active') {
+        const withRecs = active.filter((u) => u.hasRecords).length;
+        showSnackbar(
+          `Loaded ${active.length} active employees (${withRecs} with device records in this period)`,
+          'success',
+        );
+      }
     } catch (err) {
       console.error('Error fetching all users DTR:', err);
       showSnackbar(
@@ -1924,32 +1957,45 @@ const ViewAttendanceRecord = () => {
     setLoadingAllUsers(false);
     setLoadPhase('');
 
-    // 3. Background: the other (non-active) employees who use the device. The
-    //    all-history device list is the slow part, so it no longer blocks the page.
-    setLoadingOtherUsers(true);
-    axios.get(`${API_BASE_URL}/attendance/api/all-device-users`, getAuthHeaders())
-      .then((res) => {
-        if (!isCurrent()) return;
-        const deviceNames = new Map(
-          (Array.isArray(res.data) ? res.data : [])
-            .map((d) => [String(d?.PersonID ?? '').trim(), d?.PersonName || '']),
-        );
-        const others = users
-          .filter((u) => u.status !== 'Active' && deviceNames.has(u.employeeNumber))
-          .map((u) => toRow(u, countByPerson.get(u.employeeNumber) ?? 0, deviceNames.get(u.employeeNumber)));
-        setAllUsersDTR((prev) => {
-          const have = new Set(prev.map((p) => String(p.employeeNumber)));
-          return sortEmployeesByLastName([...prev, ...others.filter((o) => !have.has(o.employeeNumber))]);
-        });
-      })
-      .catch((err) => console.error('Error loading non-active device users:', err))
-      .finally(() => { if (isCurrent()) setLoadingOtherUsers(false); });
+    // 4. Background, only when the status filter asks for them: the non-active
+    //    employees in scope who use the device. The all-history device list is
+    //    the slow part, so it never blocks the page.
+    const nonActive = scoped.filter((u) => u.status !== 'Active');
+    if (scope.status !== 'Active' && nonActive.length) {
+      setLoadingOtherUsers(true);
+      axios.get(`${API_BASE_URL}/attendance/api/all-device-users`, getAuthHeaders())
+        .then((res) => {
+          if (!isCurrent()) return;
+          const deviceNames = new Map(
+            (Array.isArray(res.data) ? res.data : [])
+              .map((d) => [String(d?.PersonID ?? '').trim(), d?.PersonName || '']),
+          );
+          const others = nonActive
+            .filter((u) => deviceNames.has(u.employeeNumber))
+            .map((u) => toRow(u, countByPerson.get(u.employeeNumber) ?? 0, deviceNames.get(u.employeeNumber)));
+          let total = 0;
+          setAllUsersDTR((prev) => {
+            const have = new Set(prev.map((p) => String(p.employeeNumber)));
+            const next = sortEmployeesByLastName([...prev, ...others.filter((o) => !have.has(o.employeeNumber))]);
+            total = next.length;
+            return next;
+          });
+          showSnackbar(`Loaded ${total || others.length} employees for the selected filters`, 'success');
+        })
+        .catch((err) => console.error('Error loading non-active device users:', err))
+        .finally(() => { if (isCurrent()) setLoadingOtherUsers(false); });
+    }
 
-    // 4. Background: copy the period's device records into the attendance table.
-    //    Counts above come straight from the device table, so nothing waits on
-    //    this; if it changes anything, the realtime refresh reloads the list.
-    if (syncDevice) {
-      axios.post(`${API_BASE_URL}/attendance/api/bulk-auto-save`, { startDate, endDate }, getAuthHeaders())
+    // 5. Background: copy the period's device records into the attendance table —
+    //    only for the employees in scope. Counts above come straight from the
+    //    device table, so nothing waits on this; if it changes anything, the
+    //    realtime refresh reloads the list.
+    if (syncDevice && scoped.length) {
+      axios.post(
+        `${API_BASE_URL}/attendance/api/bulk-auto-save`,
+        { startDate, endDate, personIds: scoped.map((u) => u.employeeNumber) },
+        getAuthHeaders(),
+      )
         .then((bulkRes) => {
           const bulkMsg = bulkRes.data?.message;
           if (bulkMsg && isCurrent()) showSnackbar(bulkMsg, 'success');
@@ -2742,6 +2788,14 @@ const goToComputationModule = async (selectedComputationType) => {
           >
             {loadingAllUsers ? 'Loading…' : 'Load All Users'}
           </Button>
+          {loadedUserScope && !loadingAllUsers
+            && (loadedUserScope.dept !== departmentCodeFilter
+              || loadedUserScope.cat !== empCatFilter
+              || loadedUserScope.status !== userStatusFilter) && (
+            <Typography sx={{ fontSize: '0.66rem', color: '#b45309', mt: -0.25, mb: 0.75, ml: 0.25, lineHeight: 1.4 }}>
+              Filters changed — click <b>Load All Users</b> to load those employees.
+            </Typography>
+          )}
 
           {/* Batch summary — compact */}
           <Box sx={{ px: 1.25, py: 1, borderRadius: 1.5, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>

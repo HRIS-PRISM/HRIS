@@ -55,6 +55,15 @@
     };
   }
 
+  /**
+   * Optional employee filter from a request body: null when not given (= everyone),
+   * otherwise the de-duplicated, trimmed IDs (an empty array means "nobody").
+   */
+  function normalizePersonIds(value) {
+    if (!Array.isArray(value)) return null;
+    return [...new Set(value.map((v) => String(v ?? '').trim()).filter(Boolean))];
+  }
+
   /** Manila YYYY-MM-DD from a millis column — session-TZ independent (epoch + 8h). */
   function manilaYmdSql(column = 'AttendanceDateTime') {
     return `DATE_FORMAT(DATE_ADD('1970-01-01 00:00:00', INTERVAL FLOOR(${column}/1000) + 28800 SECOND), '%Y-%m-%d')`;
@@ -2781,6 +2790,10 @@
     }
 
     const { startTimestamp, endTimestamp } = manilaDayRangeMs(startDate, endDate);
+    // Optional: only these employees (the All Users filters chosen before loading)
+    const personIds = normalizePersonIds(req.body?.personIds);
+    if (personIds && personIds.length === 0) return res.json([]);
+    const personSql = personIds ? ' AND PersonID IN (?)' : '';
 
     const sql = `
       SELECT
@@ -2792,19 +2805,22 @@
           PersonID,
           ${manilaYmdSql()} AS dt
         FROM AttendanceRecordInfo
-        WHERE AttendanceDateTime BETWEEN ? AND ?
+        WHERE AttendanceDateTime BETWEEN ? AND ?${personSql}
         GROUP BY PersonID, dt
       ) daily
       LEFT JOIN (
         SELECT PersonID, COUNT(*) AS rawRecordCount
         FROM AttendanceRecordInfo
-        WHERE AttendanceDateTime BETWEEN ? AND ?
+        WHERE AttendanceDateTime BETWEEN ? AND ?${personSql}
         GROUP BY PersonID
       ) raw ON daily.PersonID = raw.PersonID
       GROUP BY daily.PersonID, raw.rawRecordCount
     `;
+    const params = personIds
+      ? [startTimestamp, endTimestamp, personIds, startTimestamp, endTimestamp, personIds]
+      : [startTimestamp, endTimestamp, startTimestamp, endTimestamp];
 
-    db.query(sql, [startTimestamp, endTimestamp, startTimestamp, endTimestamp], (err, results) => {
+    db.query(sql, params, (err, results) => {
       if (err) {
         console.error('Error fetching device attendance summary:', err);
         return res.status(500).json({ error: err.message });
@@ -3214,6 +3230,15 @@
 
     try {
       const { startTimestamp, endTimestamp } = manilaDayRangeMs(startDate, endDate);
+      // Optional: sync only these employees (the All Users filters chosen before loading)
+      const personIds = normalizePersonIds(req.body?.personIds);
+      if (personIds && personIds.length === 0) {
+        return res.json({
+          success: true,
+          message: 'No employees to sync for the selected filters',
+          stats: { totalUsers: 0, dayRows: 0, saved: 0, updated: 0, errors: 0, skipped: 0 },
+        });
+      }
 
       const records = await new Promise((resolve, reject) => {
         db.query(
@@ -3228,11 +3253,13 @@
               MIN(CASE WHEN AttendanceState = 5 THEN AttendanceDateTime END) AS Time5,
               MAX(CASE WHEN AttendanceState = 6 THEN AttendanceDateTime END) AS Time6
             FROM AttendanceRecordInfo
-            WHERE AttendanceDateTime BETWEEN ? AND ?
+            WHERE AttendanceDateTime BETWEEN ? AND ?${personIds ? ' AND PersonID IN (?)' : ''}
             GROUP BY Date, PersonID, PersonName
             HAVING Date BETWEEN ? AND ?
           `,
-          [startTimestamp, endTimestamp, startDate, endDate],
+          personIds
+            ? [startTimestamp, endTimestamp, personIds, startDate, endDate]
+            : [startTimestamp, endTimestamp, startDate, endDate],
           (err, result) => {
             if (err) reject(err);
             else resolve(result || []);
