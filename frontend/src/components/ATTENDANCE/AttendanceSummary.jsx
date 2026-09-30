@@ -17,8 +17,6 @@ import {
   Chip,
   styled,
   CircularProgress,
-  FormControl,
-  InputLabel,
   Select,
   MenuItem,
   ListSubheader,
@@ -28,6 +26,8 @@ import {
   Tooltip,
   TextField,
   InputAdornment,
+  Grid,
+  Button,
 } from '@mui/material';
 import {
   Summarize,
@@ -48,14 +48,29 @@ import {
   ViewColumn,
   Assignment,
   Groups as GroupsIcon,
-  ChevronLeft as ChevronLeftIcon,
   ChevronRight as ChevronRightIcon,
   Search,
+  Business as BusinessIcon,
+  CategoryOutlined as CategoryIcon,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import useAttendanceWorkflow from '../../hooks/useAttendanceWorkflow';
 import AttendanceWorkflowNav from './AttendanceWorkflowNav';
-import { ATTENDANCE_PAGE_BOTTOM_PAD } from './attendanceFilterLayout';
+import {
+  ATTENDANCE_COMPACT_PAGE_SX,
+  AttendanceFilterHeader,
+  AttendanceFilterSectionLabel,
+  AttendanceFilterYearQuickRow,
+  AttendanceFilterMonthHeader,
+  AttendanceFilterMonthGrid,
+  AttendanceFilterSummaryBox,
+  AttendanceFilterToggleRow,
+  applyQuickDateRange,
+  filterCompactSelectSx,
+  filterSidebarCardSx,
+  filterPanelScrollSx,
+  attendanceMainPanelHeightSx,
+} from './attendanceFilterLayout';
 import {
   classifyRecordsForPayroll,
   employmentCategoryLabel as payrollCategoryLabel,
@@ -107,18 +122,24 @@ const R = { card: '12px', panel: '10px', control: '8px', pill: 999 };
 const SHADOW_CARD = '0 1px 4px rgba(0,0,0,0.07), 0 4px 24px rgba(0,0,0,0.04)';
 const HAIRLINE = '0.5px solid rgba(0,0,0,0.09)';
 const NAME_COL_W = 250;
-const ACTIONS_COL_W = 116;
-const RAIL_W = 312;
+const ACTIONS_COL_W = 170;
 // Light panel header tint, shared by the filter panel and the page header.
 const PANEL_HEADER_BG = 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)';
-// Select styling shared by the scope pickers — same as AttendanceDevice's selectSx.
-const panelSelectSx = {
-  borderRadius: '8px',
-  fontSize: '0.82rem',
-  bgcolor: '#fff',
-  '& .MuiOutlinedInput-notchedOutline': { borderColor: T.accentBorder },
-  '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: T.accent },
-  '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: T.accent, borderWidth: '1.5px' },
+// Compact text/date field — same size as the shared filter selects.
+const compactFieldSx = {
+  '& .MuiOutlinedInput-root': {
+    borderRadius: '6px', fontSize: '0.74rem', bgcolor: '#fff',
+    '& fieldset': { borderColor: T.accentBorder },
+    '&:hover fieldset': { borderColor: T.accent },
+    '&.Mui-focused fieldset': { borderColor: T.accent, borderWidth: '1.5px' },
+  },
+  '& .MuiOutlinedInput-input': { py: '6px', px: 1 },
+};
+// Outlined accent button — same as the Excel/Print buttons on Attendance State.
+const outlinedBtnSx = {
+  textTransform: 'none', fontWeight: 600, fontSize: '0.78rem', borderRadius: '6px',
+  color: T.accent, borderColor: alpha(T.accent, 0.35), bgcolor: '#fff', boxShadow: 'none',
+  '&:hover': { bgcolor: T.accentFaint, borderColor: T.accent },
 };
 const MONTH_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
@@ -195,49 +216,51 @@ const Bone = ({ w = '100%', h = 14, r = 6, sx = {} }) => (
   }} />
 );
 
-// ─── Wireframe skeleton (mirrors the real layout: filter panel + workspace) ──
+// ─── Wireframe skeleton (mirrors the real layout: header · filter · records) ──
 const OverallAttendanceWireframe = () => (
   <>
     <style>{pageCss}</style>
-    <Box sx={{
-      py: { xs: 1, md: 2 }, mt: { xs: 0, md: -2 }, mb: { xs: 1, md: 2 },
-      width: '100vw', maxWidth: '100%',
-      position: 'relative', left: '53%', transform: 'translateX(-51%)',
-      px: { xs: 2, sm: 3, md: 6 },
-    }}>
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: `${RAIL_W}px minmax(0,1fr)` }, gap: 2.5, alignItems: 'start' }}>
-        <Box className="oa-anim" sx={{ borderRadius: R.card, overflow: 'hidden', border: HAIRLINE, bgcolor: '#fff', boxShadow: SHADOW_CARD, height: 640, animation: 'blink 2s ease-in-out infinite' }}>
-          <Box sx={{ px: 3, py: 2.5, background: PANEL_HEADER_BG, borderBottom: `1px solid ${T.divider}`, display: 'flex', alignItems: 'center', gap: 2 }}>
+    <Box sx={ATTENDANCE_COMPACT_PAGE_SX}>
+      <Box className="oa-anim" sx={{ borderRadius: R.card, overflow: 'hidden', border: HAIRLINE, bgcolor: '#fff', boxShadow: SHADOW_CARD, mb: 2, animation: 'blink 2s ease-in-out infinite' }}>
+        <Box sx={{ px: 4, py: 3, background: PANEL_HEADER_BG, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
             <Box sx={{ width: 32, height: 32, borderRadius: R.panel, bgcolor: T.accentFaint }} />
-            <Box><Bone w={170} h={15} sx={{ mb: 1 }} /><Bone w={220} h={9} /></Box>
+            <Box><Bone w={230} h={18} sx={{ mb: 1 }} /><Bone w={300} h={10} /></Box>
           </Box>
-          <Box sx={{ p: 2.5 }}>
-            <Bone w={90} h={9} sx={{ mb: 1.25 }} />
-            <Box sx={{ height: 36, borderRadius: R.control, bgcolor: '#fff', border: `1px solid ${T.accentBorder}`, mb: 1.5 }} />
-            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 0.7, mb: 3 }}>
-              {Array.from({ length: 12 }).map((_, i) => (
-                <Box key={i} sx={{ height: 32, borderRadius: R.control, bgcolor: i < 3 ? T.accentFaint : '#fff', border: `1px solid ${T.accentBorder}` }} />
-              ))}
-            </Box>
-            <Bone w={90} h={9} sx={{ mb: 1.25 }} />
-            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr', gap: 0.75 }}>
-              <Box sx={{ height: 38, borderRadius: R.control, bgcolor: '#fff', border: `1px solid ${T.accentBorder}` }} />
-              <Box sx={{ height: 38, borderRadius: R.control, bgcolor: '#fff', border: `1px solid ${T.accentBorder}` }} />
-              <Box sx={{ height: 38, borderRadius: R.control, bgcolor: '#fff', border: `1px solid ${T.accentBorder}` }} />
-            </Box>
-            <Box sx={{ mt: 2.5, height: 40, borderRadius: 8, bgcolor: T.accent }} />
-          </Box>
+          <Box sx={{ display: 'flex', gap: 1.25 }}><Bone w={120} h={32} r={6} /><Bone w={36} h={36} r={18} /></Box>
         </Box>
-
-        <Box>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-            <Box><Bone w={240} h={26} sx={{ mb: 1 }} /><Bone w={160} h={10} /></Box>
-            <Box sx={{ display: 'flex', gap: 1.25 }}><Bone w={110} h={36} r={8} /><Bone w={100} h={36} r={8} /></Box>
+      </Box>
+      <Grid container spacing={2}>
+        <Grid item xs={12} lg={3}>
+          <Box className="oa-anim" sx={{ borderRadius: R.card, overflow: 'hidden', border: HAIRLINE, bgcolor: '#fff', boxShadow: SHADOW_CARD, height: { xs: 480, lg: 'calc(100vh - 280px)' }, animation: 'blink 2s ease-in-out 0.1s infinite' }}>
+            <Box sx={{ px: 2, py: 1, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.divider}` }}><Bone w={110} h={10} /></Box>
+            <Box sx={{ px: 2, py: 1.25 }}>
+              <Box sx={{ display: 'flex', gap: '6px', mb: 1.25 }}>
+                <Box sx={{ flex: 1, height: 28, borderRadius: '6px', border: `1px solid ${T.accentBorder}` }} />
+                <Box sx={{ flex: 1, height: 28, borderRadius: '6px', border: `1px solid ${T.accentBorder}` }} />
+              </Box>
+              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '4px', mb: 1.5 }}>
+                {Array.from({ length: 12 }).map((_, i) => (
+                  <Box key={i} sx={{ height: 26, borderRadius: '5px', border: `1px solid ${T.accentBorder}` }} />
+                ))}
+              </Box>
+              {[0, 1, 2, 3].map((i) => (
+                <Box key={i} sx={{ mb: 1.25 }}>
+                  <Bone w={80} h={8} sx={{ mb: 0.75 }} />
+                  <Box sx={{ height: 30, borderRadius: '6px', border: `1px solid ${T.accentBorder}` }} />
+                </Box>
+              ))}
+              <Box sx={{ height: 30, borderRadius: '6px', bgcolor: T.accent, opacity: 0.85 }} />
+            </Box>
           </Box>
-          <Box className="oa-anim" sx={{ borderRadius: R.card, overflow: 'hidden', border: HAIRLINE, bgcolor: '#fff', boxShadow: SHADOW_CARD, animation: 'blink 2s ease-in-out 0.2s infinite' }}>
-            <Box sx={{ px: 2.5, py: 2, display: 'flex', gap: 2 }}><Bone w={220} h={36} r={8} /><Bone w={120} h={36} r={8} /></Box>
-            <Box sx={{ px: 2.5, py: 1.75, bgcolor: '#fbf8f8', borderBottom: `1px solid ${T.accentBorder}`, display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr 1fr 1fr', gap: 2 }}>
-              {[100, 80, 80, 80, 80].map((w, i) => <Bone key={i} w={w} h={10} />)}
+        </Grid>
+        <Grid item xs={12} lg={9}>
+          <Box className="oa-anim" sx={{ borderRadius: R.card, overflow: 'hidden', border: HAIRLINE, bgcolor: '#fff', boxShadow: SHADOW_CARD, height: { xs: 480, lg: 'calc(100vh - 280px)' }, animation: 'blink 2s ease-in-out 0.2s infinite' }}>
+            <Box sx={{ px: 3, py: 2, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.divider}`, display: 'flex', justifyContent: 'space-between' }}>
+              <Bone w={170} h={14} /><Bone w={260} h={28} r={6} />
+            </Box>
+            <Box sx={{ px: 2.5, py: 1.4, bgcolor: T.accent, display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr 1fr 1fr', gap: 2 }}>
+              {[0, 1, 2, 3, 4].map((i) => <Box key={i} sx={{ height: 8, width: 70, borderRadius: 4, bgcolor: alpha('#fff', 0.35) }} />)}
             </Box>
             {[...Array(6)].map((_, i) => (
               <Box key={i} sx={{ px: 2.5, py: 2, display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr 1fr 1fr', gap: 2, alignItems: 'center', borderTop: '1px solid rgba(0,0,0,0.05)' }}>
@@ -248,8 +271,8 @@ const OverallAttendanceWireframe = () => (
               </Box>
             ))}
           </Box>
-        </Box>
-      </Box>
+        </Grid>
+      </Grid>
     </Box>
   </>
 );
@@ -263,76 +286,9 @@ const SectionCard = styled(Card)({
   background: '#fff',
 });
 
-const FieldLabel = ({ children, hint }) => (
-  <Typography component="label" sx={{
-    display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap',
-    fontSize: '0.7rem', fontWeight: 700, mb: 0.6,
-    letterSpacing: '0.06em', textTransform: 'uppercase',
-    color: T.accent,
-  }}>
-    {children}
-    {hint && (
-      <Box component="span" sx={{
-        fontSize: '0.62rem', fontWeight: 600, letterSpacing: 0, textTransform: 'none',
-        color: T.muted, bgcolor: T.accentFaint,
-        border: `1px solid ${T.accentBorder}`,
-        borderRadius: '5px', px: 0.6, py: 0.1,
-      }}>
-        {hint}
-      </Box>
-    )}
-  </Typography>
-);
 
-// Panel section wrapper: a titled group separated by a hairline, on light card
-// surfaces (AttendanceDevice uses the same "label + hairline" grouping).
-const RailSection = ({ title, children, first = false }) => (
-  <Box sx={{ pt: first ? 0 : 2.25, mt: first ? 0 : 2.25, borderTop: first ? 'none' : `1px solid ${T.divider}` }}>
-    <Typography sx={{
-      fontSize: '0.62rem', fontWeight: 800, color: alpha(T.accent, 0.75),
-      mb: 1.25, letterSpacing: '0.09em', textTransform: 'uppercase',
-    }}>
-      {title}
-    </Typography>
-    {children}
-  </Box>
-);
 
-const NativeInput = ({ value, onChange, type = 'text', placeholder, disabled, icon }) => (
-  <Box sx={{ position: 'relative', display: 'flex', alignItems: 'center', minWidth: 0 }}>
-    {icon && (
-      <Box sx={{ position: 'absolute', left: 11, color: T.accentMid, display: 'flex', alignItems: 'center', zIndex: 1, pointerEvents: 'none' }}>
-        {icon}
-      </Box>
-    )}
-    <input
-      className="oa-input"
-      type={type}
-      value={value}
-      onChange={onChange}
-      placeholder={placeholder}
-      disabled={disabled}
-      style={{
-        width: '100%',
-        // Native date inputs carry an intrinsic min-width larger than a narrow
-        // column, and flex/grid children default to min-width:auto — without
-        // this the field refuses to shrink and gets clipped.
-        minWidth: 0,
-        padding: icon ? '9px 11px 9px 34px' : '9px 12px',
-        borderRadius: '8px',
-        border: `1px solid ${T.accentBorder}`,
-        fontSize: '0.85rem',
-        outline: 'none',
-        fontFamily: 'inherit',
-        boxSizing: 'border-box',
-        transition: 'border-color 0.18s, box-shadow 0.18s',
-        background: disabled ? '#f5f5f5' : '#fff',
-        color: T.text,
-        cursor: disabled ? 'not-allowed' : 'text',
-      }}
-    />
-  </Box>
-);
+
 
 const RowBtn = ({ icon, label, onClick, color, hoverBg, disabled = false }) => (
   <button
@@ -360,27 +316,26 @@ const RowBtn = ({ icon, label, onClick, color, hoverBg, disabled = false }) => (
   </button>
 );
 
-// Icon-only row action with a tooltip (Edit / Delete / Save / Cancel).
+// Row action button with its icon and a visible word (Edit / Delete / Save / Cancel).
 const IconAction = ({ icon, label, onClick, color, hoverBg }) => (
-  <Tooltip title={label} arrow placement="top" enterDelay={250}>
-    <button
-      className="oa-btn"
-      aria-label={label}
-      onClick={onClick}
-      style={{
-        width: 32, height: 32, borderRadius: '8px',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: 'transparent', color,
-        border: `1px solid ${color}33`,
-        cursor: 'pointer', fontFamily: 'inherit',
-        transition: 'background-color 0.15s, border-color 0.15s',
-      }}
-      onMouseEnter={e => { e.currentTarget.style.backgroundColor = hoverBg; e.currentTarget.style.borderColor = color; }}
-      onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.borderColor = `${color}33`; }}
-    >
-      {icon}
-    </button>
-  </Tooltip>
+  <button
+    className="oa-btn"
+    aria-label={label}
+    onClick={onClick}
+    style={{
+      height: 28, padding: '0 10px', borderRadius: '6px',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px',
+      background: 'transparent', color,
+      border: `1px solid ${color}40`,
+      cursor: 'pointer', fontFamily: 'inherit',
+      fontSize: '0.72rem', fontWeight: 700, whiteSpace: 'nowrap',
+      transition: 'background-color 0.15s, border-color 0.15s',
+    }}
+    onMouseEnter={e => { e.currentTarget.style.backgroundColor = hoverBg; e.currentTarget.style.borderColor = color; }}
+    onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; e.currentTarget.style.borderColor = `${color}40`; }}
+  >
+    {icon}{label}
+  </button>
 );
 
 const PrimaryBtn = ({ icon, label, onClick, disabled = false }) => (
@@ -411,95 +366,8 @@ const PrimaryBtn = ({ icon, label, onClick, disabled = false }) => (
   </button>
 );
 
-// Primary action for the light filter panel — solid accent, same radius and
-// hover lift as AttendanceDevice's AccentButton.
-const FetchBtn = ({ icon, label, onClick, disabled = false, fullWidth = false }) => (
-  <button
-    className="oa-btn"
-    onClick={onClick}
-    disabled={disabled}
-    style={{
-      background: T.accent,
-      color: '#fff',
-      border: 'none',
-      borderRadius: 8,
-      padding: '10px 20px',
-      width: fullWidth ? '100%' : undefined,
-      fontWeight: 600,
-      fontSize: '0.8rem',
-      letterSpacing: '0.01em',
-      fontFamily: 'inherit',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px',
-      cursor: disabled ? 'not-allowed' : 'pointer',
-      opacity: disabled ? 0.5 : 1,
-      boxShadow: disabled ? 'none' : `0 2px 8px ${alpha(T.accent, 0.3)}`,
-      transition: 'all 0.18s ease',
-      whiteSpace: 'nowrap',
-    }}
-    onMouseEnter={e => { if (!disabled) { e.currentTarget.style.background = T.accentDark; e.currentTarget.style.transform = 'translateY(-1px)'; } }}
-    onMouseLeave={e => { e.currentTarget.style.background = T.accent; e.currentTarget.style.transform = 'translateY(0)'; }}
-  >
-    {icon}{label}
-  </button>
-);
 
-// Outlined button for the light workspace header (Employees / Refresh).
-const HeadBtn = ({ icon, label, badge, onClick, disabled = false, title }) => (
-  <button
-    className="oa-btn"
-    onClick={onClick}
-    disabled={disabled}
-    title={title}
-    style={{
-      background: '#fff',
-      color: T.accent,
-      border: `1px solid ${T.accentBorder}`,
-      borderRadius: '9px',
-      padding: '8px 14px',
-      fontWeight: 700,
-      fontSize: '0.78rem',
-      fontFamily: 'inherit',
-      display: 'flex', alignItems: 'center', gap: '7px',
-      cursor: disabled ? 'not-allowed' : 'pointer',
-      opacity: disabled ? 0.5 : 1,
-      transition: 'background-color 0.15s, border-color 0.15s',
-      whiteSpace: 'nowrap',
-    }}
-    onMouseEnter={e => { if (!disabled) { e.currentTarget.style.backgroundColor = T.accentFaint; e.currentTarget.style.borderColor = alpha(T.accent, 0.45); } }}
-    onMouseLeave={e => { e.currentTarget.style.backgroundColor = '#fff'; e.currentTarget.style.borderColor = T.accentBorder; }}
-  >
-    {icon}{label}
-    {badge && (
-      <span style={{
-        background: T.accent, color: '#fff', borderRadius: 999,
-        padding: '1px 8px', fontSize: '0.68rem', fontWeight: 800,
-      }}>{badge}</span>
-    )}
-  </button>
-);
 
-// Square chevron used for month stepping beside the period title.
-const StepBtn = ({ children, label, onClick, disabled }) => (
-  <button
-    className="oa-btn"
-    aria-label={label}
-    onClick={onClick}
-    disabled={disabled}
-    style={{
-      width: 34, height: 34, borderRadius: '9px', flexShrink: 0,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: '#fff', color: T.accent,
-      border: `1px solid ${T.accentBorder}`,
-      cursor: disabled ? 'not-allowed' : 'pointer',
-      opacity: disabled ? 0.4 : 1,
-      transition: 'background 0.15s',
-    }}
-    onMouseEnter={e => { if (!disabled) e.currentTarget.style.background = T.accentFaint; }}
-    onMouseLeave={e => { e.currentTarget.style.background = '#fff'; }}
-  >
-    {children}
-  </button>
-);
 
 // One figure in the summary strip: number first, label under it.
 // Trailing head-count shown on each employment-category option. Right-aligned
@@ -526,15 +394,6 @@ const CategoryCount = ({ count }) => (
   </Box>
 );
 
-const StatCell = ({ label, value, dot, last = false }) => (
-  <Box sx={{ flex: '1 1 120px', px: 2.5, py: 1.5, borderRight: last ? 'none' : `1px solid ${T.divider}` }}>
-    <Typography sx={{ fontSize: '1.6rem', fontWeight: 800, color: T.accent, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{value}</Typography>
-    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mt: 0.6 }}>
-      {dot && <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: dot, flexShrink: 0 }} />}
-      <Typography sx={{ fontSize: '0.74rem', fontWeight: 600, color: T.muted }}>{label}</Typography>
-    </Box>
-  </Box>
-);
 
 // ─── Shared dialog header ─────────────────────────────────────────────────────
 const DialogHeader = ({ icon, accentColor, title, chipLabel, onClose }) => (
@@ -759,21 +618,21 @@ const COLUMN_GROUPS = [
   // ── Key summary columns — always visible, no scrolling needed ──────────────
   {
     key: 'overall',
-    label: 'Overall',
+    label: 'Totals',
     headerBg: '#0f4a26',
     columns: [
-      { label: 'Overall Rendered',  key: 'overallRenderedOfficialTime',          group: 'overall' },
-      { label: 'Overall Tardiness', key: 'overallRenderedOfficialTimeTardiness', group: 'overallTard' },
-      { label: 'Late Total',        key: '_lateTotal',                           group: 'tardiness' },
+      { label: 'Total Rendered',    key: 'overallRenderedOfficialTime',          group: 'overall' },
+      { label: 'Total Tardiness',  key: 'overallRenderedOfficialTimeTardiness', group: 'overallTard' },
+      { label: 'Total Late',        key: '_lateTotal',                           group: 'tardiness' },
     ],
   },
   {
     key: 'absence',
-    label: 'Absence',
+    label: 'Absences',
     headerBg: '#6a1b9a',
     columns: [
-      { label: 'Half Day Total', key: '_halfTotalDays',   group: 'halfday' },
-      { label: 'Absent Total',   key: '_absentTotalDays', group: 'absent' },
+      { label: 'Half Days',      key: '_halfTotalDays',   group: 'halfday' },
+      { label: 'Days Absent',    key: '_absentTotalDays', group: 'absent' },
     ],
   },
   // ── Detail groups — hidden by default, toggle on demand ────────────────────
@@ -801,7 +660,7 @@ const COLUMN_GROUPS = [
     headerBg: '#0369a1',
     columns: [
       { label: 'Honorarium',   key: 'totalRenderedHonorarium',          group: 'rendered' },
-      { label: 'HN Tardiness', key: 'totalRenderedHonorariumTardiness', group: 'tardiness' },
+      { label: 'Honorarium Tardiness', key: 'totalRenderedHonorariumTardiness', group: 'tardiness' },
     ],
   },
   {
@@ -810,7 +669,7 @@ const COLUMN_GROUPS = [
     headerBg: '#6b21a8',
     columns: [
       { label: 'Service Credit', key: 'totalRenderedServiceCredit',          group: 'rendered' },
-      { label: 'SC Tardiness',   key: 'totalRenderedServiceCreditTardiness', group: 'tardiness' },
+      { label: 'Service Credit Tardiness',   key: 'totalRenderedServiceCreditTardiness', group: 'tardiness' },
     ],
   },
   {
@@ -819,7 +678,7 @@ const COLUMN_GROUPS = [
     headerBg: '#92400e',
     columns: [
       { label: 'Overtime',     key: 'totalRenderedOvertime',          group: 'rendered' },
-      { label: 'OT Tardiness', key: 'totalRenderedOvertimeTardiness', group: 'tardiness' },
+      { label: 'Overtime Tardiness', key: 'totalRenderedOvertimeTardiness', group: 'tardiness' },
     ],
   },
 ];
@@ -909,6 +768,8 @@ const OverallAttendance = () => {
   const [rosterError, setRosterError] = useState('');
   const [rosterQuery, setRosterQuery] = useState('');
   const [rosterFilter, setRosterFilter] = useState('all');
+  // 'Active' (default) shows only active employees; 'all' lists everyone, active first.
+  const [rosterStatus, setRosterStatus] = useState('Active');
   const [rosterDepartment, setRosterDepartment] = useState('');
   const rosterReqRef = useRef(0);
 
@@ -926,7 +787,6 @@ const OverallAttendance = () => {
 
   // Month picker state
   const currentYear = new Date().getFullYear();
-  const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
   const [selectedMonth, setSelectedMonth] = useState(null);
   const [selectedYear, setSelectedYear]   = useState(currentYear);
   const yearOptions = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);
@@ -1023,6 +883,7 @@ const OverallAttendance = () => {
               nameByEmp[key] ||
               `#${key}`,
             department: e.department || '',
+            status: e.status || 'Default',
             hasOfficialTime: Boolean(e.covered),
             saved: savedSet.has(key),
           };
@@ -1209,8 +1070,15 @@ const OverallAttendance = () => {
     setResultQuery('');
   }, [categoryGroups, employmentCategory, findCategoryLabel]);
 
+  // Employees in the chosen status scope; with "Everyone", active employees come first.
+  const scopedRosterRows = useMemo(() => {
+    if (rosterStatus === 'Active') return rosterRows.filter((r) => r.status === 'Active');
+    const rank = (r) => (r.status === 'Active' ? 0 : r.status === 'Inactive' ? 2 : 1);
+    return [...rosterRows].sort((a, b) => rank(a) - rank(b));
+  }, [rosterRows, rosterStatus]);
+
   const visibleRosterRows = useMemo(() => {
-    let list = rosterRows;
+    let list = scopedRosterRows;
     if (rosterDepartment) list = list.filter((r) => r.department === rosterDepartment);
     if (rosterFilter === 'done') list = list.filter((r) => r.saved);
     else if (rosterFilter === 'missing') list = list.filter((r) => !r.saved);
@@ -1223,12 +1091,14 @@ const OverallAttendance = () => {
       );
     }
     return list;
-  }, [rosterRows, rosterDepartment, rosterFilter, rosterQuery]);
+  }, [scopedRosterRows, rosterDepartment, rosterFilter, rosterQuery]);
 
   const rosterSummary = useMemo(() => ({
-    done: rosterRows.filter((r) => r.saved).length,
-    total: rosterRows.length,
-  }), [rosterRows]);
+    done: scopedRosterRows.filter((r) => r.saved).length,
+    total: scopedRosterRows.length,
+    activeCount: rosterRows.filter((r) => r.status === 'Active').length,
+    allCount: rosterRows.length,
+  }), [scopedRosterRows, rosterRows]);
 
   /** Load a roster employee into the module, switching the period to that month. */
   const selectRosterEmployee = useCallback((row) => {
@@ -1276,21 +1146,6 @@ const OverallAttendance = () => {
     setStartDate(start.toISOString().substring(0, 10));
     setEndDate(end.toISOString().substring(0, 10));
     setSelectedMonth(monthIndex);
-  };
-
-  // Previous / next month buttons. Starts from the picked month, or the current
-  // month when nothing is picked yet, and stays inside the year list.
-  const canStepMonth = (delta) => {
-    const base = selectedMonth ?? new Date().getMonth();
-    const target = new Date(selectedYear, base + delta, 1).getFullYear();
-    return target >= currentYear - 5 && target <= currentYear + 5;
-  };
-  const stepMonth = (delta) => {
-    if (!canStepMonth(delta)) return;
-    const base = selectedMonth ?? new Date().getMonth();
-    const next = new Date(selectedYear, base + delta, 1);
-    setSelectedYear(next.getFullYear());
-    handleMonthClick(next.getMonth(), next.getFullYear());
   };
 
   // ── Fetch ─────────────────────────────────────────────────────────────────
@@ -1846,9 +1701,6 @@ const OverallAttendance = () => {
   const periodTitle = isMonthPeriod
     ? `${MONTH_FULL[selectedMonth]} ${selectedYear}`
     : (startDate && endDate ? 'Custom range' : 'Select a period');
-  const periodSub = startDate && endDate
-    ? `${startDate} → ${endDate}`
-    : 'Pick a month on the left, or set exact dates';
 
   // One-line description of the group the fetch will return, so the two scope
   // pickers and the optional employee number always read as one coherent query.
@@ -1864,165 +1716,167 @@ const OverallAttendance = () => {
   // RENDER — control rail (left) + workspace (right)
   // ──────────────────────────────────────────────────────────────────────────
   return (
-    <Fade in timeout={400}>
-      <Box sx={{
-        py: { xs: 1, md: 2 },
-        mt: { xs: 0, md: -2 },
-        mb: { xs: 1, md: 2 },
-        pb: ATTENDANCE_PAGE_BOTTOM_PAD,
-        width: '100vw', maxWidth: '100%',
-        position: 'relative', left: '53%',
-        transform: 'translateX(-51%)',
-        px: { xs: 2, sm: 3, md: 6 },
-      }}>
+    <Fade in timeout={150}>
+      <Box>
         <style>{pageCss}</style>
 
-        <Box sx={{
-          display: 'grid',
-          gridTemplateColumns: { xs: '1fr', lg: `${RAIL_W}px minmax(0,1fr)` },
-          gap: { xs: 2, lg: 3 },
-          alignItems: 'start',
-        }}>
-
-          {/* ═════════════ Filter panel ═════════════ */}
-          <SectionCard
-            component="aside"
-            sx={{
-              position: { lg: 'sticky' },
-              top: { lg: 16 },
-              maxHeight: { lg: 'calc(100vh - 32px)' },
-              overflowY: { lg: 'auto' },
-              scrollbarWidth: 'thin',
-              '&::-webkit-scrollbar': { width: 6 },
-              '&::-webkit-scrollbar-thumb': { background: T.accentMid, borderRadius: 4 },
-            }}
-          >
-            {/* Identity — light gradient header, matching AttendanceDevice */}
-            <Box sx={{
-              px: 3, py: 2.5,
-              background: PANEL_HEADER_BG,
-              borderBottom: `1px solid ${T.divider}`,
-              display: 'flex', alignItems: 'center', gap: 2,
-            }}>
-              <Box sx={{ position: 'relative' }}>
-                <Box sx={{ position: 'absolute', top: -30, right: -30, width: 90, height: 90, borderRadius: '50%', background: 'radial-gradient(circle,rgba(109,35,35,0.10) 0%,transparent 70%)', pointerEvents: 'none' }} />
-                <SummarizeOutlined sx={{ fontSize: 32, color: T.accent, position: 'relative' }} />
+        <Box sx={ATTENDANCE_COMPACT_PAGE_SX}>
+          {/* ── Page Header ── */}
+          <SectionCard sx={{ mb: 2, overflow: 'hidden' }}>
+            <Box
+              sx={{
+                px: 4, py: 3,
+                background: PANEL_HEADER_BG,
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                gap: 2, flexWrap: 'wrap',
+                position: 'relative', overflow: 'hidden',
+              }}
+            >
+              <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, borderRadius: '50%', background: 'radial-gradient(circle,rgba(109,35,35,0.10) 0%,transparent 70%)' }} />
+              <Box sx={{ position: 'absolute', bottom: -30, left: '30%', width: 150, height: 150, borderRadius: '50%', background: 'radial-gradient(circle,rgba(109,35,35,0.07) 0%,transparent 70%)' }} />
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 3, position: 'relative', zIndex: 1 }}>
+                <SummarizeOutlined sx={{ fontSize: 32, color: T.accent }} />
+                <Box>
+                  <Typography sx={{ fontSize: '1.25rem', fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.3 }}>
+                    Overall Attendance Report
+                  </Typography>
+                  <Typography sx={{ fontSize: '0.82rem', color: T.accentMid, fontWeight: 700, opacity: 0.9 }}>
+                    Administrative Panel - Review attendance summaries and send them to payroll
+                  </Typography>
+                </Box>
               </Box>
-              <Box sx={{ minWidth: 0, position: 'relative' }}>
-                <Typography sx={{ fontSize: '1.15rem', fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.25 }}>
-                  Overall Attendance Report
-                </Typography>
-                <Typography sx={{ fontSize: '0.78rem', color: T.accentMid, fontWeight: 700, lineHeight: 1.35 }}>
-                  Review and search summary records for the whole workforce
-                </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap', position: 'relative', zIndex: 1 }}>
+                <AttendanceWorkflowNav
+                  inline
+                  prevStep={prevStep}
+                  nextStep={nextStep}
+                  onPrevious={goPrevious}
+                  onNext={goNext}
+                />
+                {attendanceData.length > 0 && (
+                  <Box sx={{ px: 2.5, py: 0.75, borderRadius: 6, bgcolor: alpha(T.accent, 0.1), border: `1px solid ${alpha(T.accent, 0.2)}` }}>
+                    <Typography sx={{ fontSize: '0.8rem', color: T.accent, fontWeight: 700 }}>
+                      {attendanceData.length} records
+                    </Typography>
+                  </Box>
+                )}
+                <Tooltip title={`Open the list of ${rosterStatus === 'Active' ? 'active employees' : 'all employees'} and see whose summary is already saved for this month`}>
+                  <Button
+                    variant="contained"
+                    size="small"
+                    startIcon={<GroupsIcon sx={{ fontSize: '16px !important' }} />}
+                    onClick={() => setRosterOpen(true)}
+                    sx={{
+                      textTransform: 'none', fontWeight: 600, fontSize: '0.78rem', borderRadius: '6px',
+                      px: 1.75, py: 0.7,
+                      bgcolor: T.accent, color: '#fff',
+                      boxShadow: `0 2px 8px ${alpha(T.accent, 0.28)}`,
+                      '&:hover': { bgcolor: T.accentDark },
+                    }}
+                  >
+                    Employee Checklist
+                    {rosterSummary.total > 0 && (
+                      <Box component="span" sx={{
+                        ml: 1, px: 0.9, py: 0.1, borderRadius: 999,
+                        bgcolor: '#fff', color: T.accent,
+                        fontSize: '0.68rem', fontWeight: 800, fontVariantNumeric: 'tabular-nums',
+                      }}>
+                        {rosterSummary.done}/{rosterSummary.total} done
+                      </Box>
+                    )}
+                  </Button>
+                </Tooltip>
+                <Tooltip title="Reload records">
+                  <span>
+                    <IconButton
+                      onClick={fetchAttendanceData}
+                      disabled={!startDate || !endDate || loading}
+                      sx={{ bgcolor: alpha(T.accent, 0.08), color: T.accent, width: 36, height: 36, '&:hover': { bgcolor: alpha(T.accent, 0.15) } }}
+                    >
+                      <Refresh sx={{ fontSize: 18 }} />
+                    </IconButton>
+                  </span>
+                </Tooltip>
               </Box>
             </Box>
+          </SectionCard>
 
-            <Box sx={{ p: 2.5 }}>
-            {/* Period */}
-            <RailSection title="Period" first>
-              <FormControl fullWidth size="small" sx={{ mb: 1.25 }}>
-                <InputLabel sx={{ fontWeight: 600, fontSize: '0.8rem' }}>Year</InputLabel>
-                <Select
-                  value={selectedYear}
-                  label="Year"
-                  onChange={e => { setSelectedYear(e.target.value); setSelectedMonth(null); }}
-                  sx={panelSelectSx}
-                >
-                  {yearOptions.map(y => <MenuItem key={y} value={y} sx={{ fontSize: '0.85rem' }}>{y}</MenuItem>)}
-                </Select>
-              </FormControl>
-              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 0.7 }}>
-                {months.map((month, index) => {
-                  const sel = selectedMonth === index;
-                  return (
-                    <button
-                      key={month}
-                      className="oa-btn"
-                      onClick={() => handleMonthClick(index)}
-                      aria-pressed={sel}
-                      style={{
-                        background: sel ? T.accent : '#fff',
-                        border: `1px solid ${sel ? T.accent : T.accentBorder}`,
-                        borderRadius: '8px', padding: '8px 0',
-                        cursor: 'pointer',
-                        color: sel ? '#fff' : T.accent,
-                        fontSize: '0.73rem', fontWeight: 700,
-                        fontFamily: 'inherit',
-                        transition: 'background-color 0.15s ease, border-color 0.15s ease',
-                      }}
-                      onMouseEnter={e => { if (!sel) e.currentTarget.style.backgroundColor = T.accentFaint; }}
-                      onMouseLeave={e => { if (!sel) e.currentTarget.style.backgroundColor = '#fff'; }}
-                    >
-                      {month}
-                    </button>
-                  );
-                })}
-              </Box>
-              {/* Stacked rather than side-by-side: a native dd/mm/yyyy field needs
-                  more width than two of them can share in the 312px panel. */}
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25, mt: 1.75 }}>
-                <Box>
-                  <FieldLabel>Start date</FieldLabel>
-                  <NativeInput
-                    type="date"
-                    value={startDate}
-                    onChange={e => setStartDate(e.target.value)}
-                    icon={<CalendarToday sx={{ fontSize: 14 }} />}
-                  />
-                </Box>
-                <Box>
-                  <FieldLabel>End date</FieldLabel>
-                  <NativeInput
-                    type="date"
-                    value={endDate}
-                    onChange={e => setEndDate(e.target.value)}
-                    icon={<CalendarToday sx={{ fontSize: 14 }} />}
-                  />
-                </Box>
-              </Box>
-            </RailSection>
+          {/* ── Two-column layout ── */}
+          <Grid container spacing={2}>
 
-            {/* Scope */}
-            <RailSection title="Who to include">
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-                <Box>
-                  <FieldLabel hint="optional — blank shows all">Department</FieldLabel>
+            {/* LEFT: Filter */}
+            <Grid item xs={12} lg={3}>
+              <SectionCard sx={filterSidebarCardSx}>
+                <AttendanceFilterHeader />
+                <Box sx={filterPanelScrollSx}>
+                  <AttendanceFilterYearQuickRow
+                    selectedYear={selectedYear}
+                    onYearChange={(e) => { setSelectedYear(parseInt(e.target.value, 10)); setSelectedMonth(null); }}
+                    yearOptions={yearOptions}
+                    onQuickDate={(v) => applyQuickDateRange(v, setStartDate, setEndDate, setSelectedMonth)}
+                  />
+                  <AttendanceFilterMonthHeader
+                    showClear={selectedMonth !== null && selectedMonth !== undefined}
+                    onClear={() => { setSelectedMonth(null); setStartDate(''); setEndDate(''); }}
+                  />
+                  <AttendanceFilterMonthGrid
+                    selectedMonth={selectedMonth}
+                    onMonthClick={(idx) => handleMonthClick(idx)}
+                  />
+
+                  <AttendanceFilterSectionLabel icon={CalendarToday}>Date range</AttendanceFilterSectionLabel>
+                  <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', mb: 1.25 }}>
+                    <TextField
+                      size="small" type="date" value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      inputProps={{ 'aria-label': 'Start date' }}
+                      sx={compactFieldSx}
+                    />
+                    <TextField
+                      size="small" type="date" value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      inputProps={{ 'aria-label': 'End date' }}
+                      sx={compactFieldSx}
+                    />
+                  </Box>
+
+                  <AttendanceFilterSectionLabel icon={BusinessIcon}>Department</AttendanceFilterSectionLabel>
                   <Select
                     size="small"
+                    fullWidth
                     displayEmpty
                     value={department}
                     disabled={Boolean(trimmedEmployee)}
                     onChange={e => { setDepartment(e.target.value); setResultQuery(''); }}
                     renderValue={(v) => (v ? String(v) : 'All departments')}
-                    sx={panelSelectSx}
+                    sx={{ ...filterCompactSelectSx, mb: 1.25 }}
                   >
-                    <MenuItem value="" sx={{ fontSize: '0.875rem' }}>All departments</MenuItem>
+                    <MenuItem value="" sx={{ fontSize: '0.76rem' }}>All departments</MenuItem>
                     {departmentOptions.map(d => (
-                      <MenuItem key={d} value={d} sx={{ fontSize: '0.875rem' }}>{d}</MenuItem>
+                      <MenuItem key={d} value={d} sx={{ fontSize: '0.76rem' }}>{d}</MenuItem>
                     ))}
                   </Select>
-                </Box>
-                <Box>
-                  <FieldLabel hint={trimmedEmployee ? 'overrides category' : 'optional — blank shows all'}>Employment category</FieldLabel>
+
+                  <AttendanceFilterSectionLabel icon={CategoryIcon}>Employment category</AttendanceFilterSectionLabel>
                   <Select
                     size="small"
+                    fullWidth
                     displayEmpty
                     value={employmentCategory}
                     disabled={Boolean(trimmedEmployee) || categoryGroups.length === 0}
                     onChange={e => handleCategoryChange(e.target.value)}
                     renderValue={(v) => (v ? employmentCategoryLabel || 'Selected category' : 'All employment categories')}
                     MenuListProps={{ dense: true }}
-                    sx={panelSelectSx}
+                    sx={{ ...filterCompactSelectSx, mb: 1.25 }}
                   >
-                    <MenuItem value="" sx={{ fontSize: '0.85rem', fontWeight: 600 }}>All employment categories</MenuItem>
+                    <MenuItem value="" sx={{ fontSize: '0.78rem', fontWeight: 600 }}>All employment categories</MenuItem>
                     {categoryGroups.map(g => (
                       <React.Fragment key={g.token}>
                         <ListSubheader
                           sx={{
                             bgcolor: 'transparent',
-                            lineHeight: '30px',
-                            fontSize: '0.64rem',
+                            lineHeight: '28px',
+                            fontSize: '0.6rem',
                             fontWeight: 800,
                             letterSpacing: '0.07em',
                             textTransform: 'uppercase',
@@ -2033,18 +1887,18 @@ const OverallAttendance = () => {
                         >
                           {g.label}
                         </ListSubheader>
-                        <MenuItem value={g.token} sx={{ fontSize: '0.85rem', fontWeight: 700, minHeight: 34 }}>
+                        <MenuItem value={g.token} sx={{ fontSize: '0.78rem', fontWeight: 700, minHeight: 32 }}>
                           <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', gap: 1 }}>
-                            <Typography sx={{ flex: 1, minWidth: 0, fontSize: '0.85rem', fontWeight: 700, noWrap: true }}>
+                            <Typography sx={{ flex: 1, minWidth: 0, fontSize: '0.78rem', fontWeight: 700, noWrap: true }}>
                               {g.label}
                             </Typography>
                             <CategoryCount count={g.count} />
                           </Box>
                         </MenuItem>
                         {g.categories.map(c => (
-                          <MenuItem key={c.token} value={c.token} sx={{ fontSize: '0.83rem', pl: 3.75, minHeight: 32 }}>
+                          <MenuItem key={c.token} value={c.token} sx={{ fontSize: '0.76rem', pl: 3.5, minHeight: 30 }}>
                             <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', gap: 1 }}>
-                              <Typography sx={{ flex: 1, minWidth: 0, fontSize: '0.83rem', noWrap: true }}>
+                              <Typography sx={{ flex: 1, minWidth: 0, fontSize: '0.76rem', noWrap: true }}>
                                 {c.label}
                               </Typography>
                               <CategoryCount count={c.count} />
@@ -2054,585 +1908,522 @@ const OverallAttendance = () => {
                       </React.Fragment>
                     ))}
                   </Select>
-                </Box>
-                <Box>
-                  <FieldLabel hint={trimmedEmployee ? 'overrides both' : 'optional — blank shows all'}>Employee number</FieldLabel>
-                  <NativeInput
+
+                  <AttendanceFilterSectionLabel icon={Person}>Employee number (optional)</AttendanceFilterSectionLabel>
+                  <TextField
+                    size="small"
+                    fullWidth
                     value={employeeNumber}
                     onChange={e => setEmployeeNumber(e.target.value)}
-                    placeholder="Employee number"
-                    icon={<Person sx={{ fontSize: 16 }} />}
+                    placeholder="Leave blank for everyone"
+                    sx={{ ...compactFieldSx, mb: 0.75 }}
+                  />
+                  <Typography sx={{ fontSize: '0.64rem', color: T.muted, mb: 1.25, lineHeight: 1.45 }}>
+                    {trimmedEmployee
+                      ? `Only employee ${trimmedEmployee} will be shown — department and category are ignored.`
+                      : `${scopeSentence}.`}
+                  </Typography>
+
+                  <Button
+                    variant="contained"
+                    fullWidth
+                    onClick={fetchAttendanceData}
+                    disabled={!canFetch}
+                    startIcon={loading
+                      ? <CircularProgress size={13} sx={{ color: '#fff' }} />
+                      : <Search sx={{ fontSize: '14px !important' }} />}
+                    sx={{
+                      borderRadius: '6px',
+                      textTransform: 'none',
+                      fontWeight: 600,
+                      fontSize: '0.74rem',
+                      py: 0.6,
+                      mb: 0.75,
+                      bgcolor: T.accent,
+                      color: '#fff',
+                      boxShadow: `0 2px 8px ${alpha(T.accent, 0.28)}`,
+                      '&:hover': { bgcolor: T.accentDark },
+                      '&.Mui-disabled': { bgcolor: alpha(T.accent, 0.35), color: '#fff' },
+                    }}
+                  >
+                    {loading ? 'Loading…' : 'Fetch Records'}
+                  </Button>
+
+                  <AttendanceFilterSummaryBox
+                    title="Record Summary"
+                    primary={
+                      loading
+                        ? 'Loading records...'
+                        : attendanceData.length > 0
+                          ? `${resultStats.records} ${resultStats.records === 1 ? 'record' : 'records'} · ${resultStats.employees} ${resultStats.employees === 1 ? 'employee' : 'employees'}`
+                          : 'No records loaded'
+                    }
+                    secondary={
+                      startDate && endDate ? `${periodTitle} · ${startDate} → ${endDate}` : 'Select a month, then fetch records.'
+                    }
                   />
                 </Box>
-              </Box>
-            </RailSection>
+              </SectionCard>
+            </Grid>
 
-              {/* Fetch */}
-              <Box sx={{ mt: 2.75 }}>
-                <FetchBtn
-                  fullWidth
-                  icon={loading ? <CircularProgress size={14} sx={{ color: '#fff' }} /> : <Refresh sx={{ fontSize: 17 }} />}
-                  label={loading ? 'Loading…' : (trimmedEmployee ? 'Fetch records' : 'Fetch all records')}
-                  disabled={!canFetch}
-                  onClick={fetchAttendanceData}
-                />
-                <Typography sx={{ mt: 1.1, fontSize: '0.73rem', color: T.muted, fontWeight: 500, textAlign: 'center', lineHeight: 1.5 }}>
-                  {trimmedEmployee
-                    ? `Showing records for employee ${trimmedEmployee}`
-                    : scopeSentence}
-                </Typography>
-              </Box>
-            </Box>
-          </SectionCard>
+            {/* RIGHT: Records */}
+            <Grid item xs={12} lg={9}>
+              <SectionCard ref={resultsRef} sx={{ ...attendanceMainPanelHeightSx, display: 'flex', flexDirection: 'column', position: 'relative' }}>
 
-          {/* ═════════════ Workspace ═════════════ */}
-          <Box sx={{ minWidth: 0 }}>
-
-            {/* Header: period title + global actions */}
-            <SectionCard sx={{ mb: 2, overflow: 'hidden' }}>
-              <Box sx={{
-                px: 4, py: 3,
-                background: PANEL_HEADER_BG,
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                gap: 2, flexWrap: 'wrap', position: 'relative', overflow: 'hidden',
-              }}>
-                <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, borderRadius: '50%', background: 'radial-gradient(circle,rgba(109,35,35,0.10) 0%,transparent 70%)', pointerEvents: 'none' }} />
-                <Box sx={{ position: 'absolute', bottom: -30, left: '30%', width: 150, height: 150, borderRadius: '50%', background: 'radial-gradient(circle,rgba(109,35,35,0.07) 0%,transparent 70%)', pointerEvents: 'none' }} />
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0, position: 'relative', zIndex: 1 }}>
-                <StepBtn label="Previous month" onClick={() => stepMonth(-1)} disabled={!canStepMonth(-1)}>
-                  <ChevronLeftIcon sx={{ fontSize: 20 }} />
-                </StepBtn>
-                <Box sx={{ minWidth: 0 }}>
-                  <Typography sx={{ fontSize: { xs: '1.3rem', md: '1.55rem' }, fontWeight: 900, lineHeight: 1.15, color: T.accent }} noWrap>
-                    {periodTitle}
-                  </Typography>
-                  <Typography sx={{ fontSize: '0.8rem', color: T.accentMid, fontWeight: 700, mt: 0.3, fontVariantNumeric: 'tabular-nums' }}>
-                    {periodSub}
-                  </Typography>
-                </Box>
-                <StepBtn label="Next month" onClick={() => stepMonth(1)} disabled={!canStepMonth(1)}>
-                  <ChevronRightIcon sx={{ fontSize: 20 }} />
-                </StepBtn>
-              </Box>
-
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, flexWrap: 'wrap', position: 'relative', zIndex: 1 }}>
-                <AttendanceWorkflowNav
-                  inline
-                  prevStep={prevStep}
-                  nextStep={nextStep}
-                  onPrevious={goPrevious}
-                  onNext={goNext}
-                />
-                <HeadBtn
-                  icon={<GroupsIcon sx={{ fontSize: 17 }} />}
-                  label="Employees"
-                  badge={rosterSummary.total > 0 ? `${rosterSummary.done}/${rosterSummary.total}` : undefined}
-                  title="Employees with a saved summary this month"
-                  onClick={() => setRosterOpen(true)}
-                />
-                <HeadBtn
-                  icon={<Refresh sx={{ fontSize: 17 }} />}
-                  label="Refresh"
-                  disabled={!startDate || !endDate || loading}
-                  onClick={fetchAttendanceData}
-                />
-              </Box>
-              </Box>
-            </SectionCard>
-
-            {/* Summary strip */}
-            <SectionCard sx={{ mb: 2 }}>
-              {attendanceData.length > 0 ? (
-                <Box sx={{ display: 'flex', flexWrap: 'wrap' }}>
-                  <StatCell label="Employees" value={resultStats.employees} dot="#22c55e" />
-                  <StatCell label="Records" value={resultStats.records} />
-                  <StatCell label="With late time" value={resultStats.late} dot="#ef4444" />
-                  <StatCell label="With absences" value={resultStats.absent} dot="#a855f7" />
-                  <StatCell label="With half days" value={resultStats.halfDay} dot="#eab308" last />
-                </Box>
-              ) : (
-                <Typography sx={{ px: 2.5, py: 1.75, fontSize: '0.82rem', color: T.muted, fontWeight: 500 }}>
-                  Choose a period and fetch records to see the summary here.
-                </Typography>
-              )}
-            </SectionCard>
-
-            {loading && (
-              <Box sx={{ mb: 1.5, px: 1, display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                <CircularProgress size={16} sx={{ color: T.accent }} />
-                <Typography sx={{ fontSize: '0.78rem', color: T.muted }}>Fetching attendance records…</Typography>
-              </Box>
-            )}
-
-            {attendanceData.length > 0 && (
-              <Fade in={!loading} timeout={400}>
-                <SectionCard ref={resultsRef}>
-                  {/* Toolbar: search · scope · count */}
-                  <Box sx={{
-                    px: 2.5, py: 1.75,
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    gap: 1.5, flexWrap: 'wrap',
-                  }}>
-                    <Box sx={{ display: 'flex', gap: 1.25, alignItems: 'center', flexWrap: 'wrap', flex: 1, minWidth: 0 }}>
-                      <TextField
-                        size="small"
-                        placeholder="Search name, number, or department…"
-                        value={resultQuery}
-                        onChange={e => setResultQuery(e.target.value)}
-                        sx={{ flex: 1, minWidth: 220, maxWidth: 400, '& .MuiOutlinedInput-root': { borderRadius: R.control, fontSize: '0.82rem', bgcolor: T.page, '& fieldset': { borderColor: T.accentBorder }, '&:hover fieldset': { borderColor: T.accent }, '&.Mui-focused fieldset': { borderColor: T.accent } } }}
-                        InputProps={{
-                          startAdornment: (
-                            <InputAdornment position="start">
-                              <Search sx={{ fontSize: 17, color: T.faint }} />
-                            </InputAdornment>
-                          ),
-                        }}
-                      />
-                      {resultQuery && (
-                        <RowBtn
-                          icon={<CloseIcon sx={{ fontSize: 12 }} />}
-                          label="Clear search"
-                          color={T.muted}
-                          hoverBg="rgba(0,0,0,0.05)"
-                          onClick={() => { setResultQuery(''); }}
-                        />
+                {/* Toolbar */}
+                <Box sx={{ px: 3, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, flexShrink: 0 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0 }}>
+                      <Assignment sx={{ fontSize: 15, color: T.accent }} />
+                      <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, color: T.text }}>
+                        Attendance Summaries
+                      </Typography>
+                      {startDate && endDate && (
+                        <Typography sx={{ fontSize: '0.72rem', color: T.muted, fontWeight: 600 }} noWrap>
+                          {periodTitle} · {startDate} → {endDate}
+                        </Typography>
                       )}
                     </Box>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                      {scopeParts.length > 0 && (
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.6, flexWrap: 'wrap' }}>
-                          {scopeParts.map(part => (
-                            <Box
-                              key={part}
-                              component="span"
-                              sx={{
-                                px: 1.1, py: 0.3, borderRadius: R.pill,
-                                fontSize: '0.72rem', fontWeight: 700,
-                                color: T.accent, bgcolor: T.accentFaint,
-                                border: `1px solid ${T.accentBorder}`,
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
-                              {part}
-                            </Box>
-                          ))}
-                        </Box>
-                      )}
-                      <Typography sx={{ fontSize: '0.76rem', color: T.muted, fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
-                        {trimmedEmployee ? `Employee ${trimmedEmployee}` : ''}
-                      </Typography>
-                      <Box sx={{ px: 1.5, py: 0.45, borderRadius: R.pill, bgcolor: alpha(T.accent, 0.1), border: `1px solid ${alpha(T.accent, 0.18)}` }}>
-                        <Typography sx={{ fontSize: '0.74rem', color: T.accent, fontWeight: 700 }}>
+                    {attendanceData.length > 0 && (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        <Typography sx={{ fontSize: '0.72rem', color: T.muted, fontWeight: 600 }}>
                           {filteredAttendanceData.length === attendanceData.length
                             ? `${attendanceData.length} ${attendanceData.length === 1 ? 'record' : 'records'}`
                             : `${filteredAttendanceData.length} of ${attendanceData.length} records`}
                         </Typography>
-                      </Box>
-                    </Box>
-                  </Box>
-
-                  {/* Column chips: switch column groups on and off */}
-                  <Box sx={{
-                    px: 2.5, py: 1.1,
-                    display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap',
-                    borderTop: `1px solid ${T.divider}`,
-                    bgcolor: T.page,
-                  }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.6, mr: 0.5 }}>
-                      <ViewColumn sx={{ fontSize: 16, color: T.accent }} />
-                      <Typography sx={{ fontSize: '0.76rem', fontWeight: 700, color: T.accent }}>Columns</Typography>
-                    </Box>
-                    {COLUMN_GROUPS.filter(g => !g.alwaysVisible).map(grp => {
-                      const on = !collapsedGroups.has(grp.key);
-                      return (
-                        <button
-                          key={grp.key}
-                          className="oa-btn"
-                          onClick={() => toggleGroup(grp.key)}
-                          aria-pressed={on}
-                          style={{
-                            display: 'flex', alignItems: 'center', gap: '5px',
-                            padding: '5px 12px', borderRadius: 999,
-                            fontSize: '0.72rem', fontWeight: 700, fontFamily: 'inherit',
-                            cursor: 'pointer',
-                            color: on ? '#fff' : grp.headerBg,
-                            background: on ? grp.headerBg : '#fff',
-                            border: `1px solid ${on ? grp.headerBg : `${grp.headerBg}55`}`,
-                            transition: 'background-color 0.15s, color 0.15s',
+                        <TextField
+                          size="small"
+                          placeholder="Search name, number, or department"
+                          value={resultQuery}
+                          onChange={e => setResultQuery(e.target.value)}
+                          sx={{ width: 260, ...compactFieldSx }}
+                          InputProps={{
+                            startAdornment: (
+                              <InputAdornment position="start">
+                                <Search sx={{ fontSize: 15, color: T.faint }} />
+                              </InputAdornment>
+                            ),
+                            endAdornment: resultQuery ? (
+                              <InputAdornment position="end">
+                                <IconButton size="small" onClick={() => setResultQuery('')} aria-label="Clear search" sx={{ p: 0.25 }}>
+                                  <CloseIcon sx={{ fontSize: 14 }} />
+                                </IconButton>
+                              </InputAdornment>
+                            ) : null,
                           }}
-                        >
-                          {on && <CheckIcon sx={{ fontSize: 13 }} />}
-                          {grp.label}
-                        </button>
-                      );
-                    })}
+                        />
+                      </Box>
+                    )}
                   </Box>
+                </Box>
 
-                  {/* Table */}
+                {/* Column groups + quick stats */}
+                {attendanceData.length > 0 && !loading && (
                   <Box sx={{
-                    borderTop: `1px solid ${T.divider}`,
-                    overflowX: 'auto', overflowY: 'auto', maxHeight: 'min(64vh, 660px)',
-                    scrollbarWidth: 'thin',
-                    '&::-webkit-scrollbar': { height: 6, width: 6 },
-                    '&::-webkit-scrollbar-track': { background: T.accentFaint },
-                    '&::-webkit-scrollbar-thumb': { background: T.accentMid, borderRadius: 4 },
+                    px: 3, py: 1,
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1.5, flexWrap: 'wrap',
+                    borderBottom: `1px solid ${T.divider}`, flexShrink: 0,
                   }}>
-                    <Table sx={{ minWidth: tableMinWidth, borderCollapse: 'separate', borderSpacing: 0 }}>
-                      <TableHead>
-                        <TableRow>
-                          {visibleColumns.map(({ label, key, group, grp }) => {
-                            const isNameCol = key === '_fullName';
-                            const tone = group ? getColHeaderBg(group) : grp.headerBg;
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mr: 0.5 }}>
+                        <ViewColumn sx={{ fontSize: 13, color: alpha(T.accent, 0.55) }} />
+                        <Typography sx={{ fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: alpha(T.accent, 0.55) }}>
+                          Show columns
+                        </Typography>
+                      </Box>
+                      {COLUMN_GROUPS.filter(g => !g.alwaysVisible).map(grp => {
+                        const on = !collapsedGroups.has(grp.key);
+                        return (
+                          <Box
+                            key={grp.key}
+                            role="button"
+                            aria-pressed={on}
+                            onClick={() => toggleGroup(grp.key)}
+                            sx={{
+                              display: 'flex', alignItems: 'center', gap: 0.4,
+                              px: 1, py: 0.4, borderRadius: '6px', cursor: 'pointer',
+                              border: `1px solid ${on ? T.accent : T.accentBorder}`,
+                              bgcolor: on ? T.accent : '#fff',
+                              transition: 'all 0.14s ease',
+                              '&:hover': on ? { bgcolor: T.accentDark } : { bgcolor: T.accentFaint, borderColor: T.accent },
+                            }}
+                          >
+                            {on && <CheckIcon sx={{ fontSize: 12, color: '#fff' }} />}
+                            <Typography sx={{ fontSize: '0.7rem', fontWeight: on ? 700 : 600, color: on ? '#fff' : T.accent, lineHeight: 1 }}>
+                              {grp.label}
+                            </Typography>
+                          </Box>
+                        );
+                      })}
+                    </Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
+                      {[
+                        { label: 'late', value: resultStats.late, color: T.tardiness.color },
+                        { label: 'absent', value: resultStats.absent, color: T.absent.color },
+                        { label: 'half day', value: resultStats.halfDay, color: T.halfDay.color },
+                      ].map(s => (
+                        <Box key={s.label} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                          <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: s.color }} />
+                          <Typography sx={{ fontSize: '0.72rem', color: T.muted, fontWeight: 600 }}>
+                            <Box component="span" sx={{ color: T.text, fontWeight: 800 }}>{s.value}</Box> {s.label}
+                          </Typography>
+                        </Box>
+                      ))}
+                    </Box>
+                  </Box>
+                )}
+
+                {/* Records area */}
+                <Box sx={{ flexGrow: 1, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
+                  {loading ? (
+                    <Box sx={{ py: 10, textAlign: 'center' }}>
+                      <CircularProgress size={32} sx={{ color: T.accent, mb: 2 }} />
+                      <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted }}>
+                        Loading attendance summaries…
+                      </Typography>
+                    </Box>
+                  ) : attendanceData.length === 0 ? (
+                    <Box sx={{ py: 10, textAlign: 'center' }}>
+                      <Box sx={{ width: 72, height: 72, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
+                        <Summarize sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
+                      </Box>
+                      <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted, mb: 0.5 }}>
+                        Select a Period
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>
+                        Choose a month from the left panel, then click Fetch Records.
+                      </Typography>
+                    </Box>
+                  ) : filteredAttendanceData.length === 0 ? (
+                    <Box sx={{ py: 10, textAlign: 'center' }}>
+                      <Box sx={{ width: 72, height: 72, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
+                        <InfoIcon sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
+                      </Box>
+                      <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted, mb: 0.5 }}>
+                        No matching records
+                      </Typography>
+                      <Typography
+                        onClick={() => setResultQuery('')}
+                        sx={{ fontSize: '0.78rem', color: T.accent, fontWeight: 700, cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
+                      >
+                        Clear search
+                      </Typography>
+                    </Box>
+                  ) : (
+                    <Box sx={{
+                      flex: 1, minHeight: 0, overflowX: 'auto', overflowY: 'auto',
+                      scrollbarWidth: 'thin',
+                      '&::-webkit-scrollbar': { height: 6, width: 6 },
+                      '&::-webkit-scrollbar-track': { background: T.accentFaint },
+                      '&::-webkit-scrollbar-thumb': { background: T.accentMid, borderRadius: 4 },
+                    }}>
+                      <Table sx={{ minWidth: tableMinWidth, borderCollapse: 'separate', borderSpacing: 0 }}>
+                        <TableHead>
+                          <TableRow>
+                            {visibleColumns.map(({ label, key, group, grp }) => {
+                              const isNameCol = key === '_fullName';
+                              const tone = group ? getColHeaderBg(group) : grp.headerBg;
+                              return (
+                                <TableCell
+                                  key={key}
+                                  sx={{
+                                    position: 'sticky', top: 0,
+                                    ...(isNameCol ? { left: 0, zIndex: 4, boxShadow: '10px 0 12px -12px rgba(0,0,0,0.5)' } : { zIndex: 2 }),
+                                    minWidth: isNameCol ? NAME_COL_W : 140,
+                                    textAlign: isNameCol ? 'left' : 'center',
+                                    bgcolor: T.accent,
+                                    borderBottom: `3px solid ${tone === T.accentDark ? T.accentDark : tone}`,
+                                    px: isNameCol ? 2 : 1.75, py: 1.1,
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                >
+                                  {!grp.alwaysVisible && (
+                                    <Typography sx={{ fontSize: '0.54rem', fontWeight: 700, color: '#fff', opacity: 0.7, lineHeight: 1.2, letterSpacing: '0.07em', textTransform: 'uppercase' }}>
+                                      {grp.label}
+                                    </Typography>
+                                  )}
+                                  <Typography sx={{ fontSize: '0.62rem', fontWeight: 700, color: '#fff', lineHeight: 1.3, letterSpacing: '0.07em', textTransform: 'uppercase' }}>
+                                    {label}
+                                  </Typography>
+                                </TableCell>
+                              );
+                            })}
+                            <TableCell sx={{
+                              position: 'sticky', top: 0, right: 0, zIndex: 4,
+                              minWidth: ACTIONS_COL_W, textAlign: 'center',
+                              bgcolor: T.accent,
+                              borderBottom: `3px solid ${T.accentDark}`,
+                              px: 1.5, py: 1.1,
+                              boxShadow: '-10px 0 12px -12px rgba(0,0,0,0.5)',
+                            }}>
+                              <Typography sx={{ fontSize: '0.62rem', fontWeight: 700, color: '#fff', lineHeight: 1.3, letterSpacing: '0.07em', textTransform: 'uppercase' }}>Actions</Typography>
+                            </TableCell>
+                          </TableRow>
+                        </TableHead>
+
+                        <TableBody>
+                          {filteredAttendanceData.map((record, index) => {
+                            const isEditing = Boolean(editRecord && editRecord.id === record.id);
                             return (
-                              <TableCell
-                                key={key}
+                              <TableRow
+                                key={index}
                                 sx={{
-                                  position: 'sticky', top: 0,
-                                  ...(isNameCol ? { left: 0, zIndex: 4, boxShadow: '10px 0 12px -12px rgba(0,0,0,0.5)' } : { zIndex: 2 }),
-                                  minWidth: isNameCol ? NAME_COL_W : 140,
-                                  textAlign: isNameCol ? 'left' : 'center',
-                                  bgcolor: T.accentDark,
-                                  borderBottom: `4px solid ${tone === T.accentDark ? T.accentMid : tone}`,
-                                  px: isNameCol ? 2 : 1.75, py: 1.1,
-                                  whiteSpace: 'nowrap',
+                                  '&:hover td:not(.actions-col):not(.name-col)': { bgcolor: T.rowHover },
+                                  '&:hover td.name-col': { bgcolor: '#f8f0f0' },
                                 }}
                               >
-                                {!grp.alwaysVisible && (
-                                  <Typography sx={{ fontSize: '0.62rem', fontWeight: 700, color: '#fff', opacity: 0.7, lineHeight: 1.2 }}>
-                                    {grp.label}
-                                  </Typography>
-                                )}
-                                <Typography sx={{ fontSize: '0.76rem', fontWeight: 800, color: '#fff', lineHeight: 1.3 }}>
-                                  {label}
-                                </Typography>
-                              </TableCell>
-                            );
-                          })}
-                          <TableCell sx={{
-                            position: 'sticky', top: 0, right: 0, zIndex: 4,
-                            minWidth: ACTIONS_COL_W, textAlign: 'center',
-                            bgcolor: T.accentDark,
-                            borderBottom: `4px solid ${T.accentMid}`,
-                            px: 1.5, py: 1.1,
-                            boxShadow: '-10px 0 12px -12px rgba(0,0,0,0.5)',
-                          }}>
-                            <Typography sx={{ fontSize: '0.76rem', fontWeight: 800, color: '#fff', lineHeight: 1.3 }}>Actions</Typography>
-                          </TableCell>
-                        </TableRow>
-                      </TableHead>
+                                {visibleColumns.map(({ key, group }) => {
+                                  const isDateListCol = key === '_absentTotalDays' || key === '_halfTotalDays';
+                                  const isNameCol = key === '_fullName';
+                                  const displayVal = record[key];
+                                  const filled = hasValue(displayVal);
+                                  const canEditCell = isEditing && key !== 'code' && !String(key).startsWith('_');
+                                  const pill = group ? getPillStyle(group) : null;
 
-                      <TableBody>
-                        {filteredAttendanceData.map((record, index) => {
-                          const isEditing = Boolean(editRecord && editRecord.id === record.id);
-                          return (
-                            <TableRow
-                              key={index}
-                              sx={{
-                                '&:hover td:not(.actions-col):not(.name-col)': { bgcolor: T.rowHover },
-                                '&:hover td.name-col': { bgcolor: '#f8f0f0' },
-                              }}
-                            >
-                              {visibleColumns.map(({ key, group }) => {
-                                const isDateListCol = key === '_absentTotalDays' || key === '_halfTotalDays';
-                                const isNameCol = key === '_fullName';
-                                const displayVal = record[key];
-                                const filled = hasValue(displayVal);
-                                const canEditCell = isEditing && key !== 'code' && !String(key).startsWith('_');
-                                const pill = group ? getPillStyle(group) : null;
-
-                                let content;
-                                if (canEditCell) {
-                                  content = (
-                                    <input
-                                      className="oa-input"
-                                      value={editRecord[key] ?? ''}
-                                      onChange={e => setEditRecord({ ...editRecord, [key]: e.target.value })}
-                                      style={{
-                                        width: '110px', padding: '5px 8px', borderRadius: '7px',
-                                        border: `1px solid ${T.accentBorder}`, fontSize: '0.8rem',
-                                        fontFamily: 'monospace', outline: 'none',
-                                        background: '#fff', color: T.text,
-                                      }}
-                                    />
-                                  );
-                                } else if (isNameCol) {
-                                  content = (
-                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
-                                      <Avatar sx={{
-                                        width: 32, height: 32, fontSize: '0.7rem', fontWeight: 800,
-                                        bgcolor: T.accentFaint, color: T.accent,
-                                        border: `1px solid ${T.accentBorder}`,
-                                      }}>
-                                        {getInitials(displayVal)}
-                                      </Avatar>
-                                      <Typography noWrap sx={{ fontSize: '0.84rem', fontWeight: 700, color: T.text, maxWidth: NAME_COL_W - 72 }}>
-                                        {filled ? displayVal : '—'}
-                                      </Typography>
-                                    </Box>
-                                  );
-                                } else if (key === 'code') {
-                                  content = filled ? (
-                                    <Box component="span" sx={{
-                                      display: 'inline-block', px: 1.2, py: 0.3,
-                                      borderRadius: R.pill, fontSize: '0.72rem', fontWeight: 700,
-                                      color: T.accent, bgcolor: T.accentFaint,
-                                      border: `1px solid ${T.accentBorder}`,
-                                    }}>
-                                      {displayVal}
-                                    </Box>
-                                  ) : <Box component="span" sx={{ color: T.faint }}>—</Box>;
-                                } else if (pill) {
-                                  if (!filled) {
-                                    content = <Box component="span" sx={{ color: T.faint, fontWeight: 500 }}>—</Box>;
-                                  } else {
-                                    const inner = (
+                                  let content;
+                                  if (canEditCell) {
+                                    content = (
+                                      <input
+                                        className="oa-input"
+                                        value={editRecord[key] ?? ''}
+                                        onChange={e => setEditRecord({ ...editRecord, [key]: e.target.value })}
+                                        style={{
+                                          width: '110px', padding: '5px 8px', borderRadius: '7px',
+                                          border: `1px solid ${T.accentBorder}`, fontSize: '0.8rem',
+                                          fontFamily: 'monospace', outline: 'none',
+                                          background: '#fff', color: T.text,
+                                        }}
+                                      />
+                                    );
+                                  } else if (isNameCol) {
+                                    content = (
+                                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+                                        <Avatar sx={{
+                                          width: 32, height: 32, fontSize: '0.7rem', fontWeight: 800,
+                                          bgcolor: T.accentFaint, color: T.accent,
+                                          border: `1px solid ${T.accentBorder}`,
+                                        }}>
+                                          {getInitials(displayVal)}
+                                        </Avatar>
+                                        <Typography noWrap sx={{ fontSize: '0.84rem', fontWeight: 700, color: T.text, maxWidth: NAME_COL_W - 72 }}>
+                                          {filled ? displayVal : '—'}
+                                        </Typography>
+                                      </Box>
+                                    );
+                                  } else if (key === 'code') {
+                                    content = filled ? (
                                       <Box component="span" sx={{
-                                        display: 'inline-block',
-                                        px: 1.1, py: 0.4,
-                                        borderRadius: isDateListCol ? '9px' : '8px',
-                                        bgcolor: pill.bg, color: pill.color,
-                                        border: `1px solid ${pill.border}`,
-                                        fontFamily: 'monospace', fontWeight: 700, fontSize: '0.78rem',
-                                        whiteSpace: isDateListCol ? 'normal' : 'nowrap',
-                                        lineHeight: isDateListCol ? 1.35 : 1.4,
-                                        cursor: isDateListCol ? 'default' : undefined,
+                                        display: 'inline-block', px: 1.2, py: 0.3,
+                                        borderRadius: R.pill, fontSize: '0.72rem', fontWeight: 700,
+                                        color: T.accent, bgcolor: T.accentFaint,
+                                        border: `1px solid ${T.accentBorder}`,
                                       }}>
                                         {displayVal}
                                       </Box>
-                                    );
-                                    content = isDateListCol ? (
-                                      <Tooltip title={String(displayVal)} placement="top" enterDelay={300}>
-                                        {inner}
-                                      </Tooltip>
-                                    ) : inner;
+                                    ) : <Box component="span" sx={{ color: T.faint }}>—</Box>;
+                                  } else if (pill) {
+                                    if (!filled) {
+                                      content = <Box component="span" sx={{ color: T.faint, fontWeight: 500 }}>—</Box>;
+                                    } else {
+                                      const inner = (
+                                        <Box component="span" sx={{
+                                          display: 'inline-block',
+                                          px: 1.1, py: 0.4,
+                                          borderRadius: isDateListCol ? '9px' : '8px',
+                                          bgcolor: pill.bg, color: pill.color,
+                                          border: `1px solid ${pill.border}`,
+                                          fontFamily: 'monospace', fontWeight: 700, fontSize: '0.78rem',
+                                          whiteSpace: isDateListCol ? 'normal' : 'nowrap',
+                                          lineHeight: isDateListCol ? 1.35 : 1.4,
+                                          cursor: isDateListCol ? 'default' : undefined,
+                                        }}>
+                                          {displayVal}
+                                        </Box>
+                                      );
+                                      content = isDateListCol ? (
+                                        <Tooltip title={String(displayVal)} placement="top" enterDelay={300}>
+                                          {inner}
+                                        </Tooltip>
+                                      ) : inner;
+                                    }
+                                  } else {
+                                    content = filled ? displayVal : <Box component="span" sx={{ color: T.faint, fontWeight: 500 }}>—</Box>;
                                   }
-                                } else {
-                                  content = filled ? displayVal : <Box component="span" sx={{ color: T.faint, fontWeight: 500 }}>—</Box>;
-                                }
 
-                                return (
-                                  <TableCell
-                                    key={key}
-                                    className={isNameCol ? 'name-col' : undefined}
-                                    sx={{
-                                      fontSize: '0.8rem',
-                                      fontVariantNumeric: 'tabular-nums',
-                                      borderBottom: `1px solid ${T.divider}`,
-                                      px: isNameCol ? 2 : 1.75, py: 1.15,
-                                      textAlign: isNameCol ? 'left' : 'center',
-                                      whiteSpace: isDateListCol ? 'normal' : 'nowrap',
-                                      maxWidth: isDateListCol ? 300 : undefined,
-                                      fontWeight: 500,
-                                      color: key === 'personID' ? T.muted : getCellColor(group),
-                                      bgcolor: isEditing && !isNameCol ? T.accentFaint : undefined,
-                                      transition: 'background-color 0.12s',
-                                      ...(isNameCol ? {
-                                        position: 'sticky', left: 0, zIndex: 1,
-                                        minWidth: NAME_COL_W,
-                                        bgcolor: isEditing ? '#f8f0f0' : '#fff',
-                                        boxShadow: '10px 0 12px -12px rgba(0,0,0,0.25)',
-                                      } : {}),
-                                    }}
-                                  >
-                                    {content}
-                                  </TableCell>
-                                );
-                              })}
+                                  return (
+                                    <TableCell
+                                      key={key}
+                                      className={isNameCol ? 'name-col' : undefined}
+                                      sx={{
+                                        fontSize: '0.8rem',
+                                        fontVariantNumeric: 'tabular-nums',
+                                        borderBottom: `1px solid ${T.divider}`,
+                                        px: isNameCol ? 2 : 1.75, py: 1.15,
+                                        textAlign: isNameCol ? 'left' : 'center',
+                                        whiteSpace: isDateListCol ? 'normal' : 'nowrap',
+                                        maxWidth: isDateListCol ? 300 : undefined,
+                                        fontWeight: 500,
+                                        color: key === 'personID' ? T.muted : getCellColor(group),
+                                        bgcolor: isEditing && !isNameCol ? T.accentFaint : undefined,
+                                        transition: 'background-color 0.12s',
+                                        ...(isNameCol ? {
+                                          position: 'sticky', left: 0, zIndex: 1,
+                                          minWidth: NAME_COL_W,
+                                          bgcolor: isEditing ? '#f8f0f0' : '#fff',
+                                          boxShadow: '10px 0 12px -12px rgba(0,0,0,0.25)',
+                                        } : {}),
+                                      }}
+                                    >
+                                      {content}
+                                    </TableCell>
+                                  );
+                                })}
 
-                              {/* Actions cell — sticky right, always opaque */}
-                              <TableCell
-                                className="actions-col"
-                                sx={{
-                                  position: 'sticky',
-                                  right: 0,
-                                  zIndex: 3,
-                                  minWidth: ACTIONS_COL_W,
-                                  borderBottom: `1px solid ${T.divider}`,
-                                  px: 1.5,
-                                  py: 0.9,
-                                  bgcolor: isEditing ? '#f8f0f0' : '#fff',
-                                  boxShadow: '-10px 0 12px -12px rgba(0,0,0,0.3)',
-                                }}
-                              >
-                                <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center', justifyContent: 'center' }}>
-                                  {isEditing ? (
-                                    <>
-                                      <IconAction
-                                        icon={<SaveIcon sx={{ fontSize: 16 }} />}
-                                        label="Save"
-                                        color="#166534"
-                                        hoverBg="rgba(21,128,61,0.08)"
-                                        onClick={updateRecord}
-                                      />
-                                      <IconAction
-                                        icon={<CancelIcon sx={{ fontSize: 16 }} />}
-                                        label="Cancel"
-                                        color={T.muted}
-                                        hoverBg="rgba(0,0,0,0.05)"
-                                        onClick={() => setEditRecord(null)}
-                                      />
-                                    </>
-                                  ) : (
-                                    <>
-                                      <IconAction
-                                        icon={<EditIcon sx={{ fontSize: 16 }} />}
-                                        label="Edit"
-                                        color={T.accent}
-                                        hoverBg={T.accentFaint}
-                                        onClick={() => setEditRecord(record)}
-                                      />
-                                      <IconAction
-                                        icon={<DeleteIcon sx={{ fontSize: 16 }} />}
-                                        label="Delete"
-                                        color="#991b1b"
-                                        hoverBg="rgba(153,27,27,0.07)"
-                                        onClick={() => deleteRecord(record.id, record.personID)}
-                                      />
-                                    </>
-                                  )}
-                                </Box>
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
-                  </Box>
+                                {/* Actions cell — sticky right, always opaque */}
+                                <TableCell
+                                  className="actions-col"
+                                  sx={{
+                                    position: 'sticky',
+                                    right: 0,
+                                    zIndex: 3,
+                                    minWidth: ACTIONS_COL_W,
+                                    borderBottom: `1px solid ${T.divider}`,
+                                    px: 1.5,
+                                    py: 0.9,
+                                    bgcolor: isEditing ? '#f8f0f0' : '#fff',
+                                    boxShadow: '-10px 0 12px -12px rgba(0,0,0,0.3)',
+                                  }}
+                                >
+                                  <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center', justifyContent: 'center' }}>
+                                    {isEditing ? (
+                                      <>
+                                        <IconAction
+                                          icon={<SaveIcon sx={{ fontSize: 13 }} />}
+                                          label="Save"
+                                          color="#166534"
+                                          hoverBg="rgba(21,128,61,0.08)"
+                                          onClick={updateRecord}
+                                        />
+                                        <IconAction
+                                          icon={<CancelIcon sx={{ fontSize: 13 }} />}
+                                          label="Cancel"
+                                          color={T.muted}
+                                          hoverBg="rgba(0,0,0,0.05)"
+                                          onClick={() => setEditRecord(null)}
+                                        />
+                                      </>
+                                    ) : (
+                                      <>
+                                        <IconAction
+                                          icon={<EditIcon sx={{ fontSize: 13 }} />}
+                                          label="Edit"
+                                          color={T.accent}
+                                          hoverBg={T.accentFaint}
+                                          onClick={() => setEditRecord(record)}
+                                        />
+                                        <IconAction
+                                          icon={<DeleteIcon sx={{ fontSize: 13 }} />}
+                                          label="Delete"
+                                          color="#991b1b"
+                                          hoverBg="rgba(153,27,27,0.07)"
+                                          onClick={() => deleteRecord(record.id, record.personID)}
+                                        />
+                                      </>
+                                    )}
+                                  </Box>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    </Box>
+                  )}
+                </Box>
 
-                  {/* Legend */}
-                  <Box sx={{ px: 2.5, py: 1.4, borderTop: `1px solid ${T.divider}`, bgcolor: T.page, display: 'flex', gap: 2.5, flexWrap: 'wrap', alignItems: 'center' }}>
-                    {[
-                      { icon: <Box sx={{ width: 10, height: 10, borderRadius: '3px', bgcolor: 'rgba(21,128,61,0.1)',   border: '1px solid rgba(21,128,61,0.3)'   }} />, label: 'Rendered time' },
-                      { icon: <Box sx={{ width: 10, height: 10, borderRadius: '3px', bgcolor: 'rgba(153,27,27,0.08)',  border: '1px solid rgba(153,27,27,0.3)'   }} />, label: 'Tardiness' },
-                      { icon: <Box sx={{ width: 10, height: 10, borderRadius: '3px', bgcolor: 'rgba(139,94,0,0.09)',   border: '1px solid rgba(139,94,0,0.3)'    }} />, label: 'Half day' },
-                      { icon: <Box sx={{ width: 10, height: 10, borderRadius: '3px', bgcolor: 'rgba(106,27,154,0.10)', border: '1px solid rgba(106,27,154,0.30)' }} />, label: 'Absences' },
-                      { icon: <Box sx={{ width: 10, height: 10, borderRadius: '3px', bgcolor: 'rgba(21,128,61,0.15)',  border: '1px solid rgba(21,128,61,0.4)'   }} />, label: 'Overall rendered' },
-                      { icon: <Box sx={{ width: 10, height: 10, borderRadius: '3px', bgcolor: 'rgba(153,27,27,0.14)',  border: '1px solid rgba(153,27,27,0.4)'   }} />, label: 'Overall tardiness' },
-                    ].map((item, i) => (
-                      <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 0.7 }}>
-                        {item.icon}
-                        <Typography sx={{ fontSize: '0.72rem', color: T.muted }}>{item.label}</Typography>
+                {attendanceData.length > 0 && !loading && (
+                  <>
+                    {/* Legend */}
+                    <Box sx={{ px: 3, py: 0.9, borderTop: `1px solid ${T.divider}`, display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center', flexShrink: 0 }}>
+                      {[
+                        { bg: T.rendered.bg, border: T.rendered.border, label: 'Rendered time' },
+                        { bg: T.tardiness.bg, border: T.tardiness.border, label: 'Tardiness' },
+                        { bg: T.halfDay.bg, border: T.halfDay.border, label: 'Half day' },
+                        { bg: T.absent.bg, border: T.absent.border, label: 'Absences' },
+                      ].map((item) => (
+                        <Box key={item.label} sx={{ display: 'flex', alignItems: 'center', gap: 0.6 }}>
+                          <Box sx={{ width: 9, height: 9, borderRadius: '3px', bgcolor: item.bg, border: `1px solid ${item.border}` }} />
+                          <Typography sx={{ fontSize: '0.68rem', color: T.muted }}>{item.label}</Typography>
+                        </Box>
+                      ))}
+                    </Box>
+
+                    {/* Send to payroll */}
+                    <Box sx={{
+                      px: 3, py: 1.25,
+                      borderTop: `1px solid ${T.divider}`, bgcolor: T.accentFaint, flexShrink: 0,
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1.5, flexWrap: 'wrap',
+                    }}>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography sx={{ fontSize: '0.8rem', fontWeight: 700, color: T.text, lineHeight: 1.3 }}>
+                          Send to payroll
+                        </Typography>
+                        <Typography sx={{ fontSize: '0.72rem', color: T.muted, fontWeight: 600 }}>
+                          {payrollEligibility.loading
+                            ? 'Checking employment categories…'
+                            : `${payrollEligibility.jobOrder.length} Job Order · ${payrollEligibility.regular.length} Regular${payrollEligibility.missingCategory.length ? ` · ${payrollEligibility.missingCategory.length} no category` : ''}`}
+                        </Typography>
                       </Box>
-                    ))}
-                  </Box>
-                </SectionCard>
-              </Fade>
-            )}
-
-            {/* ── Search matched nothing (records exist, filters excluded them) ── */}
-            {attendanceData.length > 0 && filteredAttendanceData.length === 0 && !loading && (
-              <SectionCard sx={{ mt: 2 }}>
-                <Box sx={{ p: 6, textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <Box sx={{ width: 60, height: 60, borderRadius: R.card, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 2 }}>
-                    <Search sx={{ fontSize: 28, color: alpha(T.accent, 0.4) }} />
-                  </Box>
-                  <Typography sx={{ fontSize: '1rem', fontWeight: 800, color: alpha(T.accent, 0.75), mb: 0.5 }}>No matching records</Typography>
-                  <Typography sx={{ fontSize: '0.82rem', color: T.muted, mb: 2 }}>
-                    {attendanceData.length} record{attendanceData.length === 1 ? '' : 's'} loaded, but none match the current search.
-                  </Typography>
-                  <RowBtn
-                    icon={<CloseIcon sx={{ fontSize: 12 }} />}
-                    label="Clear search filters"
-                    color={T.accent}
-                    hoverBg={T.accentFaint}
-                    onClick={() => { setResultQuery(''); }}
-                  />
-                </Box>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                        <Tooltip title="Job Order staff go straight to Job Order payroll">
+                          <span>
+                            <Button
+                              variant="outlined"
+                              size="small"
+                              onClick={() => setShowJOConfirm(true)}
+                              disabled={isSubmittingJO}
+                              startIcon={isSubmittingJO
+                                ? <CircularProgress size={13} sx={{ color: T.accent }} />
+                                : <Assignment sx={{ fontSize: '14px !important' }} />}
+                              sx={outlinedBtnSx}
+                            >
+                              {isSubmittingJO ? 'Submitting…' : 'Submit Payroll JO'}
+                            </Button>
+                          </span>
+                        </Tooltip>
+                        <Tooltip
+                          title={
+                            !payrollEligibility.loading && payrollEligibility.regular.length === 0
+                              ? 'Not available: none of the loaded employees has a Regular employment category. Job Order employees are paid through Submit Payroll JO.'
+                              : 'Regular staff go to Earnings Management first (leave deductions, SC/CTO), then to payroll. Job Order employees are never sent here.'
+                          }
+                        >
+                          <span>
+                            <Button
+                              variant="contained"
+                              size="small"
+                              onClick={goToEarningsForRegularPayroll}
+                              disabled={checkingRegular || (!payrollEligibility.loading && payrollEligibility.regular.length === 0)}
+                              endIcon={<ChevronRightIcon sx={{ fontSize: '16px !important' }} />}
+                              sx={{
+                                textTransform: 'none', fontWeight: 600, fontSize: '0.78rem', borderRadius: '6px',
+                                bgcolor: T.accent, color: '#fff',
+                                boxShadow: `0 2px 8px ${alpha(T.accent, 0.28)}`,
+                                '&:hover': { bgcolor: T.accentDark },
+                                '&.Mui-disabled': { bgcolor: alpha(T.accent, 0.35), color: '#fff' },
+                              }}
+                            >
+                              {checkingRegular ? 'Checking categories…' : 'Regular · Earnings Management'}
+                            </Button>
+                          </span>
+                        </Tooltip>
+                      </Box>
+                    </Box>
+                  </>
+                )}
               </SectionCard>
-            )}
-
-            {/* ── Empty state ── */}
-            {attendanceData.length === 0 && !loading && (
-              <Box sx={{
-                p: 7, textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center',
-                borderRadius: R.card, border: `2px dashed ${T.accentBorder}`, bgcolor: 'rgba(255,255,255,0.6)',
-              }}>
-                <Box sx={{ width: 68, height: 68, borderRadius: R.card, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center', mb: 2 }}>
-                  <Summarize sx={{ fontSize: 34, color: alpha(T.accent, 0.4) }} />
-                </Box>
-                <Typography sx={{ fontSize: '1rem', fontWeight: 800, color: alpha(T.accent, 0.75), mb: 0.5 }}>No records found</Typography>
-                <Typography sx={{ fontSize: '0.82rem', color: T.muted, maxWidth: 420, lineHeight: 1.6 }}>
-                  Pick a date range and select Fetch all records, or enter an employee number to narrow it down.
-                </Typography>
-              </Box>
-            )}
-
-            {/* ═════════════ Payroll dock ═════════════ */}
-            {attendanceData.length > 0 && (
-              <Box sx={{
-                position: 'sticky', bottom: 16, zIndex: 20, mt: 2.5,
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, flexWrap: 'wrap',
-                px: 2.5, py: 1.5,
-                borderRadius: R.card,
-                bgcolor: '#fff',
-                border: `0.5px solid rgba(0,0,0,0.09)`,
-                borderLeft: `5px solid ${T.accent}`,
-                boxShadow: SHADOW_CARD,
-              }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
-                  <Box sx={{ width: 38, height: 38, borderRadius: R.panel, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <Assignment sx={{ fontSize: 20, color: T.accent }} />
-                  </Box>
-                  <Box>
-                    <Typography sx={{ fontSize: '0.86rem', fontWeight: 800, color: T.accent, lineHeight: 1.2 }}>Route to payroll</Typography>
-                    <Typography sx={{ fontSize: '0.72rem', color: T.muted, fontWeight: 500 }}>
-                      {attendanceData.length} {attendanceData.length === 1 ? 'record' : 'records'} ready
-                      {payrollEligibility.loading
-                        ? ' · checking categories…'
-                        : ` · ${payrollEligibility.jobOrder.length} Job Order · ${payrollEligibility.regular.length} Regular${payrollEligibility.missingCategory.length ? ` · ${payrollEligibility.missingCategory.length} no category` : ''}`}
-                    </Typography>
-                  </Box>
-                </Box>
-
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, flexWrap: 'wrap' }}>
-                  <Tooltip title="Job order & project-based staff" arrow placement="top" enterDelay={300}>
-                    <span>
-                      <button
-                        className="oa-btn"
-                        onClick={() => setShowJOConfirm(true)}
-                        disabled={isSubmittingJO}
-                        style={{
-                          background: '#fff', color: T.accent,
-                          border: `1.5px solid ${T.accentBorder}`,
-                          borderRadius: '8px', padding: '9px 20px',
-                          fontWeight: 700, fontSize: '0.8rem', fontFamily: 'inherit',
-                          display: 'flex', alignItems: 'center', gap: '7px',
-                          cursor: isSubmittingJO ? 'not-allowed' : 'pointer',
-                          opacity: isSubmittingJO ? 0.6 : 1,
-                          transition: 'background-color 0.15s, border-color 0.15s',
-                          whiteSpace: 'nowrap',
-                        }}
-                        onMouseEnter={e => { if (!isSubmittingJO) { e.currentTarget.style.backgroundColor = T.accentFaint; e.currentTarget.style.borderColor = alpha(T.accent, 0.45); } }}
-                        onMouseLeave={e => { e.currentTarget.style.backgroundColor = '#fff'; e.currentTarget.style.borderColor = T.accentBorder; }}
-                      >
-                        {isSubmittingJO
-                          ? <><CircularProgress size={14} sx={{ color: T.accent }} /> Submitting...</>
-                          : <><Assignment sx={{ fontSize: 17 }} /> Submit Payroll JO</>}
-                      </button>
-                    </span>
-                  </Tooltip>
-
-                  <Tooltip
-                    title={
-                      !payrollEligibility.loading && payrollEligibility.regular.length === 0
-                        ? 'Not available: none of the loaded employees has a Regular employment category. Job Order employees are paid through Submit Payroll JO.'
-                        : 'Leave deductions and SC/CTO are applied in Earnings Management; regular payroll is submitted only after that step. Job Order employees are never sent here.'
-                    }
-                    arrow placement="top" enterDelay={300}
-                  >
-                    <span>
-                      <PrimaryBtn
-                        icon={<ChevronRightIcon sx={{ fontSize: 18, order: 2 }} />}
-                        label={checkingRegular ? 'Checking categories…' : 'Regular · Earnings Management'}
-                        onClick={goToEarningsForRegularPayroll}
-                        disabled={checkingRegular || (!payrollEligibility.loading && payrollEligibility.regular.length === 0)}
-                      />
-                    </span>
-                  </Tooltip>
-                </Box>
-              </Box>
-            )}
-          </Box>
+            </Grid>
+          </Grid>
         </Box>
 
         {/* ═════════════ Employee roster drawer ═════════════ */}
@@ -2640,7 +2431,22 @@ const OverallAttendance = () => {
           anchor="right"
           open={rosterOpen}
           onClose={() => setRosterOpen(false)}
-          PaperProps={{ sx: { width: { xs: '100%', sm: 400 }, bgcolor: T.page, display: 'flex', flexDirection: 'column' } }}
+          // Sit between the app bar (62px) and footer (48px), same as the DTR hub drawer.
+          sx={{ zIndex: 1200 }}
+          PaperProps={{
+            sx: {
+              top: { xs: 0, sm: '62px' },
+              bottom: { xs: 0, sm: '48px' },
+              height: { xs: '100%', sm: 'auto' },
+              maxHeight: { xs: '100dvh', sm: 'calc(100dvh - 110px)' },
+              width: { xs: '100%', sm: 400 },
+              borderRadius: { xs: 0, sm: '14px 0 0 14px' },
+              bgcolor: T.page,
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+            },
+          }}
         >
           <Box sx={{
             px: 2.5, py: 2,
@@ -2654,9 +2460,9 @@ const OverallAttendance = () => {
                 <GroupsIcon sx={{ fontSize: 21, color: T.accent }} />
               </Box>
               <Box>
-                <Typography sx={{ fontSize: '0.98rem', fontWeight: 800, lineHeight: 1.2, color: T.text }}>Employees</Typography>
+                <Typography sx={{ fontSize: '0.98rem', fontWeight: 800, lineHeight: 1.2, color: T.text }}>Employee Checklist</Typography>
                 <Typography sx={{ fontSize: '0.74rem', color: T.muted, fontWeight: 500 }}>
-                  Pick someone to load them into the filter
+                  See whose summary is saved · click a name to load it
                 </Typography>
               </Box>
             </Box>
@@ -2669,7 +2475,17 @@ const OverallAttendance = () => {
               <CloseIcon fontSize="small" />
             </IconButton>
           </Box>
-          <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', p: 1.5 }}>
+          <Box sx={{ px: 1.5, pt: 1.5, bgcolor: T.page }}>
+            <AttendanceFilterToggleRow
+              options={[
+                { val: 'Active', label: `Active employees (${rosterSummary.activeCount})` },
+                { val: 'all', label: `Everyone (${rosterSummary.allCount})` },
+              ]}
+              value={rosterStatus}
+              onChange={setRosterStatus}
+            />
+          </Box>
+          <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', p: 1.5, pt: 0 }}>
             <AttendanceRosterSidebar
               themeT={T}
               year={rosterYear}

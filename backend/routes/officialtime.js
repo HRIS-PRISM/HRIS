@@ -3466,6 +3466,7 @@ router.get("/officialtime/month-coverage", authenticateToken, (req, res) => {
       p.middleName,
       p.lastName,
       p.nameExtension,
+      MAX(u.status) AS status,
       MAX(dt.description) AS department,
       MAX(overlap.academicYear) AS academicYear,
       MAX(overlap.startDate) AS startDate,
@@ -3553,6 +3554,7 @@ router.get("/officialtime/month-coverage", authenticateToken, (req, res) => {
               row.nameExtension ? " " + row.nameExtension : ""
             }`.trim(),
           department: row.department || "",
+          status: row.status || "Default",
           academicYear: row.academicYear || null,
           startDate: row.startDate ? toDateOnlyString(row.startDate) : null,
           endDate: row.endDate ? toDateOnlyString(row.endDate) : null,

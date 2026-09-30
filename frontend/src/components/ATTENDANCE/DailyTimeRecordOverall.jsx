@@ -1573,7 +1573,9 @@ const DailyTimeRecordFaculty = ({
     const openKey = `${personID}|${startDate}|${endDate}|${expectedModuleType}`;
     if (lastAutoOpenKeyRef.current === openKey) return;
     lastAutoOpenKeyRef.current = openKey;
-    openComputationDrawer(drawer, { silent: true });
+    // Only mark the employee's module (highlighted in the Compute menu); searching
+    // no longer slides the drawer open — the user opens it from the menu.
+    setActiveComputationDrawer(drawer);
   }, [
     viewMode,
     hasSearchedSingle,
@@ -1583,7 +1585,6 @@ const DailyTimeRecordFaculty = ({
     dtrType,
     hasOfficialTimeSchedule,
     expectedModuleType,
-    openComputationDrawer,
   ]);
 
   const handleSavedToSummary = useCallback(async () => {
