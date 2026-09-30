@@ -1,6 +1,7 @@
 const db = require("../db");
 const { getCtoCreditRunningTotals } = require("./ctoCreditRunningTotals");
 const { getScRemainingHoursTotal } = require("./serviceCreditRunningTotals");
+const { resolveHoursPerDay } = require("./hoursPerDayService");
 
 const SALARY_VALUE = "SALARY_DEDUCTION";
 
@@ -23,48 +24,6 @@ const parseDbHours = (val) => {
   }
   const n = parseFloat(s.replace(/,/g, ""));
   return Number.isFinite(n) ? n : 0;
-};
-
-const fetchLeaveDeductionMeta = (employeeNumber, leave_code) =>
-  new Promise((resolve) => {
-    db.query(
-      `SELECT lt.leave_hours AS leave_type_hours
-       FROM users u
-       LEFT JOIN employment_category ec
-         ON CAST(ec.employeeNumber AS CHAR) = CAST(u.employeeNumber AS CHAR)
-       LEFT JOIN employment_type_config etc
-         ON etc.id = COALESCE(ec.employmentCategory, u.employmentCategory)
-       LEFT JOIN leave_table lt ON TRIM(lt.leave_code) = TRIM(?)
-       WHERE CAST(u.employeeNumber AS CHAR) = CAST(? AS CHAR)
-       LIMIT 1`,
-      [leave_code, employeeNumber],
-      (err, rows) => {
-        if (!err && rows?.length) return resolve(rows[0]);
-        db.query(
-          `SELECT leave_hours AS leave_type_hours
-           FROM leave_table WHERE TRIM(leave_code) = TRIM(?) LIMIT 1`,
-          [leave_code],
-          (e2, r2) => resolve(r2?.[0] || {}),
-        );
-      },
-    );
-  });
-
-const resolveHoursPerDayFromMeta = (meta) => {
-  const lt = parseFloat(meta?.leave_type_hours);
-  if (Number.isFinite(lt) && lt > 0)
-    return { hoursPerDay: lt, rateSource: "leave_table" };
-  return { hoursPerDay: 8, rateSource: "default" };
-};
-
-/**
- * Match frontend EarningsManagement / half-day modal: leave_table.leave_hours is sometimes
- * a policy aggregate (>12) rather than clock hours per day. Normalize before half-day math.
- */
-const normalizeClockHoursPerDay = (raw) => {
-  const n = Number(raw);
-  if (!Number.isFinite(n) || n <= 0) return 8;
-  return n > 12 ? n / 4 : n;
 };
 
 const getLeaveAssignmentsForCode = (employeeNumber, leave_code) =>
@@ -291,16 +250,12 @@ async function buildHalfDayPolicySuggestionCore({
     chosen = options[0]?.value || SALARY_VALUE;
   }
 
-  let hoursPerDay = 8;
+  const { hoursPerDay: clockHoursPerDay } = await resolveHoursPerDay(employeeNumber);
   let availableHours = 0;
   if (chosen !== SALARY_VALUE) {
-    const meta = await fetchLeaveDeductionMeta(employeeNumber, chosen);
-    const resolved = resolveHoursPerDayFromMeta(meta);
-    hoursPerDay = resolved.hoursPerDay;
     availableHours = await getRemainingHoursForCode(employeeNumber, chosen);
   }
 
-  const clockHoursPerDay = normalizeClockHoursPerDay(hoursPerDay);
   const recommendedHours = Number((clockHoursPerDay / 2).toFixed(4));
   const hasSufficientBalance =
     chosen === SALARY_VALUE ? true : availableHours >= recommendedHours - 1e-6;
@@ -338,7 +293,4 @@ module.exports = {
   getDeductionOptions,
   buildHalfDayPolicySuggestionCore,
   getRemainingHoursForCode,
-  fetchLeaveDeductionMeta,
-  resolveHoursPerDayFromMeta,
-  normalizeClockHoursPerDay,
 };

@@ -337,6 +337,8 @@ export const getApprovedEarningsHoursForPeriod = (earningsList, period, { applie
       if (e.voided_at || Number(e.voided) === 1) return false;
       if (e.earn_status !== 'approved') return false;
       if (appliedOnly && Number(e.is_applied) !== 1) return false;
+      // Negative rows are deductions already reflected in used_hours via the ledger.
+      if (toNum(e.earned_hours) <= 0) return false;
       return earningMatchesPeriod(e, period);
     })
     .reduce((s, e) => s + toNum(e.earned_hours), 0);

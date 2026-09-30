@@ -49,13 +49,9 @@ import {
   HelpOutline as HelpOutlineIcon,
   Lock as LockIcon,
   TableRows as TableRowsIcon,
-  Visibility as VisibilityIcon,
-  Description as FileTextIcon,
-  Badge as BadgeCheckIcon,
   Label as TagIcon,
-  EventNote as CalendarEventIcon,
-  InfoOutlined as InfoCircleIcon,
   Send as SendIcon,
+  ChevronRight as ChevronRightIcon,
   ManageSearch as ManageSearchIcon,
   FilterAlt as FilterAltIcon,
   NavigateBefore,
@@ -85,6 +81,8 @@ import SuccessfulOverlay from "../SuccessfulOverlay";
 import LeaveDatePicker from "./LeaveDatePicker";
 import { useSystemSettings } from "../../hooks/useSystemSettings";
 import { getLeaveTypeStatsActive } from "./leaveAssignmentBalanceUtils";
+import { isLeaveAllowedForGender, getLeaveGenderRestriction } from "./leaveGenderUtils";
+import { filingNotices, categoryLeaveNote } from "./leaveFilingRules";
 
 // ─── Theme tokens ──────────────────────────────────────────────────────────────
 const T = {
@@ -449,35 +447,38 @@ const formatDateDisplay = (dateStr) => {
   });
 };
 
-const SummaryRow = ({ icon: Icon, label, children, highlight }) => (
-  <Box
-    sx={{
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "flex-start",
-      px: 1.75, py: 1,
-      borderBottom: `1px solid ${T.divider}`,
-      bgcolor: highlight ? "rgba(198,40,40,0.04)" : "transparent",
-      "&:last-child": { borderBottom: "none" },
-    }}
-  >
-    <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexShrink: 0 }}>
-      <Icon sx={{ fontSize: 14, color: T.muted }} />
-      <Typography sx={{ fontSize: "0.75rem", color: T.muted }}>{label}</Typography>
-    </Box>
-    <Box sx={{ textAlign: "right", maxWidth: 260 }}>{children}</Box>
-  </Box>
-);
-
 const ReviewModal = ({
   open, onClose, onConfirm, loading = false,
   personID = "", userName = "",
   leaveCode = "", leaveDescription = "",
   selectedDates = [], reason = "",
-  remainingDays = 0, allocatedDays = 0,
+  remainingDays = 0,
+  accent = T.accent, accentDark = T.accentDark,
+  warnings = [],
 }) => {
-  const requestedDays = selectedDates.length;
-  const afterDeductionDays = remainingDays - requestedDays;
+  const sorted = [...selectedDates].sort();
+  const requestedDays = sorted.length;
+  const afterDays = remainingDays - requestedDays;
+  const fromDate = sorted[0];
+  const toDate = sorted[sorted.length - 1];
+  // Picked dates that are not one continuous run (e.g. Nov 17 and Nov 25) are listed below From/To.
+  const spanDays = fromDate && toDate
+    ? Math.round((new Date(`${toDate}T00:00:00`) - new Date(`${fromDate}T00:00:00`)) / 86400000) + 1
+    : 0;
+  const showDateList = requestedDays > 1 && spanDays !== requestedDays;
+
+  const initials = (userName || personID || "?")
+    .split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
+
+  const faint = alpha(accent, 0.08);
+  const border = "1px solid rgba(0,0,0,0.09)";
+  const card = { border, borderRadius: 2.5, px: 1.75, py: 1.4, bgcolor: "#fff" };
+  const label = { fontSize: "0.72rem", color: T.muted, mb: 0.6 };
+  const big = { fontSize: "1.02rem", fontWeight: 700, color: T.text, lineHeight: 1.25 };
+
+  const hasBalance = remainingDays > 0;
+  const keptPct = hasBalance ? Math.max(0, Math.min(100, (afterDays / remainingDays) * 100)) : 0;
+  const shortfall = afterDays < 0;
 
   return (
     <Modal
@@ -486,139 +487,169 @@ const ReviewModal = ({
       sx={{ display: "flex", alignItems: "center", justifyContent: "center", p: 2, zIndex: 1400 }}
     >
       <Fade in={open}>
-        <Box sx={{ width: "100%", maxWidth: 480, borderRadius: 3, overflow: "hidden", boxShadow: "0 24px 64px rgba(0,0,0,0.22)", bgcolor: T.surface, display: "flex", flexDirection: "column" }}>
+        <Box sx={{ width: "100%", maxWidth: 440, maxHeight: "92vh", overflowY: "auto", borderRadius: 4, bgcolor: T.surface, boxShadow: "0 24px 64px rgba(0,0,0,0.22)", p: 2.75, display: "flex", flexDirection: "column", gap: 1.75 }}>
 
           {/* Header */}
-          <Box sx={{ px: 3.5, py: 2.5, background: T.headerGrad, display: "flex", alignItems: "center", justifyContent: "space-between", position: "relative", overflow: "hidden" }}>
-            <Box sx={{ position: "absolute", top: -40, right: -30, width: 140, height: 140, borderRadius: "50%", bgcolor: "rgba(255,255,255,0.04)", pointerEvents: "none" }} />
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, position: "relative", zIndex: 1 }}>
-              <Box sx={{ width: 36, height: 36, borderRadius: 2, bgcolor: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.22)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <CalendarEventIcon sx={{ fontSize: 17, color: "#fff" }} />
-              </Box>
-              <Box>
-                <Typography sx={{ fontWeight: 700, color: "#fff", fontSize: "0.93rem", lineHeight: 1.2 }}>
-                  Review & Submit Leave Request
-                </Typography>
-                <Typography sx={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.65)", mt: 0.25 }}>
-                  Please review your request before submitting
-                </Typography>
-              </Box>
+          <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5 }}>
+            <Box sx={{ width: 40, height: 40, borderRadius: 2, bgcolor: accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <CalendarIcon sx={{ fontSize: 20, color: "#fff" }} />
             </Box>
-            <IconButton onClick={loading ? undefined : onClose} size="small" sx={{ color: "rgba(255,255,255,0.75)", position: "relative", zIndex: 1, "&:hover": { bgcolor: "rgba(255,255,255,0.12)" } }}>
-              <Close sx={{ fontSize: 16 }} />
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Typography sx={{ fontWeight: 700, fontSize: "1.05rem", color: T.text, lineHeight: 1.25 }}>
+                Review & Submit Leave Request
+              </Typography>
+              <Typography sx={{ fontSize: "0.78rem", color: T.muted, mt: 0.3 }}>
+                Please review your request before submitting
+              </Typography>
+            </Box>
+            <IconButton onClick={loading ? undefined : onClose} size="small" sx={{ color: T.muted, mt: -0.5, mr: -0.75 }}>
+              <Close sx={{ fontSize: 18 }} />
             </IconButton>
           </Box>
 
           {/* Preview banner */}
-          <Box sx={{ px: 2.5, py: 0.9, bgcolor: "#fff8e1", borderBottom: "1px solid #ffe082", display: "flex", alignItems: "center", gap: 1 }}>
-            <VisibilityIcon sx={{ fontSize: 13, color: "#F57C00" }} />
-            <Typography sx={{ fontSize: "0.72rem", color: "#795548", fontWeight: 600 }}>
+          <Box sx={{ px: 1.5, py: 1, borderRadius: 1.5, bgcolor: "#fff4dc" }}>
+            <Typography sx={{ fontSize: "0.76rem", color: "#8a5a00" }}>
               Preview — confirm the details below before submitting
             </Typography>
           </Box>
 
-          {/* Body */}
-          <Box sx={{ px: 3, py: 2.5, display: "flex", flexDirection: "column", gap: 1.5 }}>
-
-            {/* Summary card */}
-            <Box sx={{ border: `1px solid ${T.accentBorder}`, borderRadius: 2, overflow: "hidden" }}>
-              <Box sx={{ px: 1.75, py: 1, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.accentBorder}`, display: "flex", alignItems: "center", gap: 0.75 }}>
-                <FileTextIcon sx={{ fontSize: 13, color: T.accent }} />
-                <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: T.accent }}>Request Summary</Typography>
-              </Box>
-
-              {/* Employee */}
-              <SummaryRow icon={BadgeCheckIcon} label="Employee">
-                <Typography sx={{ fontSize: "0.8rem", fontWeight: 600, color: T.text }}>
-                  {personID}{userName ? ` — ${userName}` : ""}
-                </Typography>
-              </SummaryRow>
-
-              {/* Leave type */}
-              <SummaryRow icon={TagIcon} label="Leave Type">
-                <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, justifyContent: "flex-end" }}>
-                  <Box sx={{ px: 0.85, py: 0.2, borderRadius: 1, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
-                    <Typography sx={{ fontSize: "0.68rem", fontWeight: 800, color: T.accent }}>{leaveCode}</Typography>
-                  </Box>
-                  <Typography sx={{ fontSize: "0.8rem", color: T.text, fontWeight: 500 }}>{leaveDescription}</Typography>
-                </Box>
-              </SummaryRow>
-
-              {/* Duration */}
-              <SummaryRow icon={CalendarEventIcon} label="Duration">
-                <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, justifyContent: "flex-end" }}>
-                  <Typography sx={{ fontSize: "0.8rem", fontWeight: 600, color: T.text }}>
-                    {requestedDays} day{requestedDays !== 1 ? "s" : ""}
-                  </Typography>
-                  <Chip
-                    size="small"
-                    icon={<AccessTime style={{ fontSize: 10, color: "#E65100" }} />}
-                    label="Pending"
-                    sx={{ height: 18, fontSize: "0.68rem", fontWeight: 600, bgcolor: "#FFF3E0", color: "#E65100", border: "1px solid rgba(230,81,0,0.22)", borderRadius: "4px", "& .MuiChip-icon": { ml: "3px" } }}
-                  />
-                </Box>
-              </SummaryRow>
-
-              {/* Dates */}
-              <SummaryRow icon={CalendarIcon} label="Date(s)">
-                <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, justifyContent: "flex-end", maxWidth: 260 }}>
-                  {selectedDates.map((d) => (
-                    <Box key={d} sx={{ px: 0.85, py: 0.3, borderRadius: 1, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
-                      <Typography sx={{ fontSize: "0.7rem", fontWeight: 600, color: T.accent }}>{formatDateDisplay(d)}</Typography>
-                    </Box>
-                  ))}
-                </Box>
-              </SummaryRow>
-
-              {/* Reason */}
-              {reason && (
-                <SummaryRow icon={FileTextIcon} label="Reason">
-                  <Typography sx={{ fontSize: "0.8rem", color: T.text, fontStyle: "italic" }}>{reason}</Typography>
-                </SummaryRow>
-              )}
-
-              {/* Balance (informational only — HR approves regardless of figures shown) */}
-              <SummaryRow icon={WalletIcon} label="Leave balance (reference)">
-                <Box>
-                  <Typography sx={{ fontSize: "0.8rem", fontWeight: 600, color: T.text }}>
-                    {remainingDays.toFixed(3)}d remaining · {allocatedDays.toFixed(3)}d allocated
-                  </Typography>
-                  <Typography sx={{ fontSize: "0.68rem", color: T.faint, mt: 0.25, lineHeight: 1.45 }}>
-                    Approx. {afterDeductionDays.toFixed(3)}d after this request if deducted as shown. Final decision is with HR.
-                  </Typography>
-                </Box>
-              </SummaryRow>
+          {/* Employee */}
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+            <Box sx={{ width: 40, height: 40, borderRadius: "50%", bgcolor: faint, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <Typography sx={{ fontSize: "0.82rem", fontWeight: 700, color: accent }}>{initials}</Typography>
             </Box>
-
-            {/* Info notice */}
-            <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.25, p: 1.5, bgcolor: "rgba(21,101,192,0.06)", border: "1px solid rgba(21,101,192,0.2)", borderRadius: 2 }}>
-              <InfoCircleIcon sx={{ fontSize: 16, color: "#1565C0", flexShrink: 0, mt: 0.15 }} />
-              <Typography sx={{ fontSize: "0.78rem", color: T.muted, lineHeight: 1.6 }}>
-                Your request will be sent to your supervisor for approval. You can cancel it anytime while it is still{" "}
-                <Box component="span" sx={{ fontWeight: 600, color: T.text }}>pending</Box>.
-              </Typography>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: T.text }} noWrap>{userName || "—"}</Typography>
+              <Typography sx={{ fontSize: "0.76rem", color: T.muted }}>Employee {personID}</Typography>
             </Box>
           </Box>
 
+          {/* Leave type + Duration */}
+          <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1.25 }}>
+            <Box sx={card}>
+              <Typography sx={label}>Leave type</Typography>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.9, minWidth: 0 }}>
+                <Box sx={{ px: 0.75, py: 0.15, borderRadius: 1, bgcolor: faint, flexShrink: 0 }}>
+                  <Typography sx={{ fontSize: "0.68rem", fontWeight: 800, color: accent }}>{leaveCode}</Typography>
+                </Box>
+                <Typography sx={{ ...big, fontSize: "0.95rem" }} noWrap title={leaveDescription}>{leaveDescription}</Typography>
+              </Box>
+            </Box>
+            <Box sx={card}>
+              <Typography sx={label}>Duration</Typography>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.9 }}>
+                <Typography sx={{ ...big, fontSize: "0.95rem" }}>{requestedDays} day{requestedDays !== 1 ? "s" : ""}</Typography>
+                <Box sx={{ px: 0.9, py: 0.15, borderRadius: 5, bgcolor: "#fdefc8" }}>
+                  <Typography sx={{ fontSize: "0.68rem", fontWeight: 600, color: "#8a5a00" }}>Pending</Typography>
+                </Box>
+              </Box>
+            </Box>
+          </Box>
+
+          {/* From → To */}
+          <Box sx={card}>
+            <Box sx={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 1 }}>
+              <Box>
+                <Typography sx={label}>From</Typography>
+                <Typography sx={big}>{formatDateDisplay(fromDate)}</Typography>
+              </Box>
+              <Box sx={{ display: "flex", alignItems: "center", color: accent, pt: 2 }}>
+                <Box sx={{ width: 40, height: 1.5, bgcolor: accent }} />
+                <ChevronRightIcon sx={{ fontSize: 18, ml: -0.9 }} />
+              </Box>
+              <Box>
+                <Typography sx={label}>To</Typography>
+                <Typography sx={big}>{formatDateDisplay(toDate)}</Typography>
+              </Box>
+            </Box>
+            {showDateList && (
+              <Box sx={{ mt: 1.25, pt: 1, borderTop: "1px dashed rgba(0,0,0,0.1)", display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+                {sorted.map((d) => (
+                  <Box key={d} sx={{ px: 0.8, py: 0.2, borderRadius: 1, bgcolor: faint }}>
+                    <Typography sx={{ fontSize: "0.68rem", fontWeight: 600, color: accent }}>{formatDateDisplay(d)}</Typography>
+                  </Box>
+                ))}
+              </Box>
+            )}
+          </Box>
+
+          {/* Balance (reference only — HR decides the final deduction) */}
+          <Box sx={card}>
+            <Typography sx={label}>Leave balance (reference)</Typography>
+            <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 1, mb: 1.25 }}>
+              <Box>
+                <Typography sx={{ fontSize: "0.72rem", color: T.muted }}>Remaining</Typography>
+                <Typography sx={{ ...big, fontSize: "1.1rem" }}>{remainingDays.toFixed(3)}d</Typography>
+              </Box>
+              <Box>
+                <Typography sx={{ fontSize: "0.72rem", color: T.muted }}>To be deducted</Typography>
+                <Typography sx={{ ...big, fontSize: "1.1rem", color: accent }}>−{requestedDays}d</Typography>
+              </Box>
+              <Box>
+                <Typography sx={{ fontSize: "0.72rem", color: T.muted }}>Balance after request</Typography>
+                <Typography sx={{ ...big, fontSize: "1.1rem", color: shortfall ? "#c62828" : T.text }}>{afterDays.toFixed(3)}d</Typography>
+              </Box>
+            </Box>
+            <Box sx={{ height: 10, borderRadius: 5, overflow: "hidden", display: "flex", bgcolor: "rgba(0,0,0,0.06)", border: `1px solid ${shortfall ? "#e57373" : accent}` }}>
+              <Box sx={{ width: `${keptPct}%`, bgcolor: accent }} />
+              <Box
+                sx={{
+                  flex: 1,
+                  background: `repeating-linear-gradient(135deg, ${shortfall ? "#e57373" : accent} 0 3px, #fff 3px 6px)`,
+                }}
+              />
+            </Box>
+            {shortfall && (
+              <Typography sx={{ fontSize: "0.7rem", color: "#c62828", mt: 0.75 }}>
+                This request is {Math.abs(afterDays).toFixed(3)}d more than your balance. HR decides the final charge.
+              </Typography>
+            )}
+          </Box>
+
+          {reason && (
+            <Box sx={card}>
+              <Typography sx={label}>Reason</Typography>
+              <Typography sx={{ fontSize: "0.84rem", color: T.text }}>{reason}</Typography>
+            </Box>
+          )}
+
+          {/* Schedule / CSC filing warnings */}
+          {warnings.map((w) => (
+            <Box key={w} sx={{ px: 1.5, py: 1.1, borderRadius: 2, bgcolor: "#fff8e6", border: "1px solid #ffd98a", display: "flex", gap: 1 }}>
+              <WarningIcon sx={{ fontSize: 16, color: "#b7791f", mt: 0.1 }} />
+              <Typography sx={{ fontSize: "0.76rem", color: "#8a5a00", lineHeight: 1.5 }}>{w}</Typography>
+            </Box>
+          ))}
+
+          {/* Info notice */}
+          <Box sx={{ px: 1.75, py: 1.4, borderRadius: 2, bgcolor: "#edf2fb" }}>
+            <Typography sx={{ fontSize: "0.8rem", color: "#3b4a63", lineHeight: 1.6 }}>
+              Your request will be sent to your supervisor for approval. You can cancel it anytime while it is still{" "}
+              <Box component="span" sx={{ fontWeight: 700, color: T.text }}>pending</Box>.
+            </Typography>
+          </Box>
+
           {/* Footer */}
-          <Box sx={{ px: 3, py: 1.75, borderTop: `1px solid ${T.divider}`, bgcolor: "#f9f9f9", display: "flex", justifyContent: "flex-end", gap: 1.25 }}>
-            <AccentButton
+          <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 1.25, pt: 0.5 }}>
+            <Button
               onClick={loading ? undefined : onClose}
               variant="outlined"
               disabled={loading}
-              sx={{ fontSize: "0.8rem", borderColor: T.accentBorder, color: T.muted, "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent, color: T.accent } }}
+              sx={{ textTransform: "none", fontWeight: 600, fontSize: "0.85rem", borderRadius: 2.5, px: 2.75, py: 1, color: T.text, borderColor: "rgba(0,0,0,0.15)", "&:hover": { borderColor: accent, bgcolor: faint } }}
             >
               Go Back
-            </AccentButton>
-            <AccentButton
+            </Button>
+            <Button
               onClick={onConfirm}
               variant="contained"
               disabled={loading}
-              startIcon={loading ? <CircularProgress size={12} sx={{ color: "#fff" }} /> : <SendIcon sx={{ fontSize: "14px !important" }} />}
-              sx={{ fontSize: "0.8rem", bgcolor: T.accent, color: "#fff", "&:hover": { bgcolor: T.accentDark }, "&:disabled": { bgcolor: "#ddd" } }}
+              disableElevation
+              startIcon={loading ? <CircularProgress size={13} sx={{ color: "#fff" }} /> : null}
+              sx={{ textTransform: "none", fontWeight: 700, fontSize: "0.85rem", borderRadius: 2.5, px: 2.75, py: 1, bgcolor: accent, color: "#fff", "&:hover": { bgcolor: accentDark }, "&:disabled": { bgcolor: "#ddd" } }}
             >
               {loading ? "Submitting…" : "Submit Request"}
-            </AccentButton>
+            </Button>
           </Box>
         </Box>
       </Fade>
@@ -636,6 +667,9 @@ const LeaveRequestUser = () => {
 
   const [leaveRequests, setLeaveRequests] = useState([]);
   const [leaveTypes, setLeaveTypes] = useState([]);
+  // { sex, cscCategory, categoryLabel, noLeaveBenefits } from the server (CSC eligibility).
+  const [filingProfile, setFilingProfile] = useState(null);
+  const [unscheduledDates, setUnscheduledDates] = useState([]);
   const [assignments, setAssignments] = useState([]);
   const [newLeaveRequest, setNewLeaveRequest] = useState({ leave_code: "", leave_date: "" });
   const [reason, setReason] = useState("");
@@ -716,6 +750,24 @@ const LeaveRequestUser = () => {
 
   const { settings } = useSystemSettings();
   const accentColor = settings.primaryColor || T.accent;
+
+  // Leave types this employee may file: gender-restricted types are hidden once the
+  // employee's sex is on file (the server enforces the same rule).
+  const fileableLeaveTypes = useMemo(
+    () =>
+      leaveTypes.filter((t) => {
+        if (!getLeaveGenderRestriction(t) || !filingProfile?.sex) return true;
+        return isLeaveAllowedForGender(t, filingProfile.sex);
+      }),
+    [leaveTypes, filingProfile],
+  );
+  const noLeaveBenefits = Boolean(filingProfile?.noLeaveBenefits);
+  const selectedFilingNotices = useMemo(
+    () => filingNotices(newLeaveRequest.leave_code, selectedDates),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [newLeaveRequest.leave_code, selectedDates],
+  );
+  const selectedCategoryNote = categoryLeaveNote(newLeaveRequest.leave_code, filingProfile?.cscCategory);
 
   const isSickLeave = () => {
     const t = leaveTypes.find((x) => x.leave_code === newLeaveRequest.leave_code);
@@ -923,6 +975,15 @@ const LeaveRequestUser = () => {
       const res = await axios.get(`${API_BASE_URL}/leaveRoute/leave_table`, getAuthHeaders());
       setLeaveTypes(res.data);
     } catch (e) { console.error(e); }
+    try {
+      const d = new Date();
+      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      const r = await axios.get(`${API_BASE_URL}/leaveRoute/leave_request/calendar/${personID}`, {
+        ...getAuthHeaders(),
+        params: { start: iso, end: iso },
+      });
+      setFilingProfile(r.data || null);
+    } catch (e) { setFilingProfile(null); }
   };
   const fetchAssignments = async () => {
     if (!personID) return;
@@ -988,7 +1049,6 @@ const LeaveRequestUser = () => {
           leave_code: newLeaveRequest.leave_code,
           leave_dates: selectedDates,
           reason,
-          status: "0",
         },
         getAuthHeaders(),
       );
@@ -1212,7 +1272,15 @@ const LeaveRequestUser = () => {
           selectedDates={selectedDates}
           reason={reason}
           remainingDays={reviewModal.remainingDays}
-          allocatedDays={reviewModal.allocatedDays}
+          accent={accentColor}
+          accentDark={alpha(accentColor, 0.85)}
+          warnings={[
+            ...(unscheduledDates.length
+              ? [`No official time schedule on ${unscheduledDates.map((u) => formatDateDisplay(u.date)).join(", ")}. You can still submit; HR will check these dates.`]
+              : []),
+            ...selectedFilingNotices,
+            ...(selectedCategoryNote ? [selectedCategoryNote] : []),
+          ]}
         />
 
         {/* ── Leave Ledger Modal (read-only view of the balance breakdown) ── */}
@@ -1462,18 +1530,34 @@ const LeaveRequestUser = () => {
                       }
                     >
                       <MenuItem value=""><em>Select Leave Type</em></MenuItem>
-                      {leaveTypes.map((type) => (
-                        <MenuItem key={type.id} value={type.leave_code}>
-                          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-                            <Box sx={{ px: 1, py: 0.2, borderRadius: 1, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
-                              <Typography sx={{ fontSize: "0.7rem", fontWeight: 800, color: T.accent }}>{type.leave_code}</Typography>
+                      {fileableLeaveTypes.map((type) => {
+                        const note = categoryLeaveNote(type.leave_code, filingProfile?.cscCategory);
+                        return (
+                          <MenuItem key={type.id} value={type.leave_code}>
+                            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                              <Box sx={{ px: 1, py: 0.2, borderRadius: 1, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
+                                <Typography sx={{ fontSize: "0.7rem", fontWeight: 800, color: T.accent }}>{type.leave_code}</Typography>
+                              </Box>
+                              <Typography sx={{ fontSize: "0.875rem" }}>{type.leave_description}</Typography>
+                              {note && (
+                                <Box sx={{ ml: 1, px: 0.75, py: 0.1, borderRadius: 1, bgcolor: "#fff4e5", border: "1px solid #ffd8a8" }}>
+                                  <Typography sx={{ fontSize: "0.62rem", fontWeight: 700, color: "#8a5a00" }}>Existing balance only</Typography>
+                                </Box>
+                              )}
                             </Box>
-                            <Typography sx={{ fontSize: "0.875rem" }}>{type.leave_description}</Typography>
-                          </Box>
-                        </MenuItem>
-                      ))}
+                          </MenuItem>
+                        );
+                      })}
                     </Select>
                   </FormControl>
+                  {noLeaveBenefits && (
+                    <Alert severity="warning" sx={{ mt: 1, py: 0.25, fontSize: "0.74rem" }}>
+                      Job Order / Contract of Service workers have no leave benefits (CSC-COA-DBM JC 1 s.2017), so leave requests can't be filed.
+                    </Alert>
+                  )}
+                  {selectedCategoryNote && (
+                    <Typography sx={{ fontSize: "0.7rem", color: "#8a5a00", mt: 0.6 }}>{selectedCategoryNote}</Typography>
+                  )}
                 </Box>
 
                 <Box sx={{ mb: 1 }}>
@@ -1518,7 +1602,17 @@ const LeaveRequestUser = () => {
                     leaveType={newLeaveRequest.leave_code}
                     leaveRequests={leaveRequests}
                     maxSelectableDates={null}
+                    employeeNumber={personID || null}
+                    onUnscheduledChange={setUnscheduledDates}
                   />
+                  {unscheduledDates.length > 0 && (
+                    <Alert severity="warning" sx={{ mt: 1, py: 0.25, fontSize: "0.74rem" }}>
+                      No official time schedule on {unscheduledDates.map((u) => u.date).join(", ")}. You can still submit; HR will check these dates.
+                    </Alert>
+                  )}
+                  {selectedFilingNotices.map((n) => (
+                    <Alert key={n} severity="info" sx={{ mt: 1, py: 0.25, fontSize: "0.74rem" }}>{n}</Alert>
+                  ))}
                 </Box>
 
                 <Box sx={{ mb: 2, mt: 1.75 }}>
@@ -1588,7 +1682,7 @@ const LeaveRequestUser = () => {
                   variant="contained"
                   fullWidth
                   startIcon={<SendIcon sx={{ fontSize: "15px !important" }} />}
-                  disabled={loading}
+                  disabled={loading || noLeaveBenefits}
                   sx={{
                     height: 44, bgcolor: T.accent, color: "#fff", fontWeight: 600, mt: 1,
                     "&:hover": { bgcolor: T.accentDark },

@@ -239,7 +239,8 @@ const LeaveCommutation = () => {
   const fetchRecords = useCallback(async () => {
     try {
       const res = await axios.get(`${API_BASE_URL}/commutationRoute/leave_commutation`);
-      setRecords(Array.isArray(res.data) ? res.data : []);
+      // Cancelled commutations (status 3) are kept server-side for the audit trail only.
+      setRecords(Array.isArray(res.data) ? res.data.filter((r) => Number(r.status) !== 3) : []);
     } catch (e) {
       console.error('Fetch commutation records:', e);
       setRecords([]);
@@ -300,13 +301,13 @@ const LeaveCommutation = () => {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Delete this commutation record? This cannot be undone.')) return;
+    if (!window.confirm("Cancel this commutation? The credits will be restored to the employee's balance.")) return;
     try {
       await axios.delete(`${API_BASE_URL}/commutationRoute/leave_commutation/${id}`);
       setSelectedRecord(null);
       await fetchRecords();
     } catch (e) {
-      showError('Delete Failed', e.response?.data?.error || e.message);
+      showError('Cancel Failed', e.response?.data?.error || e.message);
     }
   };
 
@@ -656,7 +657,7 @@ const LeaveCommutation = () => {
                               <EditIcon sx={{ fontSize: 16 }} />
                             </IconButton>
                           </Tooltip>
-                          <Tooltip title="Delete record">
+                          <Tooltip title="Cancel commutation">
                             <IconButton onClick={() => handleDelete(selectedRecord.id)} size="small" sx={{ color: '#ffcdd2', '&:hover': { bgcolor: 'rgba(255,255,255,0.12)' } }}>
                               <DeleteIcon sx={{ fontSize: 16 }} />
                             </IconButton>

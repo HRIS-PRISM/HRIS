@@ -4,9 +4,6 @@
  */
 
 const pool = require("../db");
-const {
-  getAppliedEarningsForAssignment,
-} = require("../utils/leaveAssignmentBalanceUtils");
 
 const parseDbHours = (val) => {
   if (val === null || val === undefined) return 0;
@@ -35,7 +32,40 @@ const getPromiseConnection = async () => {
 };
 
 /**
- * Running ledger refresh:
+ * Applied, approved, non-voided POSITIVE earnings for the assignment's period, read on
+ * `conn` so uncommitted changes in the caller's transaction are visible. Negative earning
+ * rows (deductions) are excluded: they are applied through leave_credit_usage, so adding
+ * them here would subtract them twice.
+ */
+const sumAppliedEarningsForAssignment = async (conn, assignment) => {
+  const sem = assignment.period_semester ?? null;
+  const semStr = sem != null && String(sem).trim() !== "" ? String(sem).trim() : null;
+  const semPad = semStr != null ? semStr.padStart(2, "0") : null;
+  const rows = await q(
+    conn,
+    `SELECT COALESCE(SUM(earned_hours), 0) AS s FROM leave_earnings
+     WHERE employee_number = ? AND TRIM(leave_code) = TRIM(?)
+       AND earn_status = 'approved' AND COALESCE(is_applied, 0) = 1
+       AND voided_at IS NULL AND COALESCE(voided, 0) = 0
+       AND earned_hours > 0
+       AND period_year <=> ?
+       AND (period_month = ? OR period_month = ? OR (? IS NULL AND period_month IS NULL))
+     LOCK IN SHARE MODE`,
+    [
+      String(assignment.employeeNumber),
+      String(assignment.leave_code),
+      assignment.period_year ?? null,
+      semStr,
+      semPad,
+      semStr,
+    ],
+  );
+  return Math.max(0, parseDbHours(rows[0]?.s));
+};
+
+/**
+ * Running ledger refresh (always runs, including when every ledger line has been voided,
+ * so the cache never keeps a stale used_hours):
  *   used_hours      = SUM(-hours_delta) excluding commutation
  *   total_hours     = allocated_hours - used_hours
  *   remaining_hours = total_hours + applied approved earnings for period
@@ -44,9 +74,11 @@ const refreshLeaveAssignmentCacheFromLedger = async (conn, leaveAssignmentId) =>
   const id = parseInt(leaveAssignmentId, 10);
   if (!Number.isFinite(id)) return { skipped: true };
 
+  // Locking reads throughout: they see the latest committed rows (e.g. a period row created
+  // by another connection after this transaction's snapshot) and serialize concurrent refreshes.
   const laRows = await q(
     conn,
-    `SELECT * FROM leave_assignment WHERE id = ? LIMIT 1`,
+    `SELECT * FROM leave_assignment WHERE id = ? LIMIT 1 FOR UPDATE`,
     [id],
   );
   if (!laRows.length) return { skipped: true };
@@ -56,28 +88,24 @@ const refreshLeaveAssignmentCacheFromLedger = async (conn, leaveAssignmentId) =>
     return { skipped: true, commuted: true };
   }
 
-  const cntRows = await q(
-    conn,
-    `SELECT COUNT(*) AS c FROM leave_credit_usage
-     WHERE leave_assignment_id = ? AND voided_at IS NULL
-       AND LOWER(source_type) <> 'commutation'`,
-    [id],
-  );
-  const activeCount = parseInt(cntRows[0]?.c, 10) || 0;
-  if (activeCount === 0) return { skipped: true };
-
   const alloc = Math.max(0, parseDbHours(assignment.allocated_hours));
   const sumRows = await q(
     conn,
-    `SELECT COALESCE(SUM(-hours_delta), 0) AS u
+    `SELECT COUNT(*) AS line_count, COALESCE(SUM(CASE WHEN voided_at IS NULL THEN -hours_delta ELSE 0 END), 0) AS u
      FROM leave_credit_usage
-     WHERE leave_assignment_id = ? AND voided_at IS NULL
-       AND LOWER(source_type) <> 'commutation'`,
+     WHERE leave_assignment_id = ?
+       AND LOWER(source_type) <> 'commutation'
+     LOCK IN SHARE MODE`,
     [id],
   );
-  const used = Math.max(0, parseDbHours(sumRows[0]?.u));
+  // A period that has never had a ledger line predates the ledger: keep its stored
+  // used_hours instead of resetting it to 0 (which would inflate the balance).
+  const hasLedgerHistory = (parseInt(sumRows[0]?.line_count, 10) || 0) > 0;
+  const used = hasLedgerHistory
+    ? Math.max(0, parseDbHours(sumRows[0]?.u))
+    : Math.max(0, parseDbHours(assignment.used_hours));
   const total = Math.max(0, alloc - used);
-  const earned = await getAppliedEarningsForAssignment(pool, assignment);
+  const earned = await sumAppliedEarningsForAssignment(conn, assignment);
   const remaining = Math.max(0, total + earned);
 
   await q(
@@ -179,6 +207,7 @@ module.exports = {
   getPromiseConnection,
   q,
   refreshLeaveAssignmentCacheFromLedger,
+  sumAppliedEarningsForAssignment,
   insertCreditUsageLine,
   voidCreditUsageBySource,
   fetchLedgerSumForAssignment,

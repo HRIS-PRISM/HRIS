@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo, Fragment } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import axios from "axios";
 import API_BASE_URL from "../../../apiConfig";
 import {
@@ -7,10 +7,8 @@ import {
   Table,
   TableBody,
   TableCell,
-  TableContainer,
   TableHead,
   TableRow,
-  Paper,
   CircularProgress,
   Alert,
   Button,
@@ -34,6 +32,7 @@ import {
   FormControlLabel,
   ToggleButton,
   ToggleButtonGroup,
+  TablePagination,
 } from "@mui/material";
 import { alpha } from "@mui/material/styles";
 import {
@@ -45,6 +44,7 @@ import {
   Search as SearchIcon,
   FilterAltOff as FilterAltOffIcon,
   Download as DownloadIcon,
+  Block as BlockIcon,
 } from "@mui/icons-material";
 import {
   payrollAuthHeaders,
@@ -56,7 +56,34 @@ import {
   registryContributionDays,
   fetchOverallAttendanceRow,
 } from "./SalaryShortfallRegistry";
-import { aggregateAttendanceResultsForAbstract } from "./aggregateAttendanceResultsForAbstract";
+import { aggregateAttendanceResultsForAbstract, isAttendanceRowVoided } from "./aggregateAttendanceResultsForAbstract";
+import AbstractVoidDialog from "./AbstractVoidDialog";
+
+/** Leave codes (not SC/CTO/salary) charged by an employee row's active entries — what Void can roll back. */
+/** Void rolls back a whole year: locked when any month of that year is in Payroll Processing. */
+const employeeYearInPayroll = (payrollKeys, employeeNumber, year) => {
+  const emp = String(employeeNumber ?? "").trim();
+  const y = parseInt(year, 10);
+  if (!emp || !Number.isFinite(y) || !payrollKeys?.size) return false;
+  const variants = [...new Set([emp, emp.replace(/^0+/, "") || emp])];
+  for (let m = 1; m <= 12; m++) {
+    const mm = String(m).padStart(2, "0");
+    const key = `${y}-${mm}-01|${y}-${mm}-${String(new Date(y, m, 0).getDate()).padStart(2, "0")}`;
+    if (variants.some((v) => payrollKeys.has(`${v}|${key}`))) return true;
+  }
+  return false;
+};
+
+const NOT_LEAVE_CODES = ["SC", "CTO", "NONE", "SALARY", "SALARY_DEDUCTION", "ABSENCE", "ABSENT", "TARDINESS", "HALF_DAY", "UNPAID", "—"];
+const voidableLeaveCodes = (sourceRows) =>
+  [...new Set(
+    (sourceRows || [])
+      // Only entries where leave credits were actually used (salary-charged rows carry labels
+      // like "TARDINESS" in leave_used, which are not leave types).
+      .filter((r) => !isAttendanceRowVoided(r) && Number(r.leave_hours_used) > 0)
+      .map((r) => String(r.leave_used || "").trim().toUpperCase())
+      .filter((c) => c && !NOT_LEAVE_CODES.includes(c)),
+  )].sort();
 import usePayrollRealtimeRefresh from "../../../hooks/usePayrollRealtimeRefresh";
 import { downloadAbstractFormExcel } from "../../../utils/abstractTemplateExport";
 import { excelExporterName } from "../../../utils/styledExcelExport";
@@ -131,6 +158,26 @@ function displayDaysFromMerged(row) {
   const deduct = toNum(row.unpaidHours) > 0;
   const h = deduct ? toNum(row.unpaidHours) : toNum(row.paidHoursTotal);
   return `${(h / WH).toFixed(3)}d`;
+}
+
+/** Card summary status (colour + words) for an Abstract employee row. */
+function abstractStatusMeta(row, isManual) {
+  if (row.allVoided) return { label: "Voided", color: "#9e9e9e" };
+  if (isManual) return { label: "Manually staged", color: "#1565c0" };
+  const s = String(row.resultStatus || "").toUpperCase();
+  if (s === "FULLY_COVERED") return { label: "Fully covered", color: "#1e6b22" };
+  if (s === "PARTIAL" || s === "PARTIALLY_COVERED") return { label: "Partially covered", color: "#9a6700" };
+  if (s === "UNPAID") return { label: "Salary deduction", color: "#b3261e" };
+  if (s === "MULTIPLE") return { label: "Mixed coverage", color: "#9a6700" };
+  return { label: String(row.resultStatus || "—").replace(/_/g, " "), color: "#6b6b6b" };
+}
+
+/** ABSENT → Absent, TARDINESS → Tardiness, HALF_DAY → Half day. */
+function prettySourceType(t) {
+  const s = String(t || "").trim();
+  if (!s) return "—";
+  const w = s.replace(/_/g, " ").toLowerCase();
+  return w.charAt(0).toUpperCase() + w.slice(1);
 }
 
 function displayDaysRawAttendanceRow(r) {
@@ -212,43 +259,6 @@ function getRowPeriodYearMonth(row) {
 }
 
 // ─── Shared header cell style ─────────────────────────────────────────────────
-
-const thSx = {
-  fontWeight: 700,
-  fontSize: "0.63rem",
-  fontFamily: T.poppins,
-  textTransform: "uppercase",
-  letterSpacing: "0.06em",
-  py: 1.25,
-  px: 1.5,
-  bgcolor: "rgba(109,35,35,0.07)",
-  color: T.muted,
-  borderBottom: `1px solid rgba(109,35,35,0.14)`,
-  whiteSpace: "nowrap",
-  // CRITICAL: must be static so the nested table's th doesn't fight the outer stickyHeader
-  position: "sticky",
-  top: 0,
-  zIndex: 2,
-};
-
-// ─── Audit table header cell — NOT sticky ────────────────────────────────────
-const auditThSx = {
-  fontSize: "0.62rem",
-  fontWeight: 700,
-  fontFamily: T.poppins,
-  textTransform: "uppercase",
-  letterSpacing: "0.05em",
-  color: T.faint,
-  bgcolor: "#f4f4f4",
-  py: 0.75,
-  px: 1.5,
-  borderBottom: `1px solid ${T.divider}`,
-  whiteSpace: "nowrap",
-  // NO position sticky — nested sticky causes misalignment/clipping
-  position: "static",
-};
-
-// ─── Sub-components ──────────────────────────────────────────────────────────
 
 const ColHeader = ({ icon: Icon, label, children }) => (
   <Box
@@ -380,41 +390,47 @@ function mergeAbstractYearBatch(year, exportMonth, payloads) {
   return months;
 }
 
-function rowDepartmentLabel(row, deptMap = {}, deptNameMap = {}) {
-  const num = String(row?.employeeNumber ?? "");
-  return String(
-    row?.departmentName || deptNameMap?.[num] || row?.departmentCode || deptMap?.[num] || "",
-  ).trim();
+/** Employee numbers compare without spaces or leading zeros ("020134507" = "20134507"). */
+function normEmpNo(v) {
+  const t = String(v ?? "").trim();
+  return t.replace(/^0+(?=\d)/, "") || t;
 }
 
-function rowEmploymentCategoryLabel(row, empCatMap = {}) {
-  const num = String(row?.employeeNumber ?? "");
-  return String(
-    empCatMap?.[num]?.label ||
-      row?.employmentCategory ||
-      row?.abstractSourceRows?.[0]?.employment_category_label ||
-      "",
-  ).trim();
-}
-
-function uniqueExportLabels(values) {
-  const byKey = new Map();
-  values.forEach((raw) => {
-    const label = String(raw || "").trim();
-    if (!label) return;
-    const key = label.toUpperCase();
-    if (!byKey.has(key)) byKey.set(key, label);
+/**
+ * Departments (Department Table), who is assigned where (Department Assignment),
+ * employment categories (Employment Category setup) and who is in each one.
+ */
+async function loadExportDirectory() {
+  const [tableRes, assignRes, typeRes, catRes] = await Promise.allSettled([
+    axios.get(`${API_BASE_URL}/api/department-table`, payrollAuthHeaders()),
+    axios.get(`${API_BASE_URL}/api/department-assignment`, payrollAuthHeaders()),
+    axios.get(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-type-config`, payrollAuthHeaders()),
+    axios.get(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`, payrollAuthHeaders()),
+  ]);
+  const ok = (r) => (r.status === "fulfilled" ? r.value.data : null);
+  const departments = (Array.isArray(ok(tableRes)) ? ok(tableRes) : [])
+    .filter((d) => d.code)
+    .map((d) => ({ value: String(d.code).trim().toUpperCase(), code: String(d.code).trim(), description: String(d.description || "").trim() }))
+    .sort((a, b) => a.code.localeCompare(b.code));
+  const deptByEmp = {};
+  (Array.isArray(ok(assignRes)) ? ok(assignRes) : []).forEach((a) => {
+    if (!a.employeeNumber || !a.code) return;
+    const k = normEmpNo(a.employeeNumber);
+    (deptByEmp[k] ||= new Set()).add(String(a.code).trim().toUpperCase());
   });
-  return [...byKey.values()].sort((a, b) =>
-    a.localeCompare(b, undefined, { sensitivity: "base" }),
-  );
-}
-
-function labelInExportSelection(label, selection) {
-  if (!selection?.length) return true;
-  const key = String(label || "").trim().toUpperCase();
-  if (!key) return false;
-  return selection.some((item) => String(item || "").trim().toUpperCase() === key);
+  const typeData = ok(typeRes);
+  const flat = Array.isArray(typeData?.flat) ? typeData.flat : Array.isArray(typeData) ? typeData : [];
+  const categories = flat
+    .filter((t) => t.id != null && Number(t.isActive ?? 1) !== 0)
+    .map((t) => ({ value: String(t.id), label: [t.parentGroup, t.typeName].filter(Boolean).join(" | ") }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+  const catByEmp = {};
+  (Array.isArray(ok(catRes)) ? ok(catRes) : []).forEach((c) => {
+    if (!c.employeeNumber || c.employmentCategory == null) return;
+    catByEmp[normEmpNo(c.employeeNumber)] = String(c.employmentCategory);
+  });
+  const failed = [tableRes, assignRes, typeRes, catRes].some((r) => r.status !== "fulfilled");
+  return { loaded: true, failed, departments, deptByEmp, categories, catByEmp };
 }
 
 function rowMatchesExportPeriod(row, year, month) {
@@ -430,9 +446,6 @@ export function Abstract({
   year,
   month,
   manualRows = [],
-  deptMap = {},
-  deptNameMap = {},
-  empCatMap = {},
 }) {
   const [sentToPayrollKeys, setSentToPayrollKeys] = useState(() => new Set());
   const [selectedPayrollKeys, setSelectedPayrollKeys] = useState(() => new Set());
@@ -447,6 +460,7 @@ export function Abstract({
   const [preparedTitle, setPreparedTitle] = useState(DEFAULT_PREPARED_TITLE);
   const [exportBy, setExportBy] = useState("department");
   const [exportSelection, setExportSelection] = useState("");
+  const [exportDirectory, setExportDirectory] = useState({ loaded: false, failed: false, departments: [], deptByEmp: {}, categories: [], catByEmp: {} });
   const [exportScope, setExportScope] = useState("deductions");
 
   // ── Filter state: search by employee # / name, plus optional year & month ──
@@ -460,6 +474,9 @@ export function Abstract({
 
   // ── Fetch persisted attendance_result records from database ──
   const [fetchedRows, setFetchedRows] = useState([]);
+  /** Row being voided (opens AbstractVoidDialog) and a counter to reload rows after a void. */
+  const [voidTarget, setVoidTarget] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const [loadingFetch, setLoadingFetch] = useState(false);
 
   useEffect(() => {
@@ -495,7 +512,7 @@ export function Abstract({
     };
 
     fetchAttendanceResultsFromDB();
-  }, [year, month]);
+  }, [year, month, reloadKey]);
 
   const fetchPayrollExistingPeriodKeys = useCallback(async () => {
     setRefreshingKeys(true);
@@ -606,6 +623,21 @@ export function Abstract({
   // year/month filter, otherwise falls back to whatever the parent selected.
   const effectiveYear = filterYear !== "all" ? filterYear : year;
   const effectiveMonth = filterMonth !== "all" ? filterMonth : month;
+
+  // ── Pagination (display only: filters, Select all, payroll send and export use every filtered row) ──
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+  useEffect(() => {
+    setPage(0);
+  }, [searchQuery, filterYear, filterMonth, year, month, employee?.employeeNumber]);
+  useEffect(() => {
+    const last = Math.max(0, Math.ceil(displayRows.length / rowsPerPage) - 1);
+    if (page > last) setPage(last);
+  }, [displayRows.length, rowsPerPage, page]);
+  const pagedRows = useMemo(
+    () => displayRows.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage),
+    [displayRows, page, rowsPerPage],
+  );
 
   const deductionRows = useMemo(() => displayRows.filter((r) => r.isDeduction), [displayRows]);
   const coveredRows   = useMemo(() => displayRows.filter((r) => !r.isDeduction), [displayRows]);
@@ -789,26 +821,48 @@ export function Abstract({
     return `${MONTH_ABBR[m - 1]} ${y}`.trim();
   }, [effectiveMonth, effectiveYear, month, year]);
 
+  // Load departments / categories and their members each time the dialog opens.
+  useEffect(() => {
+    if (!exportDialogOpen) return undefined;
+    let alive = true;
+    loadExportDirectory()
+      .then((dir) => alive && setExportDirectory(dir))
+      .catch(() => alive && setExportDirectory((d) => ({ ...d, loaded: true, failed: true })));
+    return () => { alive = false; };
+  }, [exportDialogOpen]);
+
+  /** True when the row's employee is assigned to that department code / category id. */
+  const rowInSelection = useCallback((row, by, value) => {
+    const k = normEmpNo(row.employeeNumber);
+    if (by === "category") return exportDirectory.catByEmp[k] === value;
+    return Boolean(exportDirectory.deptByEmp[k]?.has(value));
+  }, [exportDirectory]);
+
   const exportDepartmentOptions = useMemo(
-    () => uniqueExportLabels(periodAbstractRows.map((row) => rowDepartmentLabel(row, deptMap, deptNameMap))),
-    [periodAbstractRows, deptMap, deptNameMap],
+    () => exportDirectory.departments.map((d) => ({
+      value: d.value,
+      label: d.description ? `${d.code} — ${d.description}` : d.code,
+      header: d.description || d.code,
+      count: periodAbstractRows.filter((row) => rowInSelection(row, "department", d.value)).length,
+    })),
+    [exportDirectory, periodAbstractRows, rowInSelection],
   );
   const exportCategoryOptions = useMemo(
-    () => uniqueExportLabels(periodAbstractRows.map((row) => rowEmploymentCategoryLabel(row, empCatMap))),
-    [periodAbstractRows, empCatMap],
+    () => exportDirectory.categories.map((c) => ({
+      value: c.value,
+      label: c.label,
+      header: c.label,
+      count: periodAbstractRows.filter((row) => rowInSelection(row, "category", c.value)).length,
+    })),
+    [exportDirectory, periodAbstractRows, rowInSelection],
   );
   const exportSelectionOptions = exportBy === "category" ? exportCategoryOptions : exportDepartmentOptions;
+  const selectedExportOption = exportSelectionOptions.find((o) => o.value === exportSelection) || null;
 
   const rowsMatchingSelection = useMemo(() => {
-    const selected = String(exportSelection || "").trim();
-    if (!selected) return [];
-    return periodAbstractRows.filter((row) => {
-      const label = exportBy === "category"
-        ? rowEmploymentCategoryLabel(row, empCatMap)
-        : rowDepartmentLabel(row, deptMap, deptNameMap);
-      return labelInExportSelection(label, [selected]);
-    });
-  }, [periodAbstractRows, exportBy, exportSelection, deptMap, deptNameMap, empCatMap]);
+    if (!exportSelection) return [];
+    return periodAbstractRows.filter((row) => rowInSelection(row, exportBy, exportSelection));
+  }, [periodAbstractRows, exportBy, exportSelection, rowInSelection]);
 
   const exportPreviewRows = useMemo(() => {
     const rows = exportScope === "deductions"
@@ -837,8 +891,8 @@ export function Abstract({
   }, [periodAbstractRows]);
 
   const handleExportExcel = useCallback(async () => {
-    const selected = String(exportSelection || "").trim();
-    if (!selected) {
+    const selected = String(selectedExportOption?.header || "").trim();
+    if (!exportSelection || !selected) {
       setSnackbar({
         open: true,
         severity: "error",
@@ -958,9 +1012,8 @@ export function Abstract({
     } finally {
       setExportingExcel(false);
     }
-  }, [exportPreviewRows, exportBy, exportSelection, exportScope, month, year, preparedName, preparedTitle]);
+  }, [exportPreviewRows, exportBy, exportSelection, selectedExportOption, exportScope, month, year, preparedName, preparedTitle]);
   // 15 cols: checkbox + audit + 13 data cols
-  const TABLE_COL_SPAN = 15;
 
   const filterInputSx = {
     fontFamily: T.poppins,
@@ -1259,499 +1312,259 @@ export function Abstract({
         </Box>
       )}
 
-      {/* ── Table ── */}
-      <Box sx={{ flex: 1, overflow: "hidden", px: 2, pt: 1.5, pb: 2, minHeight: 0 }}>
-        <TableContainer
-          component={Paper}
-          elevation={0}
-          sx={{
-            border: `0.5px solid ${T.accentBorder}`,
-            borderRadius: "10px",
-            height: "100%",
-            // Single scroll container — the outer wrapper scrolls, inner tables do NOT
-            overflow: "auto",
-          }}
-        >
-          <Table
-            size="small"
-            stickyHeader
-            sx={{
-              tableLayout: "fixed",
-              minWidth: 1560,
-              // Collapse so rows share borders cleanly
-              borderCollapse: "separate",
-              borderSpacing: 0,
-            }}
-          >
-            <TableHead>
-              <TableRow>
-                {/* Checkbox */}
-                <TableCell sx={{ ...thSx, width: 44, textAlign: "center", px: 1 }}>
-                  <Tooltip title="Select all eligible rows">
-                    <Checkbox
-                      size="small"
-                      checked={headerCheckboxState.checked}
-                      indeterminate={headerCheckboxState.indeterminate}
-                      onChange={(e) => toggleSelectAllEligible(e.target.checked)}
-                      disabled={eligiblePayrollRows.length === 0}
-                      sx={{
-                        p: 0,
-                        color: alpha(T.accent, 0.4),
-                        "&.Mui-checked": { color: T.accent },
-                        "&.MuiCheckbox-indeterminate": { color: T.accent },
-                        "&.Mui-disabled": { color: "rgba(0,0,0,0.2)" },
-                      }}
-                    />
-                  </Tooltip>
-                </TableCell>
+      {/* ── Employee cards ── */}
+      <Box sx={{ flex: 1, overflow: "hidden", px: 2, pt: 1.5, pb: 2, minHeight: 0, display: "flex", flexDirection: "column" }}>
+        {displayRows.length > 0 && (
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, px: 1.75, pb: 1, flexShrink: 0 }}>
+            <Tooltip title="Select all eligible rows">
+              <span>
+                <Checkbox
+                  size="small"
+                  checked={headerCheckboxState.checked}
+                  indeterminate={headerCheckboxState.indeterminate}
+                  onChange={(e) => toggleSelectAllEligible(e.target.checked)}
+                  disabled={eligiblePayrollRows.length === 0}
+                  sx={{ p: 0, color: alpha(T.accent, 0.4), "&.Mui-checked": { color: T.accent }, "&.MuiCheckbox-indeterminate": { color: T.accent }, "&.Mui-disabled": { color: "rgba(0,0,0,0.2)" } }}
+                />
+              </span>
+            </Tooltip>
+            <Typography sx={{ fontSize: "0.74rem", color: T.muted, fontFamily: T.poppins }}>
+              Select all eligible · {displayRows.length} employee row{displayRows.length === 1 ? "" : "s"}
+            </Typography>
+          </Box>
+        )}
+        <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 1.25, pr: 0.5 }}>
+          {pagedRows.map((merged) => {
+            const rowKey    = merged.key;
+            const isDed     = merged.isDeduction;
+            const isManual  = !!merged.isManual;
+            const sent      = sentToPayrollKeys.has(rowKey);
+            const payrollDone = isRowAlreadyInPayrollProcessing(merged);
+            const open      = auditExpandedKeys.has(rowKey);
+            const sourceRows = Array.isArray(merged.abstractSourceRows) ? merged.abstractSourceRows : [];
+            const origH   = toNum(merged.originalHours);
+            const leaveH  = toNum(merged.leaveHoursUsed);
+            const unpaidH = toNum(merged.unpaidHours);
+            const status  = abstractStatusMeta(merged, isManual);
+            const bigColor = merged.allVoided ? T.faint : isManual ? "#0d47a1" : isDed ? T.accent : "#1e6b22";
 
-                {/* Audit expand */}
-                <TableCell sx={{ ...thSx, width: 44, textAlign: "center", px: 0.5 }}>
-                  Audit
-                </TableCell>
+            const voidCodes = voidableLeaveCodes(sourceRows);
+            const voidReason = isManual
+              ? "Manually staged row — nothing to void."
+              : payrollDone || employeeYearInPayroll(payrollExistingPeriodKeys, merged.employeeNumber, merged.periodYear)
+                ? "A month of this year is already in Payroll Processing, so it cannot be voided. Remove it there first."
+                : voidCodes.length === 0
+                  ? "No active leave deductions to void (SC/CTO are voided from their own records)."
+                  : "";
 
-                {/* Data cols */}
-                {[
-                  { h: "Emp #",      w: "5.5%" },
-                  { h: "Name",       w: "11%"  },
-                  { h: "Type",       w: "7.5%" },
-                  { h: "Leave",      w: "5%"   },
-                  { h: "Period",     w: "8.5%" },
-                  { h: "Status",     w: "9%"   },
-                  { h: "Days",       w: "5.5%" },
-                  { h: "Orig. hrs",  w: "5.5%" },
-                  { h: "Leave hrs",  w: "6%"   },
-                  { h: "Unpaid hrs", w: "6%",  highlight: true },
-                  { h: "Paid hrs",   w: "5.5%" },
-                  { h: "Remarks",    w: "13%"  },
-                  { h: "Created at", w: "8%"   },
-                ].map(({ h, w, highlight }) => (
-                  <TableCell
-                    key={h}
-                    sx={{
-                      ...thSx,
-                      width: w,
-                      ...(highlight && {
-                        bgcolor: T.accent,
-                        color: "#fff",
-                        borderLeft: "none",
-                        borderRight: "none",
-                        letterSpacing: "0.08em",
-                      }),
-                    }}
-                  >
-                    {highlight ? (
-                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.6 }}>
-                        <PaymentIcon sx={{ fontSize: 11, color: "#fff", opacity: 0.85 }} />
-                        <span>{h}</span>
-                      </Box>
-                    ) : h}
-                  </TableCell>
-                ))}
-              </TableRow>
-            </TableHead>
+            const metricRows = [
+              { label: "Original", h: origH },
+              { label: "Leave-covered", h: leaveH },
+              { label: "Unpaid", h: unpaidH, strong: unpaidH > 0 },
+            ];
+            const numCell = { fontFamily: T.poppins, fontSize: "0.8rem", color: T.text, textAlign: "right", fontVariantNumeric: "tabular-nums", py: 1.1, borderBottom: `1px solid ${T.divider}` };
+            const lblCell = { fontFamily: T.poppins, fontSize: "0.8rem", color: T.muted, py: 1.1, borderBottom: `1px solid ${T.divider}` };
+            const headCell = { fontFamily: T.poppins, fontSize: "0.62rem", fontWeight: 700, color: `${T.muted} !important`, bgcolor: "transparent !important", letterSpacing: "0.06em", textTransform: "uppercase", py: 0.9, borderBottom: `1px solid ${T.divider}` };
 
-            <TableBody>
-              {displayRows.length === 0 ? null : (
-                displayRows.map((merged) => {
-                  const rowKey    = merged.key;
-                  const isDed     = merged.isDeduction;
-                  const isManual  = !!merged.isManual;
-                  const sent      = sentToPayrollKeys.has(rowKey);
-                  const payrollDone = isRowAlreadyInPayrollProcessing(merged);
-                  const auditOpen = auditExpandedKeys.has(rowKey);
-                  const sourceRows = Array.isArray(merged.abstractSourceRows) ? merged.abstractSourceRows : [];
+            return (
+              <Box key={rowKey} sx={{ border: `1px solid ${T.divider}`, borderRadius: "12px", bgcolor: "#fff", flexShrink: 0, overflow: "hidden", opacity: merged.allVoided ? 0.75 : 1 }}>
+                {/* Summary */}
+                <Box
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={open}
+                  onClick={() => toggleAuditExpand(rowKey)}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleAuditExpand(rowKey); } }}
+                  sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, px: 2, py: 1.5, cursor: "pointer", "&:hover": { bgcolor: "rgba(0,0,0,0.015)" }, "&:focus-visible": { outline: `2px solid ${T.accent}`, outlineOffset: -2 } }}
+                >
+                  <Box onClick={(e) => e.stopPropagation()} sx={{ pt: 0.25, flexShrink: 0 }}>
+                    {sent ? (
+                      <Tooltip title="Sent to payroll this session.">
+                        <Chip label="✓ Sent" size="small" sx={{ height: 20, fontSize: "0.6rem", fontWeight: 700, bgcolor: T.sentChipBg, color: T.sentChipColor, border: `1px solid ${T.sentChipBorder}`, fontFamily: T.poppins }} />
+                      </Tooltip>
+                    ) : payrollDone ? (
+                      <Tooltip title="Already in Payroll Processing for this period. Remove it there to re-send.">
+                        <Chip label="In payroll" size="small" sx={{ height: 20, fontSize: "0.6rem", fontWeight: 700, bgcolor: T.payrollDoneBg, color: T.payrollDoneColor, border: `1px solid ${T.payrollDoneBorder}`, fontFamily: T.poppins }} />
+                      </Tooltip>
+                    ) : (
+                      <Checkbox
+                        size="small"
+                        checked={selectedPayrollKeys.has(rowKey)}
+                        onChange={() => togglePayrollSelect(rowKey)}
+                        inputProps={{ "aria-label": `Select ${merged.name || merged.employeeNumber}` }}
+                        sx={{ p: 0, color: alpha(T.accent, 0.35), "&.Mui-checked": { color: T.accent } }}
+                      />
+                    )}
+                  </Box>
 
-                  const bg      = isManual ? T.manualBg      : (isDed ? T.salaryBg       : T.coveredBg);
-                  const fgColor = isManual ? T.manualText    : (isDed ? T.salaryText      : T.coveredText);
-                  const bord    = isManual ? T.manualBorder  : (isDed ? T.salaryBorder    : T.coveredBorder);
-                  const chipBg  = isManual ? T.manualChipBg  : (isDed ? T.salaryChipBg   : T.coveredChipBg);
-                  const chipFg  = isManual ? T.manualChipColor : (isDed ? T.salaryChipColor : T.coveredChipColor);
-                  const chipBd  = isManual ? T.manualChipBorder : (isDed ? T.salaryChipBorder : T.coveredChipBorder);
-
-                  const cellSx = {
-                    fontFamily: T.poppins,
-                    fontSize: "0.78rem",
-                    bgcolor: bg,
-                    color: fgColor,
-                    borderBottom: `1px solid ${bord}`,
-                    py: 1.1,
-                    px: 1.5,
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                    // No position override — inherit table layout
-                  };
-
-                  const remarksTip = merged.abstractRemarksTooltip || "—";
-
-                  return (
-                    <Fragment key={rowKey}>
-                      {/* ── Summary row ── */}
-                      <TableRow
-                        sx={{
-                          "&:hover td": { filter: "brightness(0.97)", transition: "filter 0.12s" },
-                        }}
-                      >
-                        {/* Checkbox / status indicator */}
-                        <TableCell sx={{ ...cellSx, textAlign: "center", px: 1 }}>
-                          {sent ? (
-                            <Tooltip title="Sent to payroll this session.">
-                              <Chip
-                                label="✓"
-                                size="small"
-                                sx={{
-                                  height: 18, minWidth: 18, fontSize: "0.62rem", fontWeight: 800,
-                                  bgcolor: T.sentChipBg, color: T.sentChipColor,
-                                  border: `1px solid ${T.sentChipBorder}`, fontFamily: T.poppins,
-                                  "& .MuiChip-label": { px: 0.5 },
-                                }}
-                              />
-                            </Tooltip>
-                          ) : payrollDone ? (
-                            <Tooltip title="Already in Payroll Processing for this period. Remove it there to re-send.">
-                              <Chip
-                                label="In payroll"
-                                size="small"
-                                sx={{
-                                  height: 18, fontSize: "0.58rem", fontWeight: 700,
-                                  bgcolor: T.payrollDoneBg, color: T.payrollDoneColor,
-                                  border: `1px solid ${T.payrollDoneBorder}`, fontFamily: T.poppins,
-                                  "& .MuiChip-label": { px: 0.5 },
-                                }}
-                              />
-                            </Tooltip>
-                          ) : (
-                            <Checkbox
-                              size="small"
-                              checked={selectedPayrollKeys.has(rowKey)}
-                              onChange={() => togglePayrollSelect(rowKey)}
-                              sx={{
-                                p: 0,
-                                color: alpha(T.accent, 0.3),
-                                "&.Mui-checked": { color: T.accent },
-                              }}
-                            />
-                          )}
-                        </TableCell>
-
-                        {/* Audit expand chevron */}
-                        <TableCell sx={{ ...cellSx, textAlign: "center", px: 0.5 }}>
-                          <Tooltip title={
-                            sourceRows.length === 0
-                              ? "No source rows to inspect (manually added)."
-                              : auditOpen ? "Collapse source rows" : "Expand source rows"
-                          }>
-                            <span>
-                              <IconButton
-                                size="small"
-                                onClick={() => toggleAuditExpand(rowKey)}
-                                disabled={sourceRows.length === 0}
-                                sx={{
-                                  p: 0.25,
-                                  color: T.faint,
-                                  transform: auditOpen ? "rotate(180deg)" : "none",
-                                  transition: "transform 0.18s ease",
-                                  "&:hover": { color: T.accent, bgcolor: "transparent" },
-                                  "&.Mui-disabled": { color: "rgba(0,0,0,0.15)" },
-                                }}
-                              >
-                                <ExpandMoreIcon sx={{ fontSize: 16 }} />
-                              </IconButton>
-                            </span>
-                          </Tooltip>
-                        </TableCell>
-
-                        <TableCell sx={{ ...cellSx, fontWeight: 600, color: T.text }}>
-                          {merged.employeeNumber ?? "—"}
-                        </TableCell>
-
-                        <TableCell sx={{ ...cellSx, color: T.text }}>
-                          <Tooltip title={merged.name ?? "—"} placement="top-start">
-                            <span>{merged.name ?? "—"}</span>
-                          </Tooltip>
-                        </TableCell>
-
-                        {/* Type with dot indicator */}
-                        <TableCell sx={cellSx}>
-                          <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.6 }}>
-                            <Box sx={{
-                              width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
-                              bgcolor: isManual ? "#1565c0" : (isDed ? T.accent : "#2e7d32"),
-                            }} />
-                            <span style={{ color: T.muted }}>{merged.abstractSourceTypes ?? "—"}</span>
-                          </Box>
-                        </TableCell>
-
-                        <TableCell sx={{ ...cellSx, color: T.muted }}>{merged.leaveCode ?? "—"}</TableCell>
-                        <TableCell sx={{ ...cellSx, color: T.muted }}>{merged.period ?? "—"}</TableCell>
-
-                        {/* Status chip */}
-                        <TableCell sx={cellSx}>
-                          <Box
-                            sx={{
-                              display: "inline-block",
-                              px: 0.9, py: 0.2,
-                              borderRadius: "5px",
-                              border: `1px solid ${chipBd}`,
-                              bgcolor: chipBg,
-                            }}
-                          >
-                            <Typography sx={{
-                              fontSize: "0.65rem", fontWeight: 700, color: chipFg,
-                              fontFamily: T.poppins, lineHeight: 1, letterSpacing: "0.03em",
-                            }}>
-                              {String(merged.resultStatus ?? "—").replace(/_/g, " ")}
-                            </Typography>
-                          </Box>
-                        </TableCell>
-
-                        {/* Days — prominent */}
-                        <TableCell sx={{
-                          ...cellSx,
-                          fontWeight: 800,
-                          fontSize: "0.85rem",
-                          color: isManual ? "#0d47a1" : (isDed ? T.accent : "#1e6b22"),
-                        }}>
-                          {displayDaysFromMerged(merged)}
-                        </TableCell>
-
-                        <TableCell sx={{ ...cellSx, color: T.muted }}>{toNum(merged.originalHours).toFixed(3)}</TableCell>
-                        <TableCell sx={{ ...cellSx, color: T.muted }}>{toNum(merged.leaveHoursUsed).toFixed(3)}</TableCell>
-                        {/* ── Unpaid hrs — THE payroll submission field ── */}
-                        <TableCell sx={{
-                          ...cellSx,
-                          bgcolor: toNum(merged.unpaidHours) > 0
-                            ? "rgba(109,35,35,0.10)"
-                            : "rgba(0,0,0,0.025)",
-                          px: 1,
-                          textAlign: "center",
-                        }}>
-                          <Box sx={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            px: 1.2,
-                            py: 0.35,
-                            borderRadius: "6px",
-                            bgcolor: toNum(merged.unpaidHours) > 0 ? T.accent : "transparent",
-                            minWidth: 52,
-                          }}>
-                            <Typography sx={{
-                              fontSize: "0.82rem",
-                              fontWeight: 800,
-                              fontFamily: T.poppins,
-                              color: toNum(merged.unpaidHours) > 0 ? "#fff" : T.faint,
-                              lineHeight: 1,
-                              letterSpacing: "0.02em",
-                            }}>
-                              {toNum(merged.unpaidHours).toFixed(3)}
-                            </Typography>
-                          </Box>
-                        </TableCell>
-                        <TableCell sx={{ ...cellSx, color: T.muted }}>{toNum(merged.paidHoursTotal).toFixed(3)}</TableCell>
-
-                        <TableCell sx={{ ...cellSx, color: T.muted, maxWidth: 0 }}>
-                          <Tooltip title={remarksTip} placement="top-start">
-                            <span>{merged.abstractRemarksShort ?? "—"}</span>
-                          </Tooltip>
-                        </TableCell>
-
-                        <TableCell sx={{ ...cellSx, color: T.faint }}>{fmtCreatedAt(merged.createdAt)}</TableCell>
-                      </TableRow>
-
-                      {/* ── Audit drawer ── */}
-                      {auditOpen && sourceRows.length > 0 && (
-                        <TableRow>
-                          <TableCell
-                            colSpan={TABLE_COL_SPAN}
-                            sx={{
-                              // Zero padding so the inner box controls all spacing
-                              p: "0 !important",
-                              borderBottom: `1px solid ${T.divider}`,
-                              bgcolor: "#f8f8f8",
-                              // No overflow:hidden here — let the inner box breathe
-                            }}
-                          >
-                            <Box
-                              sx={{
-                                // Left margin aligns content past checkbox (44) + audit (44) cols = 88px
-                                ml: "88px",
-                                mr: 2,
-                                my: 1.5,
-                                borderRadius: "8px",
-                                border: `0.5px solid ${T.divider}`,
-                                overflow: "hidden",
-                                bgcolor: "#fff",
-                              }}
-                            >
-                              {/* Drawer label */}
-                              <Box
-                                sx={{
-                                  px: 2, py: 0.85,
-                                  borderBottom: `0.5px solid ${T.divider}`,
-                                  bgcolor: "#f4f4f4",
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: 1,
-                                }}
-                              >
-                                <Typography sx={{
-                                  fontSize: "0.65rem", fontWeight: 700, color: T.muted,
-                                  fontFamily: T.poppins, textTransform: "uppercase", letterSpacing: "0.07em",
-                                }}>
-                                  Source rows
-                                </Typography>
-                                <Box sx={{
-                                  px: 0.75, py: 0.15, borderRadius: "4px",
-                                  bgcolor: T.accentFaint, border: `0.5px solid ${T.accentBorder}`,
-                                }}>
-                                  <Typography sx={{
-                                    fontSize: "0.6rem", fontWeight: 700, color: T.accent,
-                                    fontFamily: T.poppins, lineHeight: 1.4,
-                                  }}>
-                                    {sourceRows.length} attendance_result {sourceRows.length === 1 ? "row" : "rows"}
-                                  </Typography>
-                                </Box>
-                              </Box>
-
-                              {/*
-                                CRITICAL FIX:
-                                - No stickyHeader on the nested Table
-                                - auditThSx uses position: "static" (not sticky)
-                                - tableLayout: "auto" so columns size to content
-                                - No minWidth that would push past the container
-                              */}
-                              <Table
-                                size="small"
-                                sx={{
-                                  tableLayout: "auto",
-                                  width: "100%",
-                                  borderCollapse: "collapse",
-                                }}
-                              >
-                                <TableHead>
-                                  <TableRow>
-                                    {[
-                                      "ID", "Date", "Type", "Leave",
-                                      "Status", "Days", "Unpaid hrs",
-                                      "Paid hrs", "Remarks", "Processed at",
-                                    ].map((h) => (
-                                      <TableCell key={h} sx={auditThSx}>{h}</TableCell>
-                                    ))}
-                                  </TableRow>
-                                </TableHead>
-                                <TableBody>
-                                  {sourceRows.map((ar, arIdx) => {
-                                    const arDed = toNum(ar.unpaid_hours) > 0;
-                                    const rmk = ar.remarks != null && String(ar.remarks).trim() !== ""
-                                      ? String(ar.remarks) : "—";
-                                    const dt = ar.result_date ? String(ar.result_date).slice(0, 10) : "—";
-
-                                    const arCell = {
-                                      fontSize: "0.75rem",
-                                      fontFamily: T.poppins,
-                                      color: T.muted,
-                                      py: 1,
-                                      px: 1.5,
-                                      bgcolor: "#fff",
-                                      borderBottom: `0.5px solid ${T.divider}`,
-                                    };
-
-                                    return (
-                                      <TableRow
-                                        key={`${rowKey}-ar-${ar.id ?? arIdx}-${arIdx}`}
-                                        sx={{
-                                          "&:last-child td": { borderBottom: "none" },
-                                          "&:hover td": {
-                                            bgcolor: "rgba(0,0,0,0.018)",
-                                            transition: "background 0.1s",
-                                          },
-                                        }}
-                                      >
-                                        <TableCell sx={{ ...arCell, color: T.text, fontWeight: 600 }}>
-                                          {ar.id ?? "—"}
-                                        </TableCell>
-                                        <TableCell sx={arCell}>{dt}</TableCell>
-                                        <TableCell sx={arCell}>{ar.source_type ?? "—"}</TableCell>
-                                        <TableCell sx={arCell}>{ar.leave_used ?? "—"}</TableCell>
-                                        <TableCell sx={{
-                                          ...arCell,
-                                          color: arDed ? T.accent : "#1e6b22",
-                                          fontWeight: 600,
-                                        }}>
-                                          {String(ar.status ?? "—").replace(/_/g, " ")}
-                                        </TableCell>
-                                        <TableCell sx={{
-                                          ...arCell,
-                                          fontWeight: 700,
-                                          color: arDed ? T.accent : "#1e6b22",
-                                        }}>
-                                          {displayDaysRawAttendanceRow(ar)}
-                                        </TableCell>
-                                        {/* Unpaid hrs — highlighted to match summary column */}
-                                        <TableCell sx={{
-                                          ...arCell,
-                                          bgcolor: toNum(ar.unpaid_hours) > 0
-                                            ? "rgba(109,35,35,0.07)"
-                                            : "rgba(0,0,0,0.015)",
-                                          px: 1,
-                                          textAlign: "center",
-                                        }}>
-                                          <Box sx={{
-                                            display: "inline-flex",
-                                            alignItems: "center",
-                                            justifyContent: "center",
-                                            px: 1,
-                                            py: 0.25,
-                                            borderRadius: "5px",
-                                            bgcolor: toNum(ar.unpaid_hours) > 0 ? T.accent : "transparent",
-                                            minWidth: 44,
-                                          }}>
-                                            <Typography sx={{
-                                              fontSize: "0.75rem",
-                                              fontWeight: 700,
-                                              fontFamily: T.poppins,
-                                              color: toNum(ar.unpaid_hours) > 0 ? "#fff" : T.faint,
-                                              lineHeight: 1,
-                                            }}>
-                                              {toNum(ar.unpaid_hours).toFixed(3)}
-                                            </Typography>
-                                          </Box>
-                                        </TableCell>
-                                        <TableCell sx={arCell}>
-                                          {toNum(ar.paid_hours).toFixed(3)}
-                                        </TableCell>
-                                        <TableCell sx={{
-                                          ...arCell,
-                                          // Allow wrapping in the remarks column
-                                          whiteSpace: "normal",
-                                          wordBreak: "break-word",
-                                          maxWidth: 280,
-                                        }}>
-                                          <Tooltip title={rmk} placement="top-start">
-                                            <span>{rmk.length > 120 ? `${rmk.slice(0, 117)}…` : rmk}</span>
-                                          </Tooltip>
-                                        </TableCell>
-                                        <TableCell sx={{ ...arCell, color: T.faint, whiteSpace: "nowrap" }}>
-                                          {fmtCreatedAt(ar.processed_at)}
-                                        </TableCell>
-                                      </TableRow>
-                                    );
-                                  })}
-                                </TableBody>
-                              </Table>
-                            </Box>
-                          </TableCell>
-                        </TableRow>
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography sx={{ fontSize: "0.9rem", fontWeight: 700, color: T.text, fontFamily: T.poppins }} noWrap>
+                      {merged.name ?? "—"}
+                    </Typography>
+                    <Typography sx={{ fontSize: "0.72rem", color: T.faint, fontFamily: T.poppins }}>
+                      #{merged.employeeNumber ?? "—"}{merged.period ? ` · ${merged.period}` : ""}{merged.createdAt ? ` · ${fmtCreatedAt(merged.createdAt)}` : ""}
+                    </Typography>
+                    <Box sx={{ display: "flex", alignItems: "center", flexWrap: "wrap", columnGap: 0.75, rowGap: 0.25, mt: 0.75 }}>
+                      <Typography component="span" sx={{ fontSize: "0.78rem", fontWeight: 700, color: T.text, fontFamily: T.poppins }}>
+                        {merged.leaveCode ?? "—"}
+                      </Typography>
+                      <Typography component="span" sx={{ fontSize: "0.78rem", color: T.faint }}>·</Typography>
+                      <Typography component="span" sx={{ fontSize: "0.78rem", fontWeight: 600, color: status.color, fontFamily: T.poppins }}>
+                        {status.label}
+                      </Typography>
+                      {!merged.allVoided && (
+                        <>
+                          <Typography component="span" sx={{ fontSize: "0.78rem", color: T.faint }}>·</Typography>
+                          <Typography component="span" sx={{ fontSize: "0.78rem", fontWeight: 600, fontFamily: T.poppins, color: unpaidH > 0 ? "#b3261e" : "#1e6b22" }}>
+                            {unpaidH > 0 ? `${unpaidH.toFixed(3)} hrs unpaid` : "no salary deduction"}
+                          </Typography>
+                        </>
                       )}
-                    </Fragment>
-                  );
-                })
-              )}
-            </TableBody>
-          </Table>
-        </TableContainer>
+                      {!merged.allVoided && merged.voidedCount > 0 && (
+                        <Tooltip title={`${merged.voidedCount} entr${merged.voidedCount === 1 ? "y was" : "ies were"} voided and ${merged.voidedCount === 1 ? "is" : "are"} not counted.`}>
+                          <Box component="span" sx={{ px: 0.75, borderRadius: "5px", bgcolor: "rgba(0,0,0,0.06)", fontSize: "0.62rem", fontWeight: 700, color: T.muted, fontFamily: T.poppins }}>
+                            {merged.voidedCount} voided
+                          </Box>
+                        </Tooltip>
+                      )}
+                    </Box>
+                  </Box>
+
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexShrink: 0 }}>
+                    <Tooltip title={voidReason || "Roll back this employee's deductions and earnings for the leave (same as Leave Assignment → Void)."}>
+                      <span onClick={(e) => e.stopPropagation()}>
+                        <Button
+                          size="small"
+                          disabled={Boolean(voidReason)}
+                          onClick={() =>
+                            setVoidTarget({
+                              employeeNumber: merged.employeeNumber,
+                              name: merged.name,
+                              year: merged.periodYear,
+                              leaveCodes: voidCodes,
+                              hasScCto: sourceRows.some((r) => !isAttendanceRowVoided(r) && ["SC", "CTO"].includes(String(r.leave_used || "").toUpperCase())),
+                            })
+                          }
+                          startIcon={<BlockIcon sx={{ fontSize: "13px !important" }} />}
+                          sx={{ minWidth: 0, px: 1, py: 0.2, fontSize: "0.66rem", fontWeight: 700, textTransform: "none", fontFamily: T.poppins, color: "#c62828", "&:hover": { bgcolor: "rgba(198,40,40,0.06)" } }}
+                        >
+                          Void
+                        </Button>
+                      </span>
+                    </Tooltip>
+                    <Box sx={{ textAlign: "right", minWidth: 64 }}>
+                      <Typography sx={{ fontSize: "1.05rem", fontWeight: 800, color: bigColor, fontFamily: T.poppins, fontVariantNumeric: "tabular-nums", lineHeight: 1.2 }}>
+                        {displayDaysFromMerged(merged)}
+                      </Typography>
+                      <Typography sx={{ fontSize: "0.6rem", color: T.faint, fontFamily: T.poppins }}>
+                        {isDed ? "unpaid" : "covered"}
+                      </Typography>
+                    </Box>
+                    <ExpandMoreIcon sx={{ fontSize: 18, color: T.faint, transform: open ? "rotate(180deg)" : "none", transition: "transform 0.18s ease" }} />
+                  </Box>
+                </Box>
+
+                {/* Details */}
+                {open && (
+                  <Box sx={{ borderTop: `1px dashed ${T.divider}`, px: { xs: 2, md: 4.5 }, pt: 1.25, pb: 1.75 }}>
+                    <Table size="small" sx={{ tableLayout: "fixed", mb: sourceRows.length ? 1.5 : 0 }}>
+                      <TableHead>
+                        <TableRow>
+                          <TableCell sx={{ ...headCell, width: "50%" }}>Metric</TableCell>
+                          <TableCell sx={{ ...headCell, textAlign: "right" }}>Hours</TableCell>
+                          <TableCell sx={{ ...headCell, textAlign: "right" }}>Days</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {metricRows.map((m) => (
+                          <TableRow key={m.label}>
+                            <TableCell sx={lblCell}>{m.label}</TableCell>
+                            <TableCell sx={{ ...numCell, fontWeight: m.strong ? 700 : 400, color: m.strong ? "#b3261e" : T.text }}>{m.h.toFixed(3)}</TableCell>
+                            <TableCell sx={{ ...numCell, fontWeight: m.strong ? 700 : 400, color: m.strong ? "#b3261e" : T.text }}>{(m.h / WH).toFixed(3)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+
+                    {sourceRows.length > 0 ? (
+                      <>
+                        <Typography sx={{ fontSize: "0.66rem", fontWeight: 700, color: T.muted, letterSpacing: "0.06em", textTransform: "uppercase", fontFamily: T.poppins, mb: 0.5 }}>
+                          Source events
+                        </Typography>
+                        <Table size="small" sx={{ tableLayout: "fixed" }}>
+                          <TableHead>
+                            <TableRow>
+                              <TableCell sx={{ ...headCell, width: "25%" }}>Type</TableCell>
+                              <TableCell sx={{ ...headCell, width: "16%" }}>Leave</TableCell>
+                              <TableCell sx={{ ...headCell, width: "22%" }}>Date</TableCell>
+                              <TableCell sx={{ ...headCell, textAlign: "right" }}>Days</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {sourceRows.map((ar, i) => {
+                              const voided = isAttendanceRowVoided(ar);
+                              const rmk = ar.remarks != null && String(ar.remarks).trim() !== "" ? String(ar.remarks) : "";
+                              return (
+                                <TableRow key={`${rowKey}-ev-${ar.id ?? i}-${i}`} sx={{ "&:last-child td": { borderBottom: "none" } }}>
+                                  <TableCell sx={{ ...lblCell, color: voided ? T.faint : T.text }}>{prettySourceType(ar.source_type)}</TableCell>
+                                  <TableCell sx={{ ...lblCell, color: voided ? T.faint : T.text }}>{ar.leave_used ?? "—"}</TableCell>
+                                  <TableCell sx={{ ...lblCell, color: voided ? T.faint : T.text }}>{ar.result_date ? String(ar.result_date).slice(0, 10) : "—"}</TableCell>
+                                  <TableCell sx={{ ...numCell, verticalAlign: "top" }}>
+                                    <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 0.75 }}>
+                                      {voided && (
+                                        <Tooltip title={ar.source_state === "missing" ? "Voided — the deduction this entry came from no longer exists." : "Voided — the deduction or earning this entry came from was voided."}>
+                                          <Box component="span" sx={{ px: 0.75, borderRadius: "5px", bgcolor: "rgba(0,0,0,0.06)", fontSize: "0.6rem", fontWeight: 700, color: T.muted }}>Voided</Box>
+                                        </Tooltip>
+                                      )}
+                                      <Box component="span" sx={{ textDecoration: voided ? "line-through" : "none", color: voided ? T.faint : T.text }}>
+                                        {displayDaysRawAttendanceRow(ar).replace(/d$/, "")}
+                                      </Box>
+                                    </Box>
+                                    {rmk && (
+                                      <Tooltip title={rmk} placement="top-end">
+                                        <Typography sx={{ fontSize: "0.66rem", color: T.faint, fontFamily: T.poppins, mt: 0.25, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                          {rmk}
+                                        </Typography>
+                                      </Tooltip>
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      </>
+                    ) : (
+                      <Typography sx={{ fontSize: "0.74rem", color: T.faint, fontFamily: T.poppins }}>
+                        Manually staged — no attendance source events.
+                      </Typography>
+                    )}
+                  </Box>
+                )}
+              </Box>
+            );
+          })}
+        </Box>
+        {displayRows.length > 0 && (
+          <TablePagination
+            component="div"
+            count={displayRows.length}
+            page={page}
+            onPageChange={(_, p) => setPage(p)}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={(e) => {
+              setRowsPerPage(parseInt(e.target.value, 10));
+              setPage(0);
+            }}
+            rowsPerPageOptions={[10, 25, 50, 100]}
+            labelRowsPerPage="Rows per page:"
+            labelDisplayedRows={({ from, to, count }) => `${from}–${to} of ${count} employee rows`}
+            sx={{
+              flexShrink: 0,
+              "& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows, & .MuiInputBase-root": { fontFamily: T.poppins, fontSize: "0.74rem" },
+            }}
+          />
+        )}
       </Box>
 
       {/* ── Export filters + prepared by ── */}
@@ -1811,10 +1624,25 @@ export function Abstract({
           <Autocomplete
             size="small"
             options={exportSelectionOptions}
-            value={exportSelection || null}
-            onChange={(_, next) => setExportSelection(next || "")}
+            value={selectedExportOption}
+            onChange={(_, next) => setExportSelection(next?.value || "")}
+            isOptionEqualToValue={(o, v) => o.value === v.value}
+            getOptionLabel={(o) => o?.label || ""}
+            loading={!exportDirectory.loaded}
             disabled={exportingExcel}
-            noOptionsText={exportBy === "category" ? "No employment categories with records this month" : "No departments with records this month"}
+            renderOption={(props, o) => (
+              <li {...props} key={o.value}>
+                <Box sx={{ display: "flex", alignItems: "center", gap: 1, width: "100%" }}>
+                  <Typography sx={{ fontSize: "0.8rem", fontFamily: T.poppins, color: o.count ? T.text : T.faint, flex: 1, minWidth: 0 }} noWrap>
+                    {o.label}
+                  </Typography>
+                  <Typography sx={{ fontSize: "0.66rem", fontFamily: T.poppins, fontWeight: 700, color: o.count ? T.accent : T.faint, whiteSpace: "nowrap" }}>
+                    {o.count ? `${o.count} with records` : "no records"}
+                  </Typography>
+                </Box>
+              </li>
+            )}
+            noOptionsText={!exportDirectory.loaded ? "Loading…" : exportBy === "category" ? "No employment categories set up" : "No departments in the Department Table"}
             renderInput={(params) => (
               <TextField
                 {...params}
@@ -1862,7 +1690,7 @@ export function Abstract({
               </Typography>
               {exportSelection ? (
                 <Typography sx={{ fontSize: "0.68rem", color: T.muted, fontFamily: T.poppins, mt: 0.35 }}>
-                  Letter header: {String(exportSelection).toUpperCase()}
+                  Letter header: {String(selectedExportOption?.header || "").toUpperCase()}
                   {rowsMatchingSelection.length !== exportPreviewRows.length
                     ? ` · ${rowsMatchingSelection.length} in this ${exportBy === "category" ? "category" : "department"}, ${exportPreviewRows.length} with deductions`
                     : ""}
@@ -1963,6 +1791,13 @@ export function Abstract({
       </Dialog>
 
       {/* ── Snackbar ── */}
+      <AbstractVoidDialog
+        open={Boolean(voidTarget)}
+        target={voidTarget}
+        onClose={() => setVoidTarget(null)}
+        onDone={() => setReloadKey((k) => k + 1)}
+      />
+
       <Snackbar
         open={snackbar.open}
         autoHideDuration={6000}

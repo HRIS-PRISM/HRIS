@@ -1,4 +1,6 @@
 import React, { useState, useMemo, useEffect } from "react";
+import axios from "axios";
+import API_BASE_URL from "../../apiConfig";
 import {
   Modal,
   Box,
@@ -102,10 +104,80 @@ const LeaveDatePicker = ({
   leaveRequests = [],
   maxSelectableDates = null,
   adminOverride = false,
+  // CSC MC 41 s.1998: leave counts working days only. With an employee number the picker
+  // loads holidays and the employee's official-time schedule and disables other days.
+  employeeNumber = null,
+  // HR only: holidays stay selectable (special schedules); the server asks for a reason.
+  allowNonWorkingDays = false,
+  // Called with [{ date, reason }] for selected dates that have no official time schedule
+  // (still selectable — the form shows a warning).
+  onUnscheduledChange = null,
 }) => {
   const T = makeTheme(accentColor, accentDark, primaryColor);
 
   const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [workCal, setWorkCal] = useState(null); // { workingWeekdays: string[] | null, holidays: Map }
+
+  useEffect(() => {
+    if (!open || !employeeNumber) {
+      setWorkCal(null);
+      return undefined;
+    }
+    let alive = true;
+    const y = currentMonth.getFullYear();
+    const m = currentMonth.getMonth();
+    const pad = (n) => String(n).padStart(2, "0");
+    const start = `${y}-${pad(m + 1)}-01`;
+    const end = `${y}-${pad(m + 1)}-${pad(new Date(y, m + 1, 0).getDate())}`;
+    axios
+      .get(`${API_BASE_URL}/leaveRoute/leave_request/calendar/${encodeURIComponent(employeeNumber)}`, {
+        params: { start, end },
+        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+      })
+      .then((r) => {
+        if (!alive) return;
+        const holidays = new Map((r.data?.holidays || []).map((h) => [h.date, h.label]));
+        const wk = Array.isArray(r.data?.workingWeekdays) ? r.data.workingWeekdays.map((d) => String(d).toLowerCase()) : null;
+        setWorkCal({ workingWeekdays: wk, holidays });
+      })
+      .catch(() => alive && setWorkCal(null));
+    return () => {
+      alive = false;
+    };
+  }, [open, employeeNumber, currentMonth]);
+
+  /**
+   * { kind: "holiday" | "no_schedule", reason } when the date is not a working day, else null.
+   * Holidays are blocked (HR may override); unscheduled days stay selectable with a warning.
+   * Falls back to Sat/Sun when no schedule is on file.
+   */
+  const nonWorkingInfo = (dateObj, dateStr) => {
+    const wd = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"][dateObj.getDay()];
+    const Wd = `${wd[0].toUpperCase()}${wd.slice(1)}`;
+    if (workCal?.holidays?.has(dateStr)) return { kind: "holiday", reason: `Holiday — ${workCal.holidays.get(dateStr)}` };
+    if (workCal?.workingWeekdays) {
+      return workCal.workingWeekdays.includes(wd) ? null : { kind: "no_schedule", reason: `No schedule on ${Wd}s` };
+    }
+    return wd === "saturday" || wd === "sunday" ? { kind: "no_schedule", reason: `${Wd} (no schedule on file)` } : null;
+  };
+
+  const unscheduledSelected = useMemo(
+    () =>
+      [...selectedDates]
+        .sort()
+        .map((d) => {
+          const [y, m, dd] = d.split("-").map((x) => parseInt(x, 10));
+          const info = nonWorkingInfo(new Date(y, m - 1, dd), d);
+          return info?.kind === "no_schedule" ? { date: d, reason: info.reason } : null;
+        })
+        .filter(Boolean),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [selectedDates, workCal],
+  );
+  useEffect(() => {
+    if (onUnscheduledChange) onUnscheduledChange(unscheduledSelected);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [unscheduledSelected]);
   const [overBalanceWarning, setOverBalanceWarning] = useState("");
 
   // ── HR-approved dates (locked / uneditable) ────────────────────────────────
@@ -174,6 +246,7 @@ const LeaveDatePicker = ({
       const isToday = dateObj.getTime() === today.getTime();
       const isPast = !adminOverride && !allowPastDates && dateObj < today;
       const isHRApproved = hrApprovedDates.has(dateStr);
+      const nonWorking = nonWorkingInfo(dateObj, dateStr);
 
       return {
         type: "day",
@@ -184,11 +257,14 @@ const LeaveDatePicker = ({
         isToday,
         isPast,
         isHRApproved,
+        nonWorking,
+        isBlocked: isPast || isHRApproved || (nonWorking?.kind === "holiday" && !allowNonWorkingDays),
       };
     });
 
     return [...blanks, ...days];
-  }, [currentMonth, selectedDates, allowPastDates, adminOverride, hrApprovedDates]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentMonth, selectedDates, allowPastDates, adminOverride, hrApprovedDates, workCal, allowNonWorkingDays]);
 
   const goToPreviousMonth = () =>
     setCurrentMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
@@ -451,14 +527,18 @@ const LeaveDatePicker = ({
                   <DayButton
                     key={item.key}
                     selected={item.isSelected}
-                    disabled={item.isPast || item.isHRApproved}
+                    disabled={item.isBlocked}
                     istoday={item.isToday ? "true" : "false"}
                     accentcolor={T.accent}
-                    onClick={() => !(item.isPast || item.isHRApproved) && toggleDate(item.dateStr)}
+                    onClick={() => !item.isBlocked && toggleDate(item.dateStr)}
                     sx={
                       item.isHRApproved
                         ? { border: "1.5px solid #C62828", background: "rgba(198,40,40,0.06)" }
-                        : {}
+                        : item.nonWorking?.kind === "holiday" && !item.isSelected
+                          ? { border: "1.5px dashed rgba(0,0,0,0.18)", textDecoration: allowNonWorkingDays ? "none" : "line-through" }
+                          : item.nonWorking?.kind === "no_schedule" && !item.isSelected
+                            ? { border: "1.5px dashed #f0a020", color: "#9a6700" }
+                            : {}
                     }
                   >
                     {item.dayNum}
@@ -489,10 +569,34 @@ const LeaveDatePicker = ({
                     </Tooltip>
                   );
                 }
+                if (item.nonWorking) {
+                  return (
+                    <Tooltip
+                      key={item.key}
+                      title={
+                        item.nonWorking.kind === "holiday"
+                          ? `${item.nonWorking.reason}. ${allowNonWorkingDays ? "HR can still file it with a reason." : "Leave is not counted on holidays (CSC)."}`
+                          : `${item.nonWorking.reason} — you can still select it, but there is no official time on this day.`
+                      }
+                      arrow
+                    >
+                      <span>{dayButton}</span>
+                    </Tooltip>
+                  );
+                }
                 return dayButton;
               })}
             </Box>
           </Box>
+
+          {unscheduledSelected.length > 0 && (
+            <Box sx={{ mx: 3, mb: 1.5, px: 1.5, py: 1, borderRadius: 2, bgcolor: "#fff8e6", border: "1px solid #ffd98a", display: "flex", gap: 1, alignItems: "flex-start" }}>
+              <Info sx={{ color: "#b7791f", fontSize: 16, mt: 0.1 }} />
+              <Typography sx={{ fontSize: "0.74rem", color: "#8a5a00", lineHeight: 1.45 }}>
+                No official time schedule on {unscheduledSelected.map((u) => formatSelectedDate(u.date)).join(", ")}. You can still file it; HR will check these dates.
+              </Typography>
+            </Box>
+          )}
 
           {/* ── Selected-date summary chips (matches the "selected dates" tray on the form) ── */}
           {sortedSelectedDates.length > 0 && (

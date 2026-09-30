@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const db = require("../db");
 const { authenticateToken } = require("../middleware/auth");
+const { annotateSafely } = require("../services/attendanceSourceState");
 
 /**
  * GET /api/attendance-result?year=2026&month=5&employeeNumber=...
@@ -56,7 +57,8 @@ router.get("/", authenticateToken, (req, res) => {
       }
       return res.status(500).json({ error: err.message });
     }
-    res.json({ rows: rows || [], period: { year: y, month: m, start, end } });
+    // source_state lets the Abstract show entries whose deduction was voided (and skip them in totals).
+    annotateSafely(rows || []).then((tagged) => res.json({ rows: tagged, period: { year: y, month: m, start, end } }));
   });
 });
 

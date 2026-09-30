@@ -350,6 +350,8 @@ const getApprovedEarningsHoursForPeriod = (earningsList, period, { appliedOnly =
       if (e.voided_at || Number(e.voided) === 1) return false;
       if (e.earn_status !== "approved") return false;
       if (appliedOnly && Number(e.is_applied) !== 1) return false;
+      // Negative rows are deductions already reflected in used_hours via the ledger.
+      if (toNum(e.earned_hours) <= 0) return false;
       return earningMatchesPeriod(e, period);
     })
     .reduce((s, e) => s + toNum(e.earned_hours), 0);
@@ -385,6 +387,7 @@ const getApprovedEarningsSumForAssignment = async (db, assignment) => {
      WHERE employee_number = ? AND TRIM(leave_code) = TRIM(?)
        AND earn_status = 'approved'
        AND voided_at IS NULL AND COALESCE(voided, 0) = 0
+       AND earned_hours > 0
        AND period_year = ?
        AND (period_month = ? OR period_month = ? OR (? IS NULL AND period_month IS NULL))`,
     [
@@ -414,6 +417,7 @@ const getAppliedEarningsForAssignment = async (db, assignment) => {
      WHERE employee_number = ? AND TRIM(leave_code) = TRIM(?)
        AND earn_status = 'approved' AND COALESCE(is_applied, 0) = 1
        AND voided_at IS NULL AND COALESCE(voided, 0) = 0
+       AND earned_hours > 0
        AND period_year = ?
        AND (period_month = ? OR period_month = ? OR (? IS NULL AND period_month IS NULL))`,
     [
@@ -433,7 +437,9 @@ const recomputeAssignmentLedgerFields = async (db, assignment, usedHours = null)
   const used = usedHours != null ? Math.max(0, toNum(usedHours)) : toNum(assignment.used_hours);
   const carry = toNum(assignment.carried_forward_hours);
   const total = Math.max(0, alloc - used);
-  const remaining = total;
+  // remaining must keep applied earnings; dropping them made approved earnings vanish
+  // from the balance whenever an assignment was recomputed.
+  const remaining = total + (await getAppliedEarningsForAssignment(db, assignment));
   const earningStatus = (await hasApprovedEarningsForPeriod(db, assignment)) ? 1 : 0;
   return {
     allocated_hours: alloc,

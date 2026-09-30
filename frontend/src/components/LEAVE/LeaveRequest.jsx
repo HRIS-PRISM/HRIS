@@ -84,9 +84,6 @@ import {
   NavigateBefore,
   NavigateNext,
   ArrowForward as ArrowForwardIcon,
-  AccountBalanceWallet as WalletIcon,
-  Calculate as CalculateIcon,
-  TrendingDown as TrendingDownIcon,
   Male as MaleIcon,
   Female as FemaleIcon,
 } from '@mui/icons-material';
@@ -95,6 +92,7 @@ import { DeptBadge, EmpCatBadge } from './EARNINGS/RecordsList';
 import SuccessfulOverlay from '../SuccessfulOverlay';
 import LoadingOverlay from '../LoadingOverlay';
 import LeaveDatePickerModal from './LeaveDatePicker';
+import { filingNotices } from './leaveFilingRules';
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
 import { EmploymentCategoryHrPanel } from '../EmploymentCategoryHrPanel';
@@ -679,10 +677,66 @@ const HrDeductionAppliedCard = ({ request, leaveTypes, chargeTypeDesc }) => {
   );
 };
 
-// ─── HR Deduction Panel ────────────────────────────────────────────────────────
-const HrDeductionPanel = ({ modal, setModal, disabled, balances }) => {
-  const activeHourRows = modal.whDayType === '6hr' ? modal.hours6 : modal.hours8;
+// ─── Leave Request Details: shared look (matches the Review modal) ─────────────
+const LR = {
+  sub: '#F6F7F9',
+  line: 'rgba(0,0,0,0.09)',
+  warnBg: '#FFF1D6',
+  warnInk: '#8a5a00',
+  bad: '#B3261E',
+  infoBg: '#EDF2FB',
+  infoInk: '#24507F',
+};
+const balanceTone = (code) => {
+  const c = String(code || '').toUpperCase();
+  if (c === 'VL') return '#1F5FA8';
+  if (c === 'SL') return '#1F7A6A';
+  if (c === 'SC') return '#1565C0';
+  if (c === 'CTO') return '#1B5E20';
+  return T.accent;
+};
+const SectionTitle = ({ children, right = null }) => (
+  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.1 }}>
+    <Typography sx={{ fontSize: '0.9rem', fontWeight: 700, color: T.text }}>{children}</Typography>
+    {right}
+  </Box>
+);
+const InfoCell = ({ label, children, wide = false }) => (
+  <Box sx={{ gridColumn: wide ? '1 / -1' : 'auto', bgcolor: LR.sub, borderRadius: 2, px: 1.6, py: 1.2, minWidth: 0 }}>
+    <Typography sx={{ fontSize: '0.72rem', color: T.muted, mb: 0.3 }}>{label}</Typography>
+    <Typography component="div" sx={{ fontSize: '0.86rem', fontWeight: 600, color: T.text }}>{children}</Typography>
+  </Box>
+);
+const CodeTag = ({ code, color = T.accent }) => (
+  <Typography component="span" sx={{ display: 'inline-block', fontSize: '0.68rem', fontWeight: 800, color, bgcolor: alpha(color, 0.1), borderRadius: 1, px: 0.75, py: 0.1, mr: 0.75, verticalAlign: 'middle', lineHeight: 1.5 }}>
+    {code}
+  </Typography>
+);
+/** Big balance card (used for the balances this request can be charged to). */
+const BalanceHero = ({ balance, missing = false }) => {
+  const color = balanceTone(balance.code);
+  const days = Number(balance.totalDays);
+  return (
+    <Box sx={{ border: `1px solid ${LR.line}`, borderTop: `3px solid ${missing ? '#c9c9c9' : color}`, borderRadius: 2.5, px: 1.6, pt: 1.2, pb: 1.3, minWidth: 0 }}>
+      <Typography sx={{ fontSize: '0.74rem', color: T.muted, fontWeight: 500 }} noWrap>
+        {balance.description} ({balance.code})
+      </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.6 }}>
+        <Typography sx={{ fontSize: '1.55rem', fontWeight: 700, color: missing ? T.faint : color, letterSpacing: '-0.01em', fontVariantNumeric: 'tabular-nums' }}>
+          {(Number.isFinite(days) ? days : 0).toFixed(3)}
+        </Typography>
+        <Typography sx={{ fontSize: '0.74rem', color: T.muted }}>days</Typography>
+      </Box>
+      {missing && <Typography sx={{ fontSize: '0.68rem', color: T.faint }}>No balance assigned</Typography>}
+    </Box>
+  );
+};
 
+// ─── HR Deduction Panel ────────────────────────────────────────────────────────
+// Automatic by default: charge-to, hours per day and the total come from the server
+// suggestion (employee's official time + CSC charge rules). "Override" unlocks the fields.
+const HrDeductionPanel = ({ modal, setModal, disabled, balances, allowedChargeCodes = null }) => {
+  const isBulk = modal.mode === 'bulk';
   const hoursPerDay = parseFloat(modal.hoursInput) || 0;
   const duration = Array.isArray(modal.pendingRequest?.leave_date)
     ? modal.pendingRequest.leave_date.length
@@ -691,171 +745,242 @@ const HrDeductionPanel = ({ modal, setModal, disabled, balances }) => {
   const totalDays  = parseFloat((totalHours / 8).toFixed(3));
 
   const selectedBalance = balances.find((b) => b.code === modal.chargeTo) || balances[0];
+  const chargeCode      = selectedBalance?.code || allowedChargeCodes?.[0] || modal.pendingRequest?.leave_code || '—';
   const currentDays     = selectedBalance ? parseFloat((selectedBalance.totalHours / 8).toFixed(3)) : 0;
   const afterDays       = parseFloat((currentDays - totalDays).toFixed(3));
-  const isInsufficient  = totalHours > (selectedBalance?.totalHours || 0);
+  const isInsufficient  = totalHours > (selectedBalance?.totalHours || 0) + 1e-9;
 
   const suggestedRate  = parseFloat(modal.suggestion?.recommended_rate_decimal);
   const suggestedHours = parseFloat(modal.suggestion?.recommended_hours);
   const rateChanged    = Number.isFinite(suggestedRate)  && Number.isFinite(parseFloat(modal.rateDecimal))  && Math.abs(suggestedRate  - parseFloat(modal.rateDecimal))  > 0.0001;
   const hoursChanged   = Number.isFinite(suggestedHours) && Number.isFinite(parseFloat(modal.hoursInput)) && Math.abs(suggestedHours - parseFloat(modal.hoursInput)) > 0.0001;
   const isOverride = rateChanged || hoursChanged;
+  const overrideOpen = Boolean(modal.overrideOpen) || isOverride;
+
+  const suggestedCharge = String(modal.suggestion?.recommended_charge_to || '').toUpperCase();
+  const chargeIsAuto = !selectedBalance || String(selectedBalance.code).toUpperCase() === suggestedCharge || balances.length <= 1;
+  const scheduleHours = Number(modal.hoursPerDay) || Number(modal.suggestion?.hours_per_day) || 8;
+
+  const resetToSuggestion = () =>
+    setModal((p) => ({
+      ...p,
+      overrideOpen: false,
+      overrideReason: '',
+      rateDecimal: Number.isFinite(suggestedRate) && suggestedRate > 0 ? String(suggestedRate) : p.rateDecimal,
+      hoursInput: Number.isFinite(suggestedHours) && suggestedHours > 0 ? String(suggestedHours) : p.hoursInput,
+      chargeTo: p.suggestion?.recommended_charge_to && balances.some((b) => b.code === p.suggestion.recommended_charge_to)
+        ? p.suggestion.recommended_charge_to
+        : p.chargeTo,
+    }));
+
+  const fieldSx = { '& .MuiOutlinedInput-root': { borderRadius: 2, fontSize: '0.875rem', bgcolor: '#fff', '& fieldset': { borderColor: LR.line }, '&:hover fieldset': { borderColor: T.accent }, '&.Mui-focused fieldset': { borderColor: T.accent, borderWidth: 1.5 } } };
+  const autoChip = (
+    <Typography component="span" sx={{ fontSize: '0.64rem', fontWeight: 700, color: '#1F7A6A', bgcolor: alpha('#1F7A6A', 0.1), borderRadius: 5, px: 0.9, py: 0.15 }}>Auto</Typography>
+  );
+  const overrideChip = (
+    <Typography component="span" sx={{ fontSize: '0.64rem', fontWeight: 700, color: LR.warnInk, bgcolor: LR.warnBg, borderRadius: 5, px: 0.9, py: 0.15 }}>Override</Typography>
+  );
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
       {/* Charge to */}
-      <Box sx={{ mb: 1.5 }}>
-        <Typography sx={{ fontSize: '0.72rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>Charge to</Typography>
-        <FormControl fullWidth size="small">
-          <Select
-            value={modal.chargeTo || (balances[0]?.code ?? '')}
-            disabled={disabled}
-            onChange={(e) => setModal((p) => ({ ...p, chargeTo: e.target.value }))}
-            sx={selectSx}
-            renderValue={(v) => {
-              const b = balances.find((x) => x.code === v);
-              if (!b) return <Typography sx={{ fontSize: '0.875rem', color: T.faint }}>Select balance…</Typography>;
-              return (
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Box sx={{ px: 0.85, py: 0.2, borderRadius: 1, bgcolor: T.accentFaint, border: `0.5px solid ${T.accentBorder}` }}>
-                    <Typography sx={{ fontSize: '0.68rem', fontWeight: 800, color: T.accent }}>{b.code}</Typography>
-                  </Box>
-                  <Typography sx={{ fontSize: '0.875rem', color: T.text }}>{b.description}</Typography>
-                  <Typography sx={{ fontSize: '0.78rem', color: T.muted, ml: 'auto' }}>{parseFloat((b.totalHours / 8).toFixed(3))}d</Typography>
-                </Box>
-              );
-            }}
-          >
-            {balances.map((b) => (
-              <MenuItem key={b.code} value={b.code} sx={{ py: 1.1 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
-                  <Box sx={{ px: 0.85, py: 0.2, borderRadius: 1, bgcolor: T.accentFaint, border: `0.5px solid ${T.accentBorder}` }}>
-                    <Typography sx={{ fontSize: '0.68rem', fontWeight: 800, color: T.accent }}>{b.code}</Typography>
-                  </Box>
-                  <Typography sx={{ fontSize: '0.875rem' }}>{b.description}</Typography>
-                  <Typography sx={{ fontSize: '0.78rem', color: T.muted, ml: 'auto' }}>{parseFloat((b.totalHours / 8).toFixed(3))}d available</Typography>
-                </Box>
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-      </Box>
-
-      {/* Day type + hours */}
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-        <Typography sx={{ fontSize: '0.72rem', fontWeight: 600, color: T.accent }}>Day type</Typography>
-        <ToggleButtonGroup exclusive size="small" value={modal.whDayType}
-          onChange={(_, v) => {
-            if (!v) return;
-            setModal((p) => {
-              const active = v === '6hr' ? p.hours6 : p.hours8;
-              const r = parseFloat(p.rateDecimal);
-              const h = Number.isFinite(r) && r >= 0 ? String(decimalToLeaveDeductionHours(r, active, v)) : p.hoursInput;
-              return { ...p, whDayType: v, hoursInput: h };
-            });
-          }}
-          sx={{ '& .MuiToggleButton-root': { px: 1.1, py: 0.35, fontSize: '0.68rem', fontWeight: 700 } }}>
-          <ToggleButton value="8hr">8 hr</ToggleButton>
-          <ToggleButton value="6hr">6 hr</ToggleButton>
-        </ToggleButtonGroup>
-      </Box>
-
-      <Grid container spacing={1} sx={{ mb: 1.5 }}>
-        <Grid item xs={6}>
-          <Typography sx={{ fontSize: '0.72rem', fontWeight: 600, color: T.accent, mb: 0.5 }}>Hours per day</Typography>
-          <TextField fullWidth size="small" type="number" inputProps={{ min: 0.01, step: 0.01 }}
-            value={modal.hoursInput} disabled={disabled}
-            onChange={(e) => {
-              const v = e.target.value;
-              const active = modal.whDayType === '6hr' ? modal.hours6 : modal.hours8;
-              const h = parseFloat(v);
-              const r = Number.isFinite(h) && h >= 0 ? String(leaveDeductionHoursToDecimal(h, active, modal.whDayType)) : modal.rateDecimal;
-              setModal((p) => ({ ...p, hoursInput: v, rateDecimal: r }));
-            }}
-            sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, fontSize: '0.875rem', bgcolor: '#fff', '& fieldset': { borderColor: T.accentBorder }, '&:hover fieldset': { borderColor: T.accent }, '&.Mui-focused fieldset': { borderColor: T.accent, borderWidth: 1.5 } } }}
-          />
-        </Grid>
-        <Grid item xs={6}>
-          <Typography sx={{ fontSize: '0.72rem', fontWeight: 600, color: T.accent, mb: 0.5 }}>Decimal per day</Typography>
-          <TextField fullWidth size="small" type="number" inputProps={{ min: 0.001, step: 0.001 }}
-            value={modal.rateDecimal} disabled={disabled}
-            onChange={(e) => {
-              const v = e.target.value;
-              const active = modal.whDayType === '6hr' ? modal.hours6 : modal.hours8;
-              const r = parseFloat(v);
-              const h = Number.isFinite(r) && r >= 0 ? String(decimalToLeaveDeductionHours(r, active, modal.whDayType)) : modal.hoursInput;
-              setModal((p) => ({ ...p, rateDecimal: v, hoursInput: h }));
-            }}
-            sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, fontSize: '0.875rem', bgcolor: '#fff', '& fieldset': { borderColor: T.accentBorder }, '&:hover fieldset': { borderColor: T.accent }, '&.Mui-focused fieldset': { borderColor: T.accent, borderWidth: 1.5 } } }}
-          />
-        </Grid>
-      </Grid>
-
-      {isOverride && (
-        <Box sx={{ mb: 1.5 }}>
-          <Typography sx={{ fontSize: '0.72rem', fontWeight: 600, color: T.accent, mb: 0.5 }}>
-            Override reason <Box component="span" sx={{ color: '#c62828' }}>*</Box>
-            <Box component="span" sx={{ fontWeight: 400, color: T.muted, ml: 0.5 }}>(required — values differ from suggestion)</Box>
-          </Typography>
-          <TextField fullWidth size="small" multiline minRows={2}
-            value={modal.overrideReason} disabled={disabled}
-            onChange={(e) => setModal((p) => ({ ...p, overrideReason: e.target.value }))}
-            placeholder="State why the suggested rate/hours are being changed."
-            sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, fontSize: '0.875rem', bgcolor: '#fff', '& fieldset': { borderColor: T.accentBorder }, '&:hover fieldset': { borderColor: T.accent }, '&.Mui-focused fieldset': { borderColor: T.accent, borderWidth: 1.5 } } }}
-          />
+      <Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.6 }}>
+          <Typography sx={{ fontSize: '0.8rem', fontWeight: 600, color: T.text }}>Charge to</Typography>
+          {!isBulk && balances.length > 0 && (chargeIsAuto ? autoChip : overrideChip)}
         </Box>
-      )}
-
-      {isInsufficient && (
-        <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, px: 1.5, py: 1.25, mb: 1.5, borderRadius: 2, bgcolor: '#FFF3E0', border: `1px solid rgba(245,124,0,0.35)` }}>
-          <WarningIcon sx={{ fontSize: 15, color: '#E65100', flexShrink: 0, mt: 0.1 }} />
-          <Typography sx={{ fontSize: '0.75rem', color: '#E65100', lineHeight: 1.55 }}>
-            Insufficient balance on <strong>{selectedBalance?.code}</strong>. Needs <strong>{totalDays.toFixed(3)}d</strong> but only <strong>{currentDays.toFixed(3)}d</strong> available. HR may still approve.
-          </Typography>
-        </Box>
-      )}
-
-      <Divider sx={{ borderColor: T.divider, mb: 1.5 }} />
-      <FormSectionLabel icon={CalculateIcon}>Balance after deduction</FormSectionLabel>
-      <Box sx={{ border: `1px solid ${T.divider}`, borderRadius: 2, overflow: 'hidden', mb: 0.75 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 1.75, py: 1.1, borderBottom: `1px solid ${T.divider}` }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <WalletIcon sx={{ fontSize: 14, color: T.muted }} />
-            <Typography sx={{ fontSize: '0.78rem', color: T.muted }}>
-              Current balance <Box component="span" sx={{ fontWeight: 700, color: T.accent }}>({selectedBalance?.code || '—'})</Box>
+        {isBulk ? (
+          <Box sx={{ bgcolor: LR.sub, borderRadius: 2, px: 1.5, py: 1.1 }}>
+            <Typography sx={{ fontSize: '0.8rem', color: T.text }}>Each request is charged to its own leave type (SL may use VL when SL runs out).</Typography>
+          </Box>
+        ) : balances.length === 0 ? (
+          <Box sx={{ bgcolor: LR.warnBg, borderRadius: 2, px: 1.5, py: 1.1 }}>
+            <Typography sx={{ fontSize: '0.8rem', color: LR.warnInk }}>
+              No {allowedChargeCodes?.length ? allowedChargeCodes.join(' / ') : chargeCode} balance to charge. Deny the request, or assign credits first.
             </Typography>
           </Box>
-          <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.text, fontVariantNumeric: 'tabular-nums' }}>
-            {currentDays.toFixed(3)}d
+        ) : balances.length === 1 ? (
+          <Box sx={{ display: 'flex', alignItems: 'center', bgcolor: LR.sub, borderRadius: 2, px: 1.5, py: 1.05 }}>
+            <CodeTag code={selectedBalance.code} color={balanceTone(selectedBalance.code)} />
+            <Typography sx={{ fontSize: '0.86rem', color: T.text, fontWeight: 600 }}>{selectedBalance.description}</Typography>
+            <Typography sx={{ fontSize: '0.78rem', color: T.muted, ml: 'auto' }}>{currentDays.toFixed(3)}d available</Typography>
+          </Box>
+        ) : (
+          <FormControl fullWidth size="small">
+            <Select
+              value={selectedBalance?.code || ''}
+              disabled={disabled}
+              onChange={(e) => setModal((p) => ({ ...p, chargeTo: e.target.value }))}
+              sx={{ ...selectSx, borderRadius: 2 }}
+              renderValue={(v) => {
+                const b = balances.find((x) => x.code === v);
+                if (!b) return <Typography sx={{ fontSize: '0.875rem', color: T.faint }}>Select balance…</Typography>;
+                return (
+                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                    <CodeTag code={b.code} color={balanceTone(b.code)} />
+                    <Typography sx={{ fontSize: '0.875rem', color: T.text }}>{b.description}</Typography>
+                    <Typography sx={{ fontSize: '0.78rem', color: T.muted, ml: 'auto' }}>{parseFloat((b.totalHours / 8).toFixed(3))}d</Typography>
+                  </Box>
+                );
+              }}
+            >
+              {balances.map((b) => (
+                <MenuItem key={b.code} value={b.code} sx={{ py: 1 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', width: '100%' }}>
+                    <CodeTag code={b.code} color={balanceTone(b.code)} />
+                    <Typography sx={{ fontSize: '0.875rem' }}>{b.description}</Typography>
+                    <Typography sx={{ fontSize: '0.78rem', color: T.muted, ml: 'auto' }}>{parseFloat((b.totalHours / 8).toFixed(3))}d available</Typography>
+                  </Box>
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        )}
+        {!isBulk && allowedChargeCodes && balances.length > 0 && (
+          <Typography sx={{ fontSize: '0.7rem', color: T.muted, mt: 0.6, lineHeight: 1.45 }}>
+            CSC: charged to {allowedChargeCodes.join(' or ')} only
+            {allowedChargeCodes.includes('VL') && allowedChargeCodes[0] === 'SL' ? ' (sick leave may use VL when SL runs out — MC 41 s.1998, Sec. 56)' : ''}.
           </Typography>
+        )}
+        {modal.suggestion?.recommendation_reason && /Sec. 56/.test(modal.suggestion.recommendation_reason) && (
+          <Typography sx={{ fontSize: '0.7rem', color: LR.warnInk, mt: 0.4 }}>{modal.suggestion.recommendation_reason}</Typography>
+        )}
+      </Box>
+
+      {/* Deduction per day — computed automatically */}
+      <Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.6 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+            <Typography sx={{ fontSize: '0.8rem', fontWeight: 600, color: T.text }}>Deduction per day</Typography>
+            {isOverride ? overrideChip : autoChip}
+          </Box>
+          {overrideOpen ? (
+            <Button size="small" disabled={disabled} onClick={resetToSuggestion} sx={{ textTransform: 'none', fontSize: '0.74rem', fontWeight: 600, color: T.accent, minWidth: 0, px: 1 }}>
+              Use computed values
+            </Button>
+          ) : (
+            <Button size="small" disabled={disabled} onClick={() => setModal((p) => ({ ...p, overrideOpen: true }))} sx={{ textTransform: 'none', fontSize: '0.74rem', fontWeight: 600, color: T.accent, minWidth: 0, px: 1 }}>
+              Override
+            </Button>
+          )}
         </Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 1.75, py: 1.1, borderBottom: `1px solid ${T.divider}`, bgcolor: 'rgba(198,40,40,0.03)' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <TrendingDownIcon sx={{ fontSize: 14, color: '#C62828' }} />
-            <Typography sx={{ fontSize: '0.78rem', color: T.muted }}>
-              Total deduction
-              <Box component="span" sx={{ fontSize: '0.71rem', color: T.faint, ml: 0.75 }}>
-                ({hoursPerDay.toFixed(2)} hrs × {duration} day{duration !== 1 ? 's' : ''})
+
+        {!overrideOpen ? (
+          <Box sx={{ bgcolor: LR.sub, borderRadius: 2, px: 1.6, py: 1.2, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
+            <Box>
+              <Typography sx={{ fontSize: '0.72rem', color: T.muted }}>Hours per day</Typography>
+              <Typography sx={{ fontSize: '1rem', fontWeight: 700, color: T.text }}>{hoursPerDay.toFixed(2)} h</Typography>
+            </Box>
+            <Box>
+              <Typography sx={{ fontSize: '0.72rem', color: T.muted }}>Credit per day</Typography>
+              <Typography sx={{ fontSize: '1rem', fontWeight: 700, color: T.text }}>{(hoursPerDay / 8).toFixed(3)} d</Typography>
+            </Box>
+            <Typography sx={{ gridColumn: '1 / -1', fontSize: '0.7rem', color: T.muted, lineHeight: 1.45 }}>
+              From the employee's official time ({scheduleHours} h workday). Leave credits count 8 hours as 1 day, so a {scheduleHours} h day uses {(scheduleHours / 8).toFixed(3)} d.
+            </Typography>
+          </Box>
+        ) : (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Typography sx={{ fontSize: '0.74rem', color: T.muted }}>Day type</Typography>
+              <ToggleButtonGroup exclusive size="small" value={modal.whDayType}
+                onChange={(_, v) => {
+                  if (!v) return;
+                  setModal((p) => {
+                    const active = v === '6hr' ? p.hours6 : p.hours8;
+                    const r = parseFloat(p.rateDecimal);
+                    const h = Number.isFinite(r) && r >= 0 ? String(decimalToLeaveDeductionHours(r, active, v)) : p.hoursInput;
+                    return { ...p, whDayType: v, hoursInput: h };
+                  });
+                }}
+                sx={{ '& .MuiToggleButton-root': { px: 1.25, py: 0.3, fontSize: '0.7rem', fontWeight: 700, textTransform: 'none' }, '& .Mui-selected': { bgcolor: `${alpha(T.accent, 0.1)} !important`, color: `${T.accent} !important` } }}>
+                <ToggleButton value="8hr">8 hr</ToggleButton>
+                <ToggleButton value="6hr">6 hr</ToggleButton>
+              </ToggleButtonGroup>
+            </Box>
+            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.25 }}>
+              <Box>
+                <Typography sx={{ fontSize: '0.74rem', fontWeight: 600, color: T.text, mb: 0.5 }}>Hours per day</Typography>
+                <TextField fullWidth size="small" type="number" inputProps={{ min: 0.01, step: 0.01 }}
+                  value={modal.hoursInput} disabled={disabled}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    const active = modal.whDayType === '6hr' ? modal.hours6 : modal.hours8;
+                    const h = parseFloat(v);
+                    const r = Number.isFinite(h) && h >= 0 ? String(leaveDeductionHoursToDecimal(h, active, modal.whDayType)) : modal.rateDecimal;
+                    setModal((p) => ({ ...p, hoursInput: v, rateDecimal: r }));
+                  }}
+                  sx={fieldSx}
+                />
               </Box>
-            </Typography>
+              <Box>
+                <Typography sx={{ fontSize: '0.74rem', fontWeight: 600, color: T.text, mb: 0.5 }}>Decimal per day</Typography>
+                <TextField fullWidth size="small" type="number" inputProps={{ min: 0.001, step: 0.001 }}
+                  value={modal.rateDecimal} disabled={disabled}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    const active = modal.whDayType === '6hr' ? modal.hours6 : modal.hours8;
+                    const r = parseFloat(v);
+                    const h = Number.isFinite(r) && r >= 0 ? String(decimalToLeaveDeductionHours(r, active, modal.whDayType)) : modal.hoursInput;
+                    setModal((p) => ({ ...p, rateDecimal: v, hoursInput: h }));
+                  }}
+                  sx={fieldSx}
+                />
+              </Box>
+            </Box>
+            {isOverride && (
+              <Box>
+                <Typography sx={{ fontSize: '0.74rem', fontWeight: 600, color: T.text, mb: 0.5 }}>
+                  Override reason <Box component="span" sx={{ color: '#c62828' }}>*</Box>
+                  <Box component="span" sx={{ fontWeight: 400, color: T.muted, ml: 0.5 }}>(required — values differ from the computed ones)</Box>
+                </Typography>
+                <TextField fullWidth size="small" multiline minRows={2}
+                  value={modal.overrideReason} disabled={disabled}
+                  onChange={(e) => setModal((p) => ({ ...p, overrideReason: e.target.value }))}
+                  placeholder="State why the computed hours are being changed."
+                  sx={fieldSx}
+                />
+              </Box>
+            )}
           </Box>
-          <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: '#C62828', fontVariantNumeric: 'tabular-nums' }}>
-            — {totalDays.toFixed(3)}d
-          </Typography>
-        </Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 1.75, py: 1.25, bgcolor: isInsufficient ? 'rgba(245,124,0,0.04)' : 'rgba(46,125,50,0.04)' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            {isInsufficient ? <WarningIcon sx={{ fontSize: 14, color: '#E65100' }} /> : <CheckCircle sx={{ fontSize: 14, color: '#2E7D32' }} />}
-            <Typography sx={{ fontSize: '0.78rem', fontWeight: 600, color: T.text }}>Balance after approval</Typography>
-          </Box>
-          <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: isInsufficient ? '#E65100' : '#2E7D32' }}>
-            {afterDays.toFixed(3)}d
-          </Typography>
-        </Box>
+        )}
       </Box>
-      <Typography sx={{ fontSize: '0.68rem', color: T.faint, fontStyle: 'italic' }}>
-        * Preview only. Actual deduction is applied when approval is confirmed.
-      </Typography>
+
+      {!isBulk && isInsufficient && (
+        <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, px: 1.5, py: 1.2, borderRadius: 2, bgcolor: LR.warnBg }}>
+          <WarningIcon sx={{ fontSize: 16, color: LR.warnInk, flexShrink: 0, mt: 0.1 }} />
+          <Typography sx={{ fontSize: '0.78rem', color: LR.warnInk, lineHeight: 1.55 }}>
+            Insufficient {chargeCode} balance. Needs <strong>{totalDays.toFixed(3)}d</strong> but only <strong>{currentDays.toFixed(3)}d</strong> available.
+            The server will refuse the approval until there are enough credits.
+          </Typography>
+        </Box>
+      )}
+
+      {!isBulk && (
+        <Box>
+          <SectionTitle>Balance after deduction</SectionTitle>
+          <Box sx={{ border: `1px solid ${LR.line}`, borderRadius: 2.5, overflow: 'hidden' }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', px: 1.75, py: 1.1 }}>
+              <Typography sx={{ fontSize: '0.82rem', color: T.text }}>Current balance <Box component="span" sx={{ color: T.muted }}>({chargeCode})</Box></Typography>
+              <Typography sx={{ fontSize: '0.86rem', fontWeight: 700, color: T.text, fontVariantNumeric: 'tabular-nums' }}>{currentDays.toFixed(3)}d</Typography>
+            </Box>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', px: 1.75, py: 1.1, borderTop: `1px solid ${LR.line}` }}>
+              <Typography sx={{ fontSize: '0.82rem', color: T.text }}>
+                Total deduction
+                <Box component="span" sx={{ fontSize: '0.74rem', color: T.muted, ml: 0.75 }}>({hoursPerDay.toFixed(2)} hrs × {duration} day{duration !== 1 ? 's' : ''})</Box>
+              </Typography>
+              <Typography sx={{ fontSize: '0.86rem', fontWeight: 700, color: LR.bad, fontVariantNumeric: 'tabular-nums' }}>−{totalDays.toFixed(3)}d</Typography>
+            </Box>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', px: 1.75, py: 1.2, borderTop: `1px solid ${LR.line}`, bgcolor: isInsufficient ? LR.warnBg : alpha('#1F7A6A', 0.07) }}>
+              <Typography sx={{ fontSize: '0.84rem', fontWeight: 700, color: T.text }}>Balance after approval</Typography>
+              <Typography sx={{ fontSize: '0.9rem', fontWeight: 700, color: isInsufficient ? LR.bad : '#1F7A6A', fontVariantNumeric: 'tabular-nums' }}>{afterDays.toFixed(3)}d</Typography>
+            </Box>
+          </Box>
+          <Typography sx={{ fontSize: '0.7rem', color: T.muted, mt: 0.75 }}>
+            Preview only. The deduction is applied when the approval is confirmed.
+          </Typography>
+        </Box>
+      )}
     </Box>
   );
 };
@@ -1039,8 +1164,12 @@ const ViewModal = ({
     '4': { title: 'Cancelled — Record Locked',     body: 'This request was cancelled by the employee.',           color: '#757575' },
   };
 
-  const hrBalancesForPanel = allBalances.length > 0 ? allBalances : [];
-  const defaultChargeTo    = hrApproveModal.chargeTo || hrApproveModal.suggestion?.recommended_charge_to || hrBalancesForPanel[0]?.code || '';
+  // CSC MC 41 s.1998: a request is charged to its own leave type; SL may fall back to VL
+  // (Sec. 56). The server sends the allowed codes (30-hour faculty may also use SC).
+  const allowedCharge = Array.isArray(hrApproveModal.allowedChargeCodes) ? hrApproveModal.allowedChargeCodes.map((c) => String(c).toUpperCase()) : null;
+  const hrBalancesForPanel = allowedCharge ? allBalances.filter((b) => allowedCharge.includes(String(b.code).toUpperCase())) : allBalances;
+  const pickedChargeTo     = hrApproveModal.chargeTo || hrApproveModal.suggestion?.recommended_charge_to || '';
+  const defaultChargeTo    = hrBalancesForPanel.some((b) => b.code === pickedChargeTo) ? pickedChargeTo : hrBalancesForPanel[0]?.code || pickedChargeTo;
   const hrModalWithCharge  = { ...hrApproveModal, chargeTo: defaultChargeTo };
 
   const appliedHours   = parseFloat(request.deduction_applied_hours);
@@ -1055,187 +1184,165 @@ const ViewModal = ({
     ? (leaveTypes.find((t) => t.leave_code === chargeToCode)?.leave_description || chargeToCode)
     : null;
 
+  // Balances this request can be charged to get the big cards; every other balance is
+  // minimized into small cards underneath.
+  const relevantCodes = (allowedCharge && allowedCharge.length ? allowedCharge : [String(request.leave_code || '').toUpperCase()]);
+  const heroBalances = relevantCodes.map((code) => {
+    const hit = allBalances.find((b) => String(b.code).toUpperCase() === code);
+    if (hit) return { balance: hit, missing: false };
+    const desc = leaveTypes.find((t) => String(t.leave_code).toUpperCase() === code)?.leave_description || code;
+    return { balance: { code, description: desc, totalDays: 0, totalHours: 0 }, missing: true };
+  });
+  const otherBalances = allBalances.filter((b) => !relevantCodes.includes(String(b.code).toUpperCase()));
+
+  // Single approval cannot go through without enough credits (the server returns 409).
+  const selectedForConfirm = hrBalancesForPanel.find((b) => b.code === defaultChargeTo);
+  const hoursForConfirm = (parseFloat(hrApproveModal.hoursInput) || 0) * (leaveDates.length || 1);
+  const confirmBlocked = isHrApprovalFlow && !hrApproveModal.loadingContext &&
+    (!selectedForConfirm || hoursForConfirm > (selectedForConfirm.totalHours || 0) + 1e-9);
+
+  const scrollSx = { '&::-webkit-scrollbar': { width: 4 }, '&::-webkit-scrollbar-thumb': { bgcolor: LR.line, borderRadius: 2 } };
+
   return (
     <Modal open={open} onClose={onClose} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', p: 2 }}>
       <Fade in={open}>
-        <Box sx={{ width: '100%', maxWidth: 980, maxHeight: '92vh', borderRadius: 3, overflow: 'hidden', boxShadow: '0 24px 64px rgba(0,0,0,0.22)', bgcolor: T.surface, display: 'flex', flexDirection: 'column' }}>
+        <Box sx={{ outline: 'none', width: '100%', maxWidth: 960, maxHeight: '92vh', borderRadius: 4, overflow: 'hidden', boxShadow: '0 24px 60px -20px rgba(20,32,43,.35)', bgcolor: T.surface, display: 'flex', flexDirection: 'column' }}>
           {/* Header */}
-          <Box sx={{ px: 3.5, py: 2.5, background: T.headerGrad, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', overflow: 'hidden', flexShrink: 0 }}>
-            <Box sx={{ position: 'absolute', top: -50, right: -30, width: 180, height: 180, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.04)' }} />
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, position: 'relative', zIndex: 1 }}>
-              <Box sx={{ width: 40, height: 40, borderRadius: 2, bgcolor: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <EventNote sx={{ fontSize: 18, color: '#fff' }} />
-              </Box>
-              <Box>
-                <Typography sx={{ fontWeight: 700, color: '#fff', fontSize: '0.95rem', lineHeight: 1.2, mb: 0.3 }}>Leave Request Details</Typography>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                  <Typography sx={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.68)' }}>#{request.employeeNumber} • {empName}</Typography>
-                  <Chip size="small" icon={<CurrentIcon style={{ fontSize: 10, color: currentOpt.color }} />} label={currentOpt.short}
-                    sx={{ height: 16, fontSize: '0.62rem', bgcolor: alpha(currentOpt.color, 0.15), color: '#fff', fontWeight: 600 }} />
+          <Box sx={{ px: 3.25, py: 2.5, display: 'flex', alignItems: 'center', gap: 1.75, borderBottom: `1px solid ${LR.line}`, flexShrink: 0 }}>
+            <Box sx={{ width: 42, height: 42, borderRadius: 2.5, bgcolor: T.accent, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <EventNote sx={{ fontSize: 20, color: '#fff' }} />
+            </Box>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography sx={{ fontWeight: 700, fontSize: '1.1rem', color: T.text, lineHeight: 1.25 }}>Leave Request Details</Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mt: 0.25, flexWrap: 'wrap' }}>
+                <Typography sx={{ fontSize: '0.84rem', color: T.muted }}>#{request.employeeNumber} • {empName}</Typography>
+                <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.4, px: 1, py: 0.1, borderRadius: 5, bgcolor: alpha(currentOpt.color, 0.12) }}>
+                  <CurrentIcon sx={{ fontSize: 11, color: currentOpt.color }} />
+                  <Typography sx={{ fontSize: '0.7rem', fontWeight: 600, color: currentOpt.color }}>{currentOpt.short}</Typography>
                 </Box>
               </Box>
             </Box>
-            <IconButton onClick={onClose} size="small" sx={{ color: 'rgba(255,255,255,0.75)', position: 'relative', zIndex: 1, '&:hover': { bgcolor: 'rgba(255,255,255,0.12)' } }}>
-              <Close sx={{ fontSize: 17 }} />
+            <IconButton onClick={onClose} size="small" sx={{ ml: 'auto', color: T.muted }}>
+              <Close sx={{ fontSize: 19 }} />
             </IconButton>
           </Box>
 
           {/* Two-column body */}
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', flexGrow: 1, overflow: 'hidden', minHeight: 0 }}>
-            {/* LEFT: balances (hidden when HR approved) + request info + status */}
-            <Box sx={{ px: 3, py: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 0, borderRight: `1px solid ${T.divider}`, '&::-webkit-scrollbar': { width: 4 }, '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 } }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, flexGrow: 1, overflow: 'auto', minHeight: 0 }}>
+            {/* LEFT: balances + request info + status */}
+            <Box sx={{ px: 3.25, py: 2.75, overflowY: { md: 'auto' }, display: 'flex', flexDirection: 'column', gap: 2.5, borderRight: { md: `1px solid ${LR.line}` }, ...scrollSx }}>
               {isHrApprovedLocked ? (
-                <>
-                  <FormSectionLabel icon={ScheduleIcon}>Status</FormSectionLabel>
-                  <Box sx={{ p: 2, borderRadius: 2, border: `1px solid ${alpha('#2E7D32', 0.25)}`, bgcolor: alpha('#2E7D32', 0.04), display: 'flex', alignItems: 'flex-start', gap: 1.5, mb: 2 }}>
-                    <Box sx={{ width: 32, height: 32, borderRadius: '50%', bgcolor: alpha('#2E7D32', 0.12), display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                      <LockIcon sx={{ fontSize: 15, color: '#2E7D32' }} />
-                    </Box>
+                <Box>
+                  <SectionTitle>Status</SectionTitle>
+                  <Box sx={{ p: 1.75, borderRadius: 2, bgcolor: alpha('#2E7D32', 0.07), display: 'flex', alignItems: 'flex-start', gap: 1.25 }}>
+                    <LockIcon sx={{ fontSize: 17, color: '#2E7D32', mt: 0.15 }} />
                     <Box>
-                      <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: '#2E7D32', mb: 0.3 }}>
-                        {lockedMessages['2']?.title}
-                      </Typography>
-                      <Typography sx={{ fontSize: '0.76rem', color: T.muted, lineHeight: 1.55 }}>
-                        {lockedMessages['2']?.body}
-                      </Typography>
+                      <Typography sx={{ fontSize: '0.86rem', fontWeight: 700, color: '#2E7D32' }}>{lockedMessages['2']?.title}</Typography>
+                      <Typography sx={{ fontSize: '0.78rem', color: T.muted, lineHeight: 1.55 }}>{lockedMessages['2']?.body}</Typography>
                     </Box>
                   </Box>
-                  <Divider sx={{ borderColor: T.divider, mb: 2 }} />
-                </>
+                </Box>
               ) : (
-                <>
-                  <FormSectionLabel icon={WalletIcon}>Leave Balances</FormSectionLabel>
+                <Box>
+                  <SectionTitle>Leave balances</SectionTitle>
                   {balancesLoading ? (
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1, mb: 2 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 1 }}>
                       <CircularProgress size={14} sx={{ color: T.accent }} />
-                      <Typography sx={{ fontSize: '0.75rem', color: T.muted }}>Loading balances…</Typography>
-                    </Box>
-                  ) : allBalances.length === 0 ? (
-                    <Box sx={{ py: 2, textAlign: 'center', border: `1px dashed ${T.accentBorder}`, borderRadius: 2, mb: 2 }}>
-                      <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>No leave balance data available.</Typography>
+                      <Typography sx={{ fontSize: '0.78rem', color: T.muted }}>Loading balances…</Typography>
                     </Box>
                   ) : (
-                    <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 0.65, mb: 0.75 }}>
-                      {allBalances.map((b) => (
-                        <LeaveBalanceCard key={b.code} balance={b} isActive={b.code === request.leave_code} />
-                      ))}
-                    </Box>
+                    <>
+                      <Box sx={{ display: 'grid', gridTemplateColumns: heroBalances.length === 1 ? '1fr 1fr' : 'repeat(2, 1fr)', gap: 1.25 }}>
+                        {heroBalances.map(({ balance, missing }) => (
+                          <BalanceHero key={balance.code} balance={balance} missing={missing} />
+                        ))}
+                      </Box>
+                      {otherBalances.length > 0 && (
+                        <>
+                          <Typography sx={{ fontSize: '0.72rem', color: T.muted, mt: 1.4, mb: 0.6 }}>Other balances</Typography>
+                          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(118px, 1fr))', gap: 0.65 }}>
+                            {otherBalances.map((b) => (
+                              <LeaveBalanceCard key={b.code} balance={b} isActive={false} />
+                            ))}
+                          </Box>
+                        </>
+                      )}
+                    </>
                   )}
-                  <Typography sx={{ fontSize: '0.68rem', color: T.faint, mb: 2 }}>
-                    * Balances shown are current remaining. Deduction applied on HR approval.
+                  <Typography sx={{ fontSize: '0.76rem', color: T.muted, mt: 1 }}>
+                    Balances shown are current remaining. Deduction applied on HR approval.
                   </Typography>
-                  <Divider sx={{ borderColor: T.divider, mb: 2 }} />
-                </>
+                </Box>
               )}
 
-              <FormSectionLabel icon={EventNote}>Request Info</FormSectionLabel>
-              <Grid container spacing={1.25} sx={{ mb: 2 }}>
-                {!isHrApprovedLocked && (
-                  <Grid item xs={12}>
-                    <Box sx={{ p: 1.5, bgcolor: T.accentFaint, borderRadius: 2, border: `1px solid ${T.accentBorder}` }}>
-                      <Typography sx={{ fontSize: '0.7rem', color: T.muted, mb: 0.5 }}>Employee</Typography>
-                      <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.accent }}>#{request.employeeNumber}</Typography>
-                      <Typography sx={{ fontSize: '0.72rem', color: T.muted }}>{empName}</Typography>
-                    </Box>
-                  </Grid>
-                )}
-                <Grid item xs={6}>
-                  <Box sx={{ p: 1.5, bgcolor: T.accentFaint, borderRadius: 2, border: `1px solid ${T.accentBorder}` }}>
-                    <Typography sx={{ fontSize: '0.7rem', color: T.muted, mb: 0.5 }}>Leave type</Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                      <Box sx={{ px: 0.85, py: 0.2, borderRadius: 1, bgcolor: 'rgba(109,35,35,0.08)', border: `0.5px solid ${T.accentBorder}` }}>
-                        <Typography sx={{ fontSize: '0.68rem', fontWeight: 800, color: T.accent }}>{request.leave_code}</Typography>
-                      </Box>
-                      <Typography sx={{ fontSize: '0.78rem', fontWeight: 600, color: T.text }}>{leaveType?.leave_description || request.leave_code}</Typography>
-                    </Box>
-                  </Box>
-                </Grid>
-                {!isHrApprovedLocked && (
-                  <Grid item xs={6}>
-                    <Box sx={{ p: 1.5, bgcolor: T.accentFaint, borderRadius: 2, border: `1px solid ${T.accentBorder}` }}>
-                      <Typography sx={{ fontSize: '0.7rem', color: T.muted, mb: 0.5 }}>Duration</Typography>
-                      <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.text }}>{leaveDates.length} day(s)</Typography>
-                    </Box>
-                  </Grid>
-                )}
-                <Grid item xs={isHrApprovedLocked ? 12 : 12}>
-                  <Box sx={{ p: 1.5, bgcolor: T.accentFaint, borderRadius: 2, border: `1px solid ${T.accentBorder}` }}>
-                    <Typography sx={{ fontSize: '0.7rem', color: T.muted, mb: 0.5 }}>{isHrApprovedLocked ? 'Leave date' : 'Leave date(s)'}</Typography>
-                    {isHrApprovedLocked && leaveDates.length === 1 ? (
-                      <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: T.text }}>{formatDate(leaveDates[0])}</Typography>
+              <Box>
+                <SectionTitle>Request info</SectionTitle>
+                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.25 }}>
+                  {!isHrApprovedLocked && (
+                    <InfoCell label="Employee" wide>#{request.employeeNumber} · {empName}</InfoCell>
+                  )}
+                  <InfoCell label="Leave type" wide={isHrApprovedLocked}>
+                    <CodeTag code={request.leave_code} />{leaveType?.leave_description || request.leave_code}
+                  </InfoCell>
+                  {!isHrApprovedLocked && <InfoCell label="Duration">{leaveDates.length} day(s)</InfoCell>}
+                  <InfoCell label={leaveDates.length === 1 ? 'Leave date' : 'Leave dates'} wide>
+                    {leaveDates.length === 1 ? (
+                      formatDate(leaveDates[0])
                     ) : (
-                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.6 }}>
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.6, mt: 0.25 }}>
                         {leaveDates.map((d) => (
-                          <Box key={d} sx={{ px: 1, py: 0.35, borderRadius: 1, bgcolor: 'rgba(109,35,35,0.08)', border: `0.5px solid ${T.accentBorder}` }}>
-                            <Typography sx={{ fontSize: '0.72rem', fontWeight: 600, color: T.accent }}>{formatDate(d)}</Typography>
+                          <Box key={d} sx={{ px: 0.9, py: 0.2, borderRadius: 1, bgcolor: alpha(T.accent, 0.08) }}>
+                            <Typography sx={{ fontSize: '0.74rem', fontWeight: 600, color: T.accent }}>{formatDate(d)}</Typography>
                           </Box>
                         ))}
                       </Box>
                     )}
-                  </Box>
-                </Grid>
-                {!isHrApprovedLocked && (
-                  <Grid item xs={6}>
-                    <Box sx={{ p: 1.5, bgcolor: T.accentFaint, borderRadius: 2, border: `1px solid ${T.accentBorder}` }}>
-                      <Typography sx={{ fontSize: '0.7rem', color: T.muted, mb: 0.5 }}>Filed on</Typography>
-                      <Typography sx={{ fontSize: '0.82rem', fontWeight: 600, color: T.text }}>{filedLabel}</Typography>
-                    </Box>
-                  </Grid>
-                )}
-                <Grid item xs={isHrApprovedLocked ? 12 : 6}>
-                  <Box sx={{ p: 1.5, bgcolor: T.accentFaint, borderRadius: 2, border: `1px solid ${T.accentBorder}` }}>
-                    <Typography sx={{ fontSize: '0.7rem', color: T.muted, mb: 0.5 }}>Employment type</Typography>
-                    <Typography sx={{ fontSize: '0.82rem', fontWeight: 600, color: T.text }}>{hrApproveModal.employmentTypeName || '—'}</Typography>
-                  </Box>
-                </Grid>
-              </Grid>
+                  </InfoCell>
+                  {!isHrApprovedLocked && <InfoCell label="Filed on">{filedLabel}</InfoCell>}
+                  <InfoCell label="Employment type" wide={isHrApprovedLocked}>{hrApproveModal.employmentTypeName || '—'}</InfoCell>
+                </Box>
+              </Box>
 
-              {!isHrApprovedLocked && (
-                <>
-                  <Divider sx={{ borderColor: T.divider, mb: 2 }} />
-                  <FormSectionLabel icon={ScheduleIcon}>Status</FormSectionLabel>
-                </>
-              )}
               {isLocked && !isHrApprovedLocked ? (
-                <>
-                  <Box sx={{ p: 2, borderRadius: 2, border: `1px solid ${alpha(lockedMessages[String(request.status)]?.color || '#757575', 0.25)}`, bgcolor: alpha(lockedMessages[String(request.status)]?.color || '#757575', 0.05), display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
-                    <Box sx={{ width: 32, height: 32, borderRadius: '50%', bgcolor: alpha(lockedMessages[String(request.status)]?.color || '#757575', 0.12), display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                      <LockIcon sx={{ fontSize: 15, color: lockedMessages[String(request.status)]?.color || '#757575' }} />
-                    </Box>
+                <Box>
+                  <SectionTitle>Status</SectionTitle>
+                  <Box sx={{ p: 1.75, borderRadius: 2, bgcolor: alpha(lockedMessages[String(request.status)]?.color || '#757575', 0.07), display: 'flex', alignItems: 'flex-start', gap: 1.25 }}>
+                    <LockIcon sx={{ fontSize: 17, color: lockedMessages[String(request.status)]?.color || '#757575', mt: 0.15 }} />
                     <Box>
-                      <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: lockedMessages[String(request.status)]?.color || '#757575', mb: 0.3 }}>
+                      <Typography sx={{ fontSize: '0.86rem', fontWeight: 700, color: lockedMessages[String(request.status)]?.color || '#757575' }}>
                         {lockedMessages[String(request.status)]?.title}
                       </Typography>
-                      <Typography sx={{ fontSize: '0.76rem', color: T.muted, lineHeight: 1.55 }}>
+                      <Typography sx={{ fontSize: '0.78rem', color: T.muted, lineHeight: 1.55 }}>
                         {lockedMessages[String(request.status)]?.body}
                       </Typography>
                     </Box>
                   </Box>
-                </>
+                </Box>
               ) : !isLocked ? (
-                <>
-                  <Box sx={{ p: 1.75, borderRadius: 2, bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, mb: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
-                    <Typography sx={{ fontSize: '0.72rem', color: T.muted, fontWeight: 600, flexShrink: 0 }}>Current status</Typography>
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 1, minWidth: 0 }}>
+                <Box>
+                  <SectionTitle>Status</SectionTitle>
+                  <Box sx={{ px: 1.75, py: 1.3, borderRadius: 2, bgcolor: LR.infoBg, mb: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+                    <Typography sx={{ fontSize: '0.8rem', color: T.muted }}>Current status</Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
                       <CurrentIcon sx={{ fontSize: 16, color: currentOpt.color, flexShrink: 0 }} />
-                      <Typography sx={{ fontSize: '0.82rem', fontWeight: 700, color: currentOpt.color, textAlign: 'right' }}>{currentOpt.label}</Typography>
+                      <Typography sx={{ fontSize: '0.84rem', fontWeight: 700, color: LR.infoInk, textAlign: 'right' }}>{currentOpt.label}</Typography>
                     </Box>
                   </Box>
-                  <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: T.accent, mb: 0.75 }}>Update status</Typography>
+                  <Typography sx={{ fontSize: '0.8rem', fontWeight: 600, color: T.text, mb: 0.6 }}>Update status</Typography>
                   <FormControl fullWidth size="small">
-                    <Select value={localStatus} onChange={(e) => setLocalStatus(e.target.value)} sx={selectSx}
+                    <Select value={localStatus} onChange={(e) => setLocalStatus(e.target.value)} sx={{ ...selectSx, borderRadius: 2 }}
                       renderValue={(v) => {
                         const opt = allStatusOptions.find((o) => o.value === v);
                         const Icon = opt?.icon;
                         return (
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            {Icon && <Icon sx={{ fontSize: 14, color: opt.color }} />}
+                            {Icon && <Icon sx={{ fontSize: 15, color: opt.color }} />}
                             <Typography sx={{ fontWeight: 600, color: opt?.color, fontSize: '0.875rem' }}>{opt?.label}</Typography>
                           </Box>
                         );
                       }}>
                       {statusOptions.map((o) => (
-                        <MenuItem key={o.value} value={o.value} sx={{ py: 1.25 }}>
+                        <MenuItem key={o.value} value={o.value} sx={{ py: 1.1 }}>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                             <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: o.color }} />
                             <Typography sx={{ fontSize: '0.875rem' }}>{o.label}</Typography>
@@ -1244,58 +1351,56 @@ const ViewModal = ({
                       ))}
                     </Select>
                   </FormControl>
-                </>
+                </Box>
               ) : null}
             </Box>
 
-            {/* RIGHT: HR deduction transaction card, approval panel, or empty state */}
-            <Box sx={{ px: 3, py: 2.5, overflowY: 'auto', display: 'flex', flexDirection: 'column', bgcolor: isHrApprovedLocked ? '#fafafa' : 'transparent', '&::-webkit-scrollbar': { width: 4 }, '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 } }}>
+            {/* RIGHT: applied deduction, approval panel, or empty state */}
+            <Box sx={{ px: 3.25, py: 2.75, overflowY: { md: 'auto' }, display: 'flex', flexDirection: 'column', gap: 2, bgcolor: isHrApprovedLocked ? '#fafafa' : 'transparent', ...scrollSx }}>
               {isHrApprovedLocked ? (
                 <>
-                  <FormSectionLabel icon={TrendingDownIcon}>HR deduction applied</FormSectionLabel>
+                  <SectionTitle>HR deduction applied</SectionTitle>
                   {hasDeductionRecord ? (
                     <HrDeductionAppliedCard request={request} leaveTypes={leaveTypes} chargeTypeDesc={chargeTypeDesc} />
                   ) : (
-                    <Box sx={{ p: 2, borderRadius: 2, border: `1px dashed ${T.accentBorder}`, bgcolor: '#fff', mb: 2 }}>
-                      <Typography sx={{ fontSize: '0.78rem', color: T.muted, lineHeight: 1.55 }}>
-                        HR approved with no deduction record stored on this request.
-                      </Typography>
+                    <Box sx={{ p: 2, borderRadius: 2, border: `1px dashed ${LR.line}`, bgcolor: '#fff' }}>
+                      <Typography sx={{ fontSize: '0.8rem', color: T.muted, lineHeight: 1.55 }}>HR approved with no deduction record stored on this request.</Typography>
                     </Box>
                   )}
-                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flexGrow: 1, textAlign: 'center', px: 2, py: 3, opacity: 0.45, mt: 1 }}>
-                    <Typography sx={{ fontSize: '0.78rem', color: '#bbb', lineHeight: 1.6 }}>
-                      No further actions available.
-                      <br />
-                      This record is locked.
-                    </Typography>
-                  </Box>
+                  <Typography sx={{ fontSize: '0.78rem', color: T.faint, textAlign: 'center', mt: 'auto', py: 2 }}>
+                    No further actions available. This record is locked.
+                  </Typography>
                 </>
               ) : isHrApprovalFlow ? (
                 <>
-                  <FormSectionLabel icon={DoneAllIcon}>Set Deduction</FormSectionLabel>
-                  <Box sx={{ p: 2, borderRadius: 2, border: `1px solid ${alpha('#2E7D32', 0.3)}`, bgcolor: alpha('#2E7D32', 0.04), mb: 2 }}>
-                    <Typography sx={{ fontSize: '0.78rem', fontWeight: 700, color: '#2E7D32', mb: 0.5 }}>HR Approval — configure leave deduction</Typography>
-                    <Typography sx={{ fontSize: '0.73rem', color: T.muted, lineHeight: 1.55 }}>Set the charge-to balance, hours per day, and review the computed total before confirming.</Typography>
+                  <Box>
+                    <SectionTitle>Set deduction</SectionTitle>
+                    <Box sx={{ px: 1.75, py: 1.4, borderRadius: 2, bgcolor: alpha('#1F7A6A', 0.08) }}>
+                      <Typography sx={{ fontSize: '0.84rem', fontWeight: 700, color: '#14493D', mb: 0.25 }}>HR Approval — deduction computed automatically</Typography>
+                      <Typography sx={{ fontSize: '0.78rem', color: '#14493D', lineHeight: 1.5 }}>
+                        Charge, hours per day and the total come from the employee's official time and the CSC charge rules. Use Override only when they need to change.
+                      </Typography>
+                    </Box>
                   </Box>
                   {hrApproveModal.loadingContext ? (
                     <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flexGrow: 1, py: 6 }}>
                       <CircularProgress size={28} sx={{ color: T.accent }} />
                     </Box>
                   ) : (
-                    <HrDeductionPanel modal={hrModalWithCharge} setModal={setHrApproveModal} disabled={hrApproveModal.loading} balances={hrBalancesForPanel} />
+                    <HrDeductionPanel modal={hrModalWithCharge} setModal={setHrApproveModal} disabled={hrApproveModal.loading} balances={hrBalancesForPanel} allowedChargeCodes={allowedCharge} />
                   )}
                 </>
               ) : (
                 <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flexGrow: 1, textAlign: 'center', gap: 1.5, px: 3, py: 4 }}>
-                  <Box sx={{ width: 60, height: 60, borderRadius: '50%', bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <LockIcon sx={{ fontSize: 26, color: alpha(T.accent, 0.3) }} />
+                  <Box sx={{ width: 56, height: 56, borderRadius: '50%', bgcolor: LR.sub, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <LockIcon sx={{ fontSize: 24, color: T.faint }} />
                   </Box>
                   <Box>
-                    <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, color: T.muted, mb: 0.5 }}>No deduction required</Typography>
-                    <Typography sx={{ fontSize: '0.78rem', color: T.faint, lineHeight: 1.65 }}>
+                    <Typography sx={{ fontSize: '0.9rem', fontWeight: 700, color: T.muted, mb: 0.5 }}>No deduction required</Typography>
+                    <Typography sx={{ fontSize: '0.8rem', color: T.faint, lineHeight: 1.6 }}>
                       Set the status to{' '}
                       <Box component="span" sx={{ fontWeight: 700, color: '#2E7D32' }}>HR Approved</Box>
-                      {' '}on the left to configure the leave deduction.
+                      {' '}on the left to set the leave deduction.
                     </Typography>
                   </Box>
                 </Box>
@@ -1304,21 +1409,25 @@ const ViewModal = ({
           </Box>
 
           {/* Footer */}
-          <Box sx={{ px: 3.5, py: 2, borderTop: `1px solid ${T.divider}`, bgcolor: '#f9f9f9', display: 'flex', justifyContent: 'flex-end', gap: 1.25, flexShrink: 0 }}>
-            <AccentButton onClick={onClose} variant="outlined" sx={{ fontSize: '0.8rem', borderColor: T.accentBorder, color: T.muted, '&:hover': { bgcolor: T.accentFaint, borderColor: T.accent, color: T.accent } }}>Close</AccentButton>
+          <Box sx={{ px: 3.25, py: 2, borderTop: `1px solid ${LR.line}`, display: 'flex', justifyContent: 'flex-end', gap: 1.25, flexShrink: 0 }}>
+            <Button onClick={onClose} variant="outlined"
+              sx={{ textTransform: 'none', fontWeight: 600, fontSize: '0.85rem', borderRadius: 2.5, px: 2.5, color: T.text, borderColor: LR.line, '&:hover': { borderColor: T.accent, bgcolor: T.accentFaint } }}>
+              Close
+            </Button>
             {!isLocked && (
-              <AccentButton
+              <Button
                 onClick={() => (isHrApprovalFlow ? onConfirmHrApprove() : onStatusUpdate(request, localStatus))}
-                disabled={!statusChanged || statusUpdating || (isHrApprovalFlow && (hrApproveModal.loadingContext || hrApproveModal.loading))}
+                disabled={!statusChanged || statusUpdating || confirmBlocked || (isHrApprovalFlow && (hrApproveModal.loadingContext || hrApproveModal.loading))}
                 variant="contained"
+                disableElevation
                 startIcon={
                   statusUpdating || (isHrApprovalFlow && hrApproveModal.loading)
-                    ? <CircularProgress size={12} sx={{ color: '#fff' }} />
-                    : isHrApprovalFlow ? <DoneAllIcon sx={{ fontSize: '14px !important' }} /> : <SaveIcon sx={{ fontSize: '14px !important' }} />
+                    ? <CircularProgress size={13} sx={{ color: '#fff' }} />
+                    : isHrApprovalFlow ? <DoneAllIcon sx={{ fontSize: '15px !important' }} /> : <SaveIcon sx={{ fontSize: '15px !important' }} />
                 }
-                sx={{ fontSize: '0.8rem', bgcolor: isHrApprovalFlow ? '#2E7D32' : T.accent, color: '#fff', boxShadow: `0 2px 10px ${alpha(isHrApprovalFlow ? '#2E7D32' : T.accent, 0.32)}`, '&:hover': { bgcolor: isHrApprovalFlow ? '#1B5E20' : T.accentDark }, '&:disabled': { bgcolor: '#ddd' } }}>
+                sx={{ textTransform: 'none', fontWeight: 700, fontSize: '0.85rem', borderRadius: 2.5, px: 2.5, bgcolor: T.accent, color: '#fff', '&:hover': { bgcolor: T.accentDark }, '&:disabled': { bgcolor: '#ddd', color: '#999' } }}>
                 {statusUpdating || (isHrApprovalFlow && hrApproveModal.loading) ? 'Saving…' : isHrApprovalFlow ? 'Confirm HR approval' : 'Save Status'}
-              </AccentButton>
+              </Button>
             )}
           </Box>
         </Box>
@@ -1711,6 +1820,7 @@ const LeaveRequest = () => {
       rateSource: ctxRes.data?.rateSource || 'default',
       rateDecimal: String(startDec), hoursInput: String(hrs),
       chargeTo, suggestion: suggestionRes.data || null, overrideReason: '',
+      allowedChargeCodes: Array.isArray(ctxRes.data?.allowed_charge_codes) ? ctxRes.data.allowed_charge_codes : null,
     };
   }, []);
 
@@ -1912,6 +2022,33 @@ const LeaveRequest = () => {
     return (t.leave_code || '').toLowerCase().includes('sl') || (t.leave_description || '').toLowerCase().includes('sick');
   };
 
+  // HR override for non-working days (special schedules): the server refuses them unless a reason is given.
+  const [nonWorkingPrompt, setNonWorkingPrompt] = useState({ open: false, message: '', reason: '', payload: null, busy: false });
+  const [unscheduledDates, setUnscheduledDates] = useState([]);
+
+  const submitNewRequest = async (payload) => {
+    await axios.post(`${API_BASE_URL}/leaveRoute/leave_request`, payload, getAuthHeaders());
+    setNewRequest({ employeeNumber: '', leave_code: '', leave_date: '', status: '0' });
+    setSelectedDates([]);
+    setSuccessAction('adding');
+    setSuccessOpen(true);
+    setTimeout(() => setSuccessOpen(false), 2000);
+    fetchAll();
+  };
+
+  const confirmNonWorkingOverride = async () => {
+    const reason = String(nonWorkingPrompt.reason || '').trim();
+    if (!reason) return;
+    setNonWorkingPrompt((p) => ({ ...p, busy: true }));
+    try {
+      await submitNewRequest({ ...nonWorkingPrompt.payload, allow_non_working_days: true, non_working_override_reason: reason });
+      setNonWorkingPrompt({ open: false, message: '', reason: '', payload: null, busy: false });
+    } catch (e) {
+      setNonWorkingPrompt({ open: false, message: '', reason: '', payload: null, busy: false });
+      showError('Submission Failed', e.response?.data?.error || e.message);
+    }
+  };
+
   const handleAdd = async () => {
     if (!newRequest.employeeNumber || !newRequest.leave_code || !newRequest.leave_date) {
       showError('Missing Required Fields', 'Please fill in all required fields before submitting.', { icon: WarningIcon, iconColor: '#F57C00', iconBg: '#FFF3E0' });
@@ -1927,16 +2064,15 @@ const LeaveRequest = () => {
       onConfirm: async () => {
         setConfirmModal((p) => ({ ...p, loading: true }));
         setLoading(true);
+        const payload = { employeeNumber: newRequest.employeeNumber, leave_code: newRequest.leave_code, leave_dates: leaveDates };
         try {
-          await axios.post(`${API_BASE_URL}/leaveRoute/leave_request`, { employeeNumber: newRequest.employeeNumber, leave_code: newRequest.leave_code, leave_dates: leaveDates, status: Number(newRequest.status) }, getAuthHeaders());
-          setNewRequest({ employeeNumber: '', leave_code: '', leave_date: '', status: '0' });
-          setSelectedDates([]);
-          setSuccessAction('adding');
-          setSuccessOpen(true);
-          setTimeout(() => setSuccessOpen(false), 2000);
-          fetchAll();
+          await submitNewRequest(payload);
         } catch (e) {
-          showError('Submission Failed', e.response?.data?.detail || e.response?.data?.error || e.response?.data?.message || e.message);
+          if (e.response?.data?.code === 'NON_WORKING_DAY' && isPrivilegedRole) {
+            setNonWorkingPrompt({ open: true, message: e.response.data.error, reason: '', payload, busy: false });
+          } else {
+            showError('Submission Failed', e.response?.data?.detail || e.response?.data?.error || e.response?.data?.message || e.message);
+          }
         } finally { setLoading(false); closeConfirm(); }
       },
     });
@@ -1958,7 +2094,7 @@ const LeaveRequest = () => {
           setViewRequest(null);
           setSuccessAction('status'); setSuccessOpen(true); setTimeout(() => setSuccessOpen(false), 2000);
           fetchAll();
-        } catch { showError('Update Failed', 'Could not update status. Please try again.'); }
+        } catch (e) { showError('Update Failed', e.response?.data?.error || 'Could not update status. Please try again.'); }
         finally { setStatusUpdating(false); closeConfirm(); }
       },
     });
@@ -1980,11 +2116,13 @@ const LeaveRequest = () => {
       showError('Override reason required', 'Please provide an override reason when changing the suggested deduction.');
       return;
     }
+    const isBulk = hrApproveModal.mode === 'bulk';
     const decisionContext = {
       decision: isOverride ? 'overridden' : 'accepted',
       override_reason: String(hrApproveModal.overrideReason || '').trim() || null,
-      system_recommendation: hrApproveModal.suggestion || null,
-      charge_to: hrApproveModal.chargeTo || null,
+      // Bulk rows can be different leave types: each row gets its own suggestion and charge on the server.
+      system_recommendation: isBulk ? null : hrApproveModal.suggestion || null,
+      charge_to: isBulk ? null : hrApproveModal.chargeTo || null,
     };
     setHrApproveModal((p) => ({ ...p, loading: true }));
     try {
@@ -1993,7 +2131,6 @@ const LeaveRequest = () => {
           ids: hrApproveModal.pendingBulkIds, status: 2,
           hr_approval_rate: Number.isFinite(rateDec) && rateDec > 0 ? rateDec : undefined,
           deduction_hours_each: Number.isFinite(hoursN) && hoursN > 0 ? hoursN : undefined,
-          charge_to: hrApproveModal.chargeTo || undefined,
           decision_context: decisionContext,
         }, getAuthHeaders());
         setSuccessAction('bulk'); setSuccessOpen(true); setTimeout(() => setSuccessOpen(false), 2000);
@@ -2429,7 +2566,17 @@ const LeaveRequest = () => {
                     onClose={() => { setNewRequest({ ...newRequest, leave_date: selectedDates.join(',') }); setDateModalOpen(false); }}
                     selectedDates={selectedDates} setSelectedDates={setSelectedDates}
                     accentColor={T.accent} accentDark={T.accentDark} primaryColor="#fdf5f5" secondaryColor="#f0dede"
-                    allowPastDates={true} adminOverride={isPrivilegedRole}                  />
+                    allowPastDates={true} adminOverride={isPrivilegedRole}
+                    employeeNumber={newRequest.employeeNumber || null} allowNonWorkingDays={isPrivilegedRole}
+                    onUnscheduledChange={setUnscheduledDates} />
+                  {unscheduledDates.length > 0 && (
+                    <Alert severity="warning" sx={{ mt: 1, py: 0.25, fontSize: '0.74rem' }}>
+                      No official time schedule on {unscheduledDates.map((u) => u.date).join(', ')}. You can still submit; HR will check these dates.
+                    </Alert>
+                  )}
+                  {filingNotices(newRequest.leave_code, selectedDates).map((n) => (
+                    <Alert key={n} severity="info" sx={{ mt: 1, py: 0.25, fontSize: '0.74rem' }}>{n}</Alert>
+                  ))}
                 </Box>
 
                 {/* Balance preview — now shows real-time remaining via getLeaveTypeStatsActive */}
@@ -2687,6 +2834,28 @@ const LeaveRequest = () => {
         </Modal>
 
         {/* HR Approve bulk modal */}
+        <Modal open={nonWorkingPrompt.open} onClose={nonWorkingPrompt.busy ? undefined : () => setNonWorkingPrompt((p) => ({ ...p, open: false }))} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', p: 2, zIndex: 1700 }}>
+          <Box sx={{ width: '100%', maxWidth: 440, borderRadius: 3, overflow: 'hidden', bgcolor: T.surface, boxShadow: '0 24px 64px rgba(0,0,0,0.22)' }}>
+            <Box sx={{ px: 3, py: 2, background: T.headerGrad }}>
+              <Typography sx={{ fontWeight: 700, color: '#fff', fontSize: '0.95rem' }}>File on a holiday?</Typography>
+            </Box>
+            <Box sx={{ px: 3, py: 2.5 }}>
+              <Alert severity="warning" sx={{ mb: 2, fontSize: '0.78rem' }}>{nonWorkingPrompt.message}</Alert>
+              <Typography sx={{ fontSize: '0.75rem', color: T.muted, mb: 1 }}>
+                Continue only if this employee works on this holiday (special schedule). The reason is saved to the employee's transaction log.
+              </Typography>
+              <TextField fullWidth size="small" multiline minRows={2} label="Reason (required)" value={nonWorkingPrompt.reason}
+                onChange={(e) => setNonWorkingPrompt((p) => ({ ...p, reason: e.target.value }))} disabled={nonWorkingPrompt.busy} />
+            </Box>
+            <Box sx={{ px: 3, py: 2, borderTop: `1px solid ${T.divider}`, bgcolor: '#f9f9f9', display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+              <Button variant="outlined" size="small" disabled={nonWorkingPrompt.busy} onClick={() => setNonWorkingPrompt((p) => ({ ...p, open: false }))} sx={{ fontSize: '0.8rem', borderColor: T.accentBorder, color: T.muted }}>Cancel</Button>
+              <Button variant="contained" size="small" disabled={nonWorkingPrompt.busy || !String(nonWorkingPrompt.reason).trim()} onClick={confirmNonWorkingOverride} sx={{ fontSize: '0.8rem', bgcolor: T.accent, color: '#fff', '&:hover': { bgcolor: T.accentDark } }}>
+                {nonWorkingPrompt.busy ? <CircularProgress size={18} sx={{ color: '#fff' }} /> : 'File with override'}
+              </Button>
+            </Box>
+          </Box>
+        </Modal>
+
         <Modal open={hrApproveModal.open} onClose={hrApproveModal.loading ? undefined : closeHrApproveModal} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', p: 2, zIndex: 1600 }}>
           <Box sx={{ width: '100%', maxWidth: 440, borderRadius: 3, overflow: 'hidden', bgcolor: T.surface, boxShadow: '0 24px 64px rgba(0,0,0,0.22)' }}>
             <Box sx={{ px: 3, py: 2.25, background: T.headerGrad, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
