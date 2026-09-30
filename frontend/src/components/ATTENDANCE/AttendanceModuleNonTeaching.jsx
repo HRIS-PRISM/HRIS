@@ -70,7 +70,7 @@ import {
   useEmbeddedModuleAutoSearch,
   notifyModuleSaveSuccess,
 } from '../../utils/attendanceModuleEmbedded';
-import { ATTENDANCE_PAGE_BOTTOM_PAD, ATTENDANCE_PAGE_SCROLL_CSS, useAttendancePageScroll } from './attendanceFilterLayout';
+import { ATTENDANCE_PAGE_SCROLL_CSS, useAttendancePageScroll } from './attendanceFilterLayout';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePageAccess from '../../hooks/usePageAccess';
 import useAttendanceRealtimeRefresh from '../../hooks/useAttendanceRealtimeRefresh';
@@ -1231,7 +1231,7 @@ const FloatingTotalsBar = ({ totals, visible, onSave, saving, startDate, endDate
     <Box sx={{ width: '100%', maxWidth: '100%', minWidth: 0 }}>
       <Paper elevation={8} sx={{
         borderRadius: '12px', overflow: 'visible', width: '100%', maxWidth: '100%',
-        border: `1px solid ${T.accentBorder}`, bgcolor: '#fff', mt: 2, mb: 2,
+        border: `1px solid ${T.accentBorder}`, bgcolor: '#fff', mt: 2, mb: 0,
         boxShadow: '0 4px 24px rgba(0,0,0,0.10)',
       }}>
         <Box onClick={() => setExpanded(p => !p)} sx={{
@@ -2604,7 +2604,7 @@ setSuspensionByDate(scopedSuspensionByDate);
     <Fade in timeout={400}>
       <Box sx={embedded ? ATTENDANCE_EMBEDDED_ROOT_SX : {
         py: { xs: 1, md: 2 }, mt: { xs: 0, md: -2 }, mb: { xs: 1, md: 2 },
-        pb: ATTENDANCE_PAGE_BOTTOM_PAD,
+        pb: { xs: 7, md: 2 }, // just clears the fixed 45px footer (main already pads 40px on md+)
         width: '100vw', maxWidth: '100%',
         position: 'relative', left: '53%', transform: 'translateX(-51%)',
         px: { xs: 2, sm: 3, md: 6 },
@@ -3195,10 +3195,11 @@ setSuspensionByDate(scopedSuspensionByDate);
         <FloatingTotalsBar totals={totals} visible={attendanceData.length > 0} onSave={saveOverallAttendance} saving={saving} startDate={startDate} endDate={endDate} showSaveButton />
         </Box>
 
-        {/* Employee roster — right sidebar. Sticky so it stays in view while the
-            results table scrolls, with the card capped to the viewport. */}
-        <Box sx={{ minWidth: 0, width: '100%', display: { xs: 'none', lg: 'block' }, position: 'sticky', top: 12 }}>
+        {/* Employee roster — right sidebar. Stretches to the full height of the
+            results column and fits as many employees per page as there is room for. */}
+        <Box sx={{ minWidth: 0, width: '100%', display: { xs: 'none', lg: 'block' }, alignSelf: 'stretch', position: 'relative', minHeight: 420 }}>
           <AttendanceRosterSidebar
+            fillHeight
             themeT={T}
             year={rosterYear}
             month={rosterMonth}
@@ -3242,7 +3243,7 @@ setSuspensionByDate(scopedSuspensionByDate);
         />
 
         <Zoom in={showScrollTop}>
-          <Fab size="small" sx={{ position: 'fixed', bottom: 24, right: 45, zIndex: 1000, bgcolor: T.accent, color: '#fff', '&:hover': { bgcolor: T.accentDark }, boxShadow: `0 4px 14px ${alpha(T.accent, 0.35)}` }} onClick={scrollToTop}>
+          <Fab size="small" sx={{ position: 'fixed', bottom: 64, right: 24, zIndex: 1000, display: { xs: 'inline-flex', lg: 'none' }, bgcolor: T.accent, color: '#fff', '&:hover': { bgcolor: T.accentDark }, boxShadow: `0 4px 14px ${alpha(T.accent, 0.35)}` }} onClick={scrollToTop}>
             <KeyboardArrowUp />
           </Fab>
         </Zoom>

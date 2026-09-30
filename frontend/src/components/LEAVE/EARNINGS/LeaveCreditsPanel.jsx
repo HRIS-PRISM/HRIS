@@ -113,7 +113,7 @@ export const LeaveCreditsPanel = ({
     <Box component="section" aria-labelledby="leave-credits-h" sx={{ mb: 1.5, pb: 1.5, borderBottom: `1px solid ${S.divider}` }}>
       <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1.25, flexWrap: "wrap", mb: 1 }}>
         <Typography id="leave-credits-h" component="h2" sx={{ m: 0, fontSize: "1.05rem", fontWeight: 700, fontFamily: S.font, color: S.text }}>
-          Leave credits
+          Credits Balances
         </Typography>
         <Box component="span" sx={{ display: "inline-flex", alignItems: "center", gap: "6px", px: "9px", py: "2px", borderRadius: 99, bgcolor: S.accentFaint, color: S.accent, fontWeight: 700, fontSize: ".64rem", fontFamily: S.font }}>
           Read-only · from Leave Assignment

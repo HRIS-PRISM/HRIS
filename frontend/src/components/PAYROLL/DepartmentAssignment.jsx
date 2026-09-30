@@ -24,6 +24,7 @@ import AccessDenied from '../AccessDenied';
 import LoadingOverlay from '../LoadingOverlay';
 import SuccessfulOverlay from '../SuccessfulOverlay';
 import usePageAccess from '../../hooks/usePageAccess';
+import DuplicateAssignmentsWarning from './DuplicateAssignmentsWarning';
 import { styled, alpha } from '@mui/material/styles';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePayrollRealtimeRefresh from '../../hooks/usePayrollRealtimeRefresh';
@@ -1692,6 +1693,9 @@ const DepartmentAssignment = () => {
               </Box>
             </Box>
           </SectionCard>
+
+          {/* Duplicate assignments (e.g. "22415839" and "22415839-M") — warn + review */}
+          <DuplicateAssignmentsWarning refreshKey={data} onChanged={fetchAssignments} />
 
           <Grid container spacing={2}>
             {/* LEFT: Assign Form */}

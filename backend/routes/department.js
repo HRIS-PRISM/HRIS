@@ -97,6 +97,69 @@ const resolveBudgetTarget = (value, budgetType) => new Promise((resolve) => {
   });
 });
 
+/**
+ * Guards against duplicate / invalid employee entries in department_assignment.
+ *  - The employee number must be a registered user (users.employeeNumber). A variant
+ *    such as "22415839-M" is rejected, with the registered employee it most likely
+ *    means suggested (MySQL would otherwise treat "22415839-M" as 22415839 in joins
+ *    and show that employee twice, e.g. in Job Order payroll).
+ *  - `excludeId` (edits): the employee may not already have a different assignment row.
+ * Resolves { employeeNumber, name } on success, or { status, error } on failure.
+ */
+const verifyAssignmentEmployee = async (rawEmployeeNumber, { excludeId = null } = {}) => {
+  const emp = String(rawEmployeeNumber ?? '').trim();
+  if (!emp) return { status: 400, error: 'Employee Number is required' };
+
+  const [users] = await db.promise().query(
+    `SELECT u.employeeNumber,
+            CONCAT_WS(', ', p.lastName, CONCAT_WS(' ', p.firstName, p.middleName, p.nameExtension)) AS name
+     FROM users u
+     LEFT JOIN person_table p ON p.agencyEmployeeNum = u.employeeNumber
+     WHERE TRIM(u.employeeNumber) = ?
+     LIMIT 1`,
+    [emp],
+  );
+  if (!users.length) {
+    const base = (emp.match(/^\d+/) || [''])[0];
+    let hint = '';
+    if (base && base !== emp) {
+      const [similar] = await db.promise().query(
+        `SELECT u.employeeNumber,
+                CONCAT_WS(', ', p.lastName, CONCAT_WS(' ', p.firstName, p.middleName)) AS name
+         FROM users u
+         LEFT JOIN person_table p ON p.agencyEmployeeNum = u.employeeNumber
+         WHERE TRIM(u.employeeNumber) = ?
+         LIMIT 1`,
+        [base],
+      );
+      if (similar.length) {
+        hint = ` Did you mean ${similar[0].employeeNumber}${similar[0].name ? ` (${String(similar[0].name).trim()})` : ''}? That employee is already registered — use their exact employee number.`;
+      }
+    }
+    return {
+      status: 422,
+      error: `Employee number "${emp}" is not a registered employee, so it cannot be assigned.${hint}`,
+    };
+  }
+
+  if (excludeId != null) {
+    const [others] = await db.promise().query(
+      `SELECT id, code FROM department_assignment
+       WHERE TRIM(employeeNumber) = ? AND id <> ?
+       ORDER BY id DESC LIMIT 1`,
+      [emp, excludeId],
+    );
+    if (others.length) {
+      return {
+        status: 409,
+        error: `Employee ${emp} already has a department assignment${others[0].code ? ` (${others[0].code})` : ''}. Edit that assignment instead of creating a duplicate.`,
+      };
+    }
+  }
+
+  return { employeeNumber: String(users[0].employeeNumber).trim(), name: users[0].name ? String(users[0].name).trim() : null };
+};
+
 // GET all department table records
 router.get('/api/department-table', (req, res) => {
   db.query('SELECT * FROM department_table', (err, results) => {
@@ -196,6 +259,69 @@ router.get('/api/department-assignment', (req, res) => {
 // GET every employee with their assignment (if any), so the Department Assignment
 // page can show who still has no department code / budget target set. Employees
 // without a department_assignment row come back with null assignment fields.
+// GET duplicate department assignments: employees with more than one assignment row,
+// including variant employee numbers (e.g. "22415839" and "22415839-M"). For each
+// group, `keepId` is the row the system actually uses (latest row under the registered
+// number); the others are the extras to remove. Read-only.
+router.get('/api/department-assignment-duplicates', async (req, res) => {
+  try {
+    const [rows] = await db.promise().query(
+      `SELECT id, employeeNumber, code, budgetCode, budgetType, name FROM department_assignment ORDER BY id`,
+    );
+    const [users] = await db.promise().query(
+      `SELECT TRIM(u.employeeNumber) AS employeeNumber,
+              CONCAT_WS(', ', p.lastName, CONCAT_WS(' ', p.firstName, p.middleName, p.nameExtension)) AS name
+       FROM users u
+       LEFT JOIN person_table p ON p.agencyEmployeeNum = u.employeeNumber`,
+    );
+    const registered = new Map(users.map((u) => [String(u.employeeNumber), u.name ? String(u.name).trim() : '']));
+    // Same employee = same leading digits, ignoring leading zeros ("0004", "4", "22415839-M" → "22415839")
+    const baseOf = (v) => {
+      const m = String(v ?? '').trim().match(/^\d+/);
+      return m ? String(Number(m[0])) : '';
+    };
+
+    const groups = new Map();
+    for (const r of rows) {
+      const base = baseOf(r.employeeNumber);
+      if (!base) continue;
+      if (!groups.has(base)) groups.set(base, []);
+      groups.get(base).push(r);
+    }
+
+    const duplicates = [];
+    for (const [base, list] of groups) {
+      if (list.length < 2) continue;
+      const withFlags = list.map((r) => {
+        const emp = String(r.employeeNumber ?? '').trim();
+        return {
+          id: r.id,
+          employeeNumber: emp,
+          code: r.code || '',
+          budgetCode: r.budgetCode || '',
+          budgetType: r.budgetType || '',
+          registered: registered.has(emp),
+          variant: emp !== base && !/^0*\d+$/.test(emp),
+        };
+      });
+      const regRows = withFlags.filter((r) => r.registered);
+      const keepId = (regRows.length ? regRows : withFlags).reduce((m, r) => Math.max(m, Number(r.id)), 0);
+      const regEmp = regRows[0]?.employeeNumber || base;
+      duplicates.push({
+        employeeNumber: regEmp,
+        name: registered.get(regEmp) || list.find((r) => r.name)?.name || '',
+        keepId,
+        rows: withFlags.map((r) => ({ ...r, keep: Number(r.id) === keepId })),
+      });
+    }
+    duplicates.sort((a, b) => b.rows.length - a.rows.length || a.employeeNumber.localeCompare(b.employeeNumber));
+    res.json({ duplicates, extraRows: duplicates.reduce((n, d) => n + d.rows.length - 1, 0) });
+  } catch (err) {
+    console.error('department-assignment duplicates:', err);
+    res.status(500).json({ error: 'Could not check for duplicate assignments.' });
+  }
+});
+
 router.get('/api/department-assignment-status', (req, res) => {
   const sql = `
     SELECT
@@ -247,10 +373,20 @@ router.get('/api/department-assignment/:id', (req, res) => {
 
 // POST: Add a new department assignment
 router.post('/api/department-assignment', async (req, res) => {
-  const { code, name, employeeNumber } = req.body;
+  const { code } = req.body;
   const budgetType = normalizeBudgetType(req.body.budgetType);
-  if (!employeeNumber)
-    return res.status(400).send('Employee Number is required');
+
+  // Only registered employees, stored with their exact employee number (no "…-M" variants).
+  let verified;
+  try {
+    verified = await verifyAssignmentEmployee(req.body.employeeNumber);
+  } catch (e) {
+    console.error('department-assignment employee check:', e);
+    return res.status(500).json({ error: 'Could not verify the employee number.' });
+  }
+  if (verified.error) return res.status(verified.status).json({ error: verified.error });
+  const employeeNumber = verified.employeeNumber;
+  const name = req.body.name || verified.name;
 
   const budgetTarget = await resolveBudgetTarget(req.body.budgetCode, budgetType);
   if (budgetTarget.error) return res.status(422).json({ error: budgetTarget.error });
@@ -341,8 +477,26 @@ router.post('/api/department-assignment', async (req, res) => {
 // PUT: Update a department assignment
 router.put('/api/department-assignment/:id', async (req, res) => {
   const { id } = req.params;
-  const { code, name, employeeNumber } = req.body;
+  const { code } = req.body;
   const budgetType = normalizeBudgetType(req.body.budgetType);
+
+  // Registered employee only. When the edit moves the row to a DIFFERENT employee, that
+  // employee must not already have an assignment (existing duplicates of the same
+  // employee can still be edited — they are cleaned up from the duplicates warning).
+  let verified;
+  try {
+    const [current] = await db.promise().query('SELECT employeeNumber FROM department_assignment WHERE id = ?', [id]);
+    if (!current.length) return res.status(404).json({ error: 'Department assignment not found' });
+    const sameEmployee =
+      String(current[0].employeeNumber ?? '').trim() === String(req.body.employeeNumber ?? '').trim();
+    verified = await verifyAssignmentEmployee(req.body.employeeNumber, { excludeId: sameEmployee ? null : id });
+  } catch (e) {
+    console.error('department-assignment employee check:', e);
+    return res.status(500).json({ error: 'Could not verify the employee number.' });
+  }
+  if (verified.error) return res.status(verified.status).json({ error: verified.error });
+  const employeeNumber = verified.employeeNumber;
+  const name = req.body.name || verified.name;
 
   const budgetTarget = await resolveBudgetTarget(req.body.budgetCode, budgetType);
   if (budgetTarget.error) return res.status(422).json({ error: budgetTarget.error });

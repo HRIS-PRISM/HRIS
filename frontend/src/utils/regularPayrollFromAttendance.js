@@ -6,19 +6,42 @@ export const payrollAuthHeaders = () => {
   return { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } };
 };
 
-/** Full row from GET /employment-category/:employeeNumber (joins employment_type_config). */
+/**
+ * Full row from GET /employment-category/:employeeNumber (joins employment_type_config).
+ * `quiet=1` skips the per-lookup "view" audit entry — these are background eligibility
+ * checks, not someone opening the employee's record.
+ */
 export async function fetchEmploymentCategoryRow(empNumber, getAuthHeaders = payrollAuthHeaders) {
   try {
+    const cfg = getAuthHeaders();
     const response = await axios.get(
-      `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category/${empNumber}`,
-      getAuthHeaders(),
+      `${API_BASE_URL}/EmploymentCategoryRoutes/employment-category/${encodeURIComponent(empNumber)}`,
+      { ...cfg, params: { ...(cfg?.params || {}), quiet: 1 } },
     );
     return response.data;
   } catch (error) {
-    console.error('Error fetching employment category:', error);
+    if (error?.response?.status !== 404) console.error('Error fetching employment category:', error);
     return null;
   }
 }
+
+/** employeeNumber → category row (null when none), looked up in parallel, once per employee. */
+export async function fetchEmploymentCategoryRows(empNumbers, getAuthHeaders = payrollAuthHeaders) {
+  const unique = [...new Set((empNumbers || []).map((e) => String(e ?? '').trim()).filter(Boolean))];
+  const rows = await Promise.all(unique.map((e) => fetchEmploymentCategoryRow(e, getAuthHeaders)));
+  return new Map(unique.map((e, i) => [e, rows[i]]));
+}
+
+/** The one employee identifier used for payroll records everywhere. */
+export const recordEmployeeNumber = (record) =>
+  String(record?.personID ?? record?.employeeNumber ?? '').trim();
+
+/** True when the employee has an employment category on file. */
+export const hasEmploymentCategory = (row) =>
+  Boolean(row) && row.employmentCategory != null && row.employmentCategory !== '';
+
+/** "Job Order - Undergraduate" / "Non-Academic | Job Order - Graduate" / "JO …" */
+const JOB_ORDER_NAME = /\bjob[\s-]*order\b/i;
 
 export async function fetchEmploymentCategory(empNumber, getAuthHeaders = payrollAuthHeaders) {
   const row = await fetchEmploymentCategoryRow(empNumber, getAuthHeaders);
@@ -28,40 +51,75 @@ export async function fetchEmploymentCategory(empNumber, getAuthHeaders = payrol
 }
 
 /**
- * Job Order (excluded from regular payroll): legacy numeric codes 0–1, or Manage Types group "J0".
+ * Job Order employment category (paid through Job Order payroll, never Regular payroll).
+ *
+ * Decided by the category's NAME as set up in Employment Category, so every Job Order
+ * type counts — "Job Order - Graduate", "Job Order - Undergraduate" and any added later —
+ * not by a hard-coded id. Kept for older data: legacy ids 0–1, a group named "JO"/"J0",
+ * and a custom category written as Job Order.
  */
 export function isJobOrderEmploymentCategory(row) {
-  if (!row || row.employmentCategory == null || row.employmentCategory === '') return false;
-  const id = Number(row.employmentCategory);
-  if (id === 0 || id === 1) return true;
-  const pg = String(row.parentGroup ?? '')
-    .trim()
-    .toUpperCase();
-  return pg === 'J0';
+  if (!hasEmploymentCategory(row)) return false;
+  const names = [row.typeName, row.parentGroup, row.categoryLabel, row.customCategory]
+    .map((v) => String(v ?? '').trim())
+    .filter(Boolean);
+  if (names.some((n) => JOB_ORDER_NAME.test(n))) return true;
+  const group = String(row.parentGroup ?? '').trim().toUpperCase();
+  if (group === 'JO' || group === 'J0') return true;
+  // Legacy numeric codes (before Manage Types) — only when no named type is attached
+  if (!row.typeName) {
+    const id = Number(row.employmentCategory);
+    if (id === 0 || id === 1) return true;
+  }
+  return false;
 }
 
 /**
- * Regular payroll: any assigned employment_type_config id except Job Order (see isJobOrderEmploymentCategory).
+ * Split attendance records by payroll type: Job Order vs Regular, plus records whose
+ * employee has no employment category (cannot go to either payroll).
+ * @returns {Promise<{ jobOrder: object[], regular: object[], missingCategory: object[], categoryByEmployee: Map }>}
+ */
+export async function classifyRecordsForPayroll(attendanceData, getAuthHeaders = payrollAuthHeaders) {
+  const rows = Array.isArray(attendanceData) ? attendanceData : [];
+  const categoryByEmployee = await fetchEmploymentCategoryRows(rows.map(recordEmployeeNumber), getAuthHeaders);
+  const jobOrder = [];
+  const regular = [];
+  const missingCategory = [];
+  for (const record of rows) {
+    const cat = categoryByEmployee.get(recordEmployeeNumber(record));
+    if (!hasEmploymentCategory(cat)) missingCategory.push(record);
+    else if (isJobOrderEmploymentCategory(cat)) jobOrder.push(record);
+    else regular.push(record);
+  }
+  return { jobOrder, regular, missingCategory, categoryByEmployee };
+}
+
+/** "Non-Academic | Job Order - Graduate" style label for messages. */
+export const employmentCategoryLabel = (row) => {
+  if (!row) return 'no employment category';
+  if (row.categoryLabel) return row.categoryLabel;
+  if (row.parentGroup && row.typeName) return `${row.parentGroup} | ${row.typeName}`;
+  return row.typeName || row.customCategory || 'no employment category';
+};
+
+/**
+ * Regular payroll: any employee with an employment category except Job Order.
  * @returns {{ filteredRecords: object[], invalidRecords: { employeeNumber: string, reason: string }[] }}
  */
 export async function filterRecordsForRegularPayroll(attendanceData, getAuthHeaders = payrollAuthHeaders) {
-  const filteredRecords = [];
-  const invalidRecords = [];
-  const rows = Array.isArray(attendanceData) ? attendanceData : [];
-  for (const record of rows) {
-    const empNum = record.personID || record.employeeNumber;
-    const catRow = await fetchEmploymentCategoryRow(empNum, getAuthHeaders);
-    if (!catRow || catRow.employmentCategory == null || catRow.employmentCategory === '') {
-      invalidRecords.push({ employeeNumber: empNum, reason: 'Employment category not found in system' });
-      continue;
-    }
-    if (isJobOrderEmploymentCategory(catRow)) {
-      invalidRecords.push({ employeeNumber: empNum, reason: 'Job Order (JO)' });
-      continue;
-    }
-    filteredRecords.push(record);
-  }
-  return { filteredRecords, invalidRecords };
+  const { jobOrder, regular, missingCategory, categoryByEmployee } =
+    await classifyRecordsForPayroll(attendanceData, getAuthHeaders);
+  const invalidRecords = [
+    ...missingCategory.map((r) => ({
+      employeeNumber: recordEmployeeNumber(r),
+      reason: 'No employment category — set it in Employment Category first',
+    })),
+    ...jobOrder.map((r) => ({
+      employeeNumber: recordEmployeeNumber(r),
+      reason: `Job Order (${employmentCategoryLabel(categoryByEmployee.get(recordEmployeeNumber(r)))}) — use Job Order payroll`,
+    })),
+  ];
+  return { filteredRecords: regular, invalidRecords };
 }
 
 /**

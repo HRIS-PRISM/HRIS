@@ -1668,7 +1668,7 @@ const FloatingTotalsBar = ({
           border: `1px solid ${T.accentBorder}`,
           bgcolor: '#fff',
           mt: 2,
-          mb: 2,
+          mb: 0,
           boxShadow: '0 4px 24px rgba(0,0,0,0.10)',
         }}
       >
@@ -4155,7 +4155,7 @@ const AttendanceModuleFacultyDesignated = ({
           py: { xs: 1, md: 2 },
           mt: { xs: 0, md: -2 },
           mb: 0,
-          pb: ATTENDANCE_PAGE_BOTTOM_PAD,
+          pb: { xs: 7, md: 2 }, // just clears the fixed 45px footer (main already pads 40px on md+)
           width: '100vw',
           maxWidth: '100%',
           position: 'relative',
@@ -5505,10 +5505,11 @@ const AttendanceModuleFacultyDesignated = ({
         />
         </Box>
 
-        {/* Employee roster — right sidebar. Sticky so it stays in view while the
-            results table scrolls, with the card capped to the viewport. */}
-        <Box sx={{ minWidth: 0, width: '100%', display: { xs: 'none', lg: 'block' }, position: 'sticky', top: 12 }}>
+        {/* Employee roster — right sidebar. Stretches to the full height of the
+            results column and fits as many employees per page as there is room for. */}
+        <Box sx={{ minWidth: 0, width: '100%', display: { xs: 'none', lg: 'block' }, alignSelf: 'stretch', position: 'relative', minHeight: 420 }}>
           <AttendanceRosterSidebar
+            fillHeight
             themeT={T}
             year={rosterYear}
             month={rosterMonth}
@@ -5574,8 +5575,9 @@ const AttendanceModuleFacultyDesignated = ({
             size="small"
             sx={{
               position: 'fixed',
-              bottom: 24,
-              right: 45,
+              bottom: 64,
+              right: 24,
+              display: { xs: 'inline-flex', lg: 'none' },
               zIndex: 1000,
               bgcolor: T.accent,
               color: '#fff',

@@ -258,61 +258,6 @@ function getRowPeriodYearMonth(row) {
   return { y, m };
 }
 
-// ─── Shared header cell style ─────────────────────────────────────────────────
-
-const ColHeader = ({ icon: Icon, label, children }) => (
-  <Box
-    sx={{
-      display: "flex",
-      alignItems: "center",
-      gap: 0.75,
-      px: 2,
-      py: 1.1,
-      borderBottom: `1px solid ${T.divider}`,
-      bgcolor: "rgba(0,0,0,0.02)",
-      flexShrink: 0,
-    }}
-  >
-    {Icon && <Icon sx={{ fontSize: 13, color: T.accent }} />}
-    <Typography
-      sx={{
-        fontSize: "0.65rem",
-        fontWeight: 800,
-        color: T.accent,
-        fontFamily: T.poppins,
-        textTransform: "uppercase",
-        letterSpacing: "0.07em",
-        flex: 1,
-      }}
-    >
-      {label}
-    </Typography>
-    {children}
-  </Box>
-);
-
-const StatPill = ({ label, value, accent = false }) => (
-  <Box
-    sx={{
-      display: "flex",
-      alignItems: "center",
-      gap: 0.6,
-      px: 1.1,
-      py: 0.45,
-      borderRadius: "20px",
-      bgcolor: accent ? alpha(T.accent, 0.08) : "rgba(0,0,0,0.04)",
-      border: `1px solid ${accent ? T.accentBorder : "rgba(0,0,0,0.09)"}`,
-    }}
-  >
-    <Typography sx={{ fontSize: "0.62rem", fontWeight: 700, color: accent ? T.accent : T.faint, fontFamily: T.poppins, lineHeight: 1 }}>
-      {value}
-    </Typography>
-    <Typography sx={{ fontSize: "0.58rem", fontWeight: 500, color: T.faint, fontFamily: T.poppins, lineHeight: 1 }}>
-      {label}
-    </Typography>
-  </Box>
-);
-
 // ─── Main component ───────────────────────────────────────────────────────────
 
 const ABSTRACT_BATCH_KEY = "hris.abstractExcelYearBatch.v1";
@@ -1029,50 +974,72 @@ export function Abstract({
   };
 
   return (
-    <Box sx={{ display: "flex", flexDirection: "column", height: "100%", fontFamily: T.poppins }}>
+    <Box sx={{ display: "flex", flexDirection: "column", height: "100%", fontFamily: T.poppins, bgcolor: "#fff" }}>
 
-      {/* ── Column header ── */}
-      <ColHeader icon={AbstractTabIcon} label="Abstract · attendance_result">
-        <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-          {(allAbstractRows.length > 0 || loadingFetch) && (
-            <>
-              {loadingFetch && <CircularProgress size={16} sx={{ color: T.accent }} />}
-              {!loadingFetch && (
-                <>
-                  <StatPill
-                    value={hasActiveFilter ? `${displayRows.length}/${allAbstractRows.length}` : displayRows.length}
-                    label="records"
-                  />
-                  <StatPill value={deductionRows.length} label="deductions" accent />
-                  <StatPill value={coveredRows.length} label="covered" />
-                </>
-              )}
-            </>
+      {/* ── Header: title + summary numbers ── */}
+      <Box
+        sx={{
+          px: 2.5, py: 1.75, flexShrink: 0,
+          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 2, flexWrap: "wrap",
+          borderBottom: `1px solid ${T.divider}`,
+          background: "linear-gradient(180deg, rgba(109,35,35,0.035) 0%, #fff 100%)",
+        }}
+      >
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, minWidth: 0 }}>
+          <Box sx={{ width: 38, height: 38, borderRadius: "10px", bgcolor: T.accent, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, boxShadow: `0 4px 12px ${alpha(T.accent, 0.25)}` }}>
+            <AbstractTabIcon sx={{ fontSize: 20 }} />
+          </Box>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography sx={{ fontSize: "1rem", fontWeight: 800, color: T.text, fontFamily: T.poppins, lineHeight: 1.2 }}>
+              Abstract
+            </Typography>
+            <Typography sx={{ fontSize: "0.72rem", color: T.faint, fontFamily: T.poppins }}>
+              Attendance results for {filterSummary} — review, then send to payroll
+            </Typography>
+          </Box>
+        </Box>
+
+        <Box sx={{ display: "flex", alignItems: "stretch", gap: 1 }}>
+          {loadingFetch ? (
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1, px: 1.5 }}>
+              <CircularProgress size={16} sx={{ color: T.accent }} />
+              <Typography sx={{ fontSize: "0.72rem", color: T.muted, fontFamily: T.poppins }}>Loading…</Typography>
+            </Box>
+          ) : (
+            [
+              { label: "Records", value: hasActiveFilter ? `${displayRows.length}/${allAbstractRows.length}` : displayRows.length, color: T.text },
+              { label: "Deductions", value: deductionRows.length, color: T.accent },
+              { label: "Covered", value: coveredRows.length, color: "#1e6b22" },
+            ].map((s) => (
+              <Box key={s.label} sx={{ minWidth: 84, px: 1.5, py: 0.75, borderRadius: "10px", border: `1px solid ${T.divider}`, bgcolor: "#fff" }}>
+                <Typography sx={{ fontSize: "1.05rem", fontWeight: 800, color: s.color, fontFamily: T.poppins, lineHeight: 1.15, fontVariantNumeric: "tabular-nums" }}>
+                  {s.value}
+                </Typography>
+                <Typography sx={{ fontSize: "0.6rem", fontWeight: 700, color: T.faint, fontFamily: T.poppins, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                  {s.label}
+                </Typography>
+              </Box>
+            ))
           )}
         </Box>
-      </ColHeader>
+      </Box>
 
-      {/* ── Filter bar: search employee, filter by year/month, view all ── */}
-      {allAbstractRows.length > 0 && (
-        <Box
-          sx={{
-            px: 2,
-            py: 1,
-            borderBottom: `1px solid ${T.divider}`,
-            bgcolor: "#fff",
-            display: "flex",
-            alignItems: "center",
-            gap: 1,
-            flexWrap: "wrap",
-            flexShrink: 0,
-          }}
-        >
+      {/* ── One bar: filters (left) + actions (right) ── */}
+      <Box
+        sx={{
+          px: 2.5, py: 1.25, flexShrink: 0,
+          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1, flexWrap: "wrap",
+          borderBottom: `1px solid ${T.divider}`,
+        }}
+      >
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", flex: "1 1 420px", minWidth: 0 }}>
           <TextField
             size="small"
             placeholder="Search employee # or name…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            sx={{ ...filterInputSx, minWidth: 220, flex: "1 1 220px" }}
+            disabled={allAbstractRows.length === 0}
+            sx={{ ...filterInputSx, minWidth: 200, flex: "1 1 220px", maxWidth: 320 }}
             InputProps={{
               startAdornment: (
                 <InputAdornment position="start">
@@ -1081,162 +1048,61 @@ export function Abstract({
               ),
             }}
           />
-
-          <FormControl size="small" sx={{ ...filterInputSx, minWidth: 110 }}>
-            <Select
-              value={filterYear}
-              onChange={(e) => setFilterYear(e.target.value)}
-              displayEmpty
-              sx={{ borderRadius: "8px" }}
-            >
+          <FormControl size="small" sx={{ ...filterInputSx, minWidth: 110 }} disabled={allAbstractRows.length === 0}>
+            <Select value={filterYear} onChange={(e) => setFilterYear(e.target.value)} displayEmpty sx={{ borderRadius: "8px" }}>
               <MenuItem value="all">All years</MenuItem>
               {availableYears.map((y) => (
                 <MenuItem key={y} value={String(y)}>{y}</MenuItem>
               ))}
             </Select>
           </FormControl>
-
-          <FormControl size="small" sx={{ ...filterInputSx, minWidth: 130 }}>
-            <Select
-              value={filterMonth}
-              onChange={(e) => setFilterMonth(e.target.value)}
-              displayEmpty
-              sx={{ borderRadius: "8px" }}
-            >
+          <FormControl size="small" sx={{ ...filterInputSx, minWidth: 120 }} disabled={allAbstractRows.length === 0}>
+            <Select value={filterMonth} onChange={(e) => setFilterMonth(e.target.value)} displayEmpty sx={{ borderRadius: "8px" }}>
               <MenuItem value="all">All months</MenuItem>
               {MONTH_ABBR.map((mo, idx) => (
                 <MenuItem key={mo} value={String(idx + 1)}>{mo}</MenuItem>
               ))}
             </Select>
           </FormControl>
-
           {hasActiveFilter && (
-            <Button
-              size="small"
-              onClick={clearFilters}
-              startIcon={<FilterAltOffIcon sx={{ fontSize: 14 }} />}
-              sx={{
-                fontSize: "0.72rem", fontWeight: 600, textTransform: "none",
-                fontFamily: T.poppins, color: T.muted, borderRadius: "8px",
-                px: 1.25, py: 0.5, border: `1px solid ${T.divider}`, bgcolor: "#fff",
-                "&:hover": { bgcolor: "rgba(0,0,0,0.03)", borderColor: "rgba(0,0,0,0.15)" },
-              }}
-            >
-              Reset filters
-            </Button>
+            <Tooltip title="Reset filters">
+              <IconButton
+                size="small"
+                onClick={clearFilters}
+                sx={{ border: `1px solid ${T.divider}`, borderRadius: "8px", color: T.muted, "&:hover": { color: T.accent, borderColor: T.accentBorder, bgcolor: T.accentFaint } }}
+              >
+                <FilterAltOffIcon sx={{ fontSize: 16 }} />
+              </IconButton>
+            </Tooltip>
           )}
         </Box>
-      )}
 
-      {/* ── Toolbar ── */}
-      <Box
-        sx={{
-          px: 2,
-          py: 1.1,
-          borderBottom: `1px solid ${T.divider}`,
-          bgcolor: T.accentFaint,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 1,
-          flexWrap: "wrap",
-          flexShrink: 0,
-        }}
-      >
-        {/* Legend */}
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
-          {[
-            { color: T.accent, label: "Salary deduction" },
-            { color: "#2e7d32", label: "Covered by leave" },
-            { color: "#1565c0", label: "Manually added" },
-          ].map(({ color, label }) => (
-            <Box key={label} sx={{ display: "flex", alignItems: "center", gap: 0.55 }}>
-              <Box sx={{ width: 7, height: 7, borderRadius: "50%", bgcolor: color, flexShrink: 0 }} />
-              <Typography sx={{ fontSize: "0.65rem", color: T.muted, fontFamily: T.poppins, fontWeight: 600 }}>
-                {label}
-              </Typography>
-            </Box>
-          ))}
-          <Typography sx={{ fontSize: "0.65rem", color: T.faint, fontFamily: T.poppins }}>
-            {filterSummary}
-          </Typography>
-        </Box>
-
-        {/* Actions */}
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, flexWrap: "wrap" }}>
-          {displayRows.length > 0 && (
-            <>
-              <Button
+          <Tooltip title="Refresh payroll status">
+            <span>
+              <IconButton
                 size="small"
-                variant="contained"
-                startIcon={
-                  submittingPayroll
-                    ? <CircularProgress size={11} sx={{ color: "#fff" }} />
-                    : <PaymentIcon sx={{ fontSize: 14 }} />
-                }
-                onClick={handleSendToPayroll}
-                disabled={submittingPayroll || selectedEligibleCount === 0}
-                sx={{
-                  fontSize: "0.72rem", fontWeight: 700, textTransform: "none",
-                  fontFamily: T.poppins, bgcolor: T.accent, borderRadius: "8px",
-                  px: 1.5, py: 0.5, boxShadow: "none", transition: "all 0.18s ease",
-                  "&:hover": { bgcolor: T.accentDark, boxShadow: "none", transform: "translateY(-1px)" },
-                  "&:active": { transform: "translateY(0)" },
-                  "&.Mui-disabled": { bgcolor: alpha(T.accent, 0.35), color: "#fff" },
-                }}
+                onClick={() => { fetchPayrollExistingPeriodKeys(); }}
+                disabled={refreshingKeys}
+                sx={{ border: `1px solid ${T.divider}`, borderRadius: "8px", color: T.muted, "&:hover": { color: T.accent, borderColor: T.accentBorder, bgcolor: T.accentFaint } }}
               >
-                {submittingPayroll ? "Submitting…" : `Send to payroll (${selectedEligibleCount})`}
-              </Button>
-
-              <Button
-                size="small"
-                onClick={selectAllEligiblePayroll}
-                disabled={eligiblePayrollRows.length === 0}
-                sx={{
-                  fontSize: "0.72rem", fontWeight: 600, textTransform: "none",
-                  fontFamily: T.poppins, color: T.accent, borderRadius: "8px",
-                  px: 1.25, py: 0.5, border: `1px solid ${T.accentBorder}`, bgcolor: "#fff",
-                  "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent },
-                  "&.Mui-disabled": { color: T.faint, borderColor: T.divider },
-                }}
-              >
-                Select all
-              </Button>
-
-              <Button
-                size="small"
-                onClick={clearPayrollSelection}
-                disabled={selectedPayrollKeys.size === 0}
-                sx={{
-                  fontSize: "0.72rem", fontWeight: 600, textTransform: "none",
-                  fontFamily: T.poppins, color: T.muted, borderRadius: "8px",
-                  px: 1.25, py: 0.5, border: `1px solid ${T.divider}`, bgcolor: "#fff",
-                  "&:hover": { bgcolor: "rgba(0,0,0,0.03)", borderColor: "rgba(0,0,0,0.15)" },
-                  "&.Mui-disabled": { color: T.faint, borderColor: T.divider },
-                }}
-              >
-                Clear
-              </Button>
-            </>
-          )}
+                {refreshingKeys ? <CircularProgress size={14} sx={{ color: T.accent }} /> : <RefreshIcon sx={{ fontSize: 16 }} />}
+              </IconButton>
+            </span>
+          </Tooltip>
 
           <Tooltip title={periodAbstractRows.length === 0 ? "No employees in this period to export" : "Export this month by department or employment category"}>
             <span>
               <Button
                 size="small"
-                startIcon={
-                  exportingExcel
-                    ? <CircularProgress size={11} sx={{ color: "#fff" }} />
-                    : <DownloadIcon sx={{ fontSize: 14 }} />
-                }
+                variant="outlined"
+                startIcon={exportingExcel ? <CircularProgress size={11} sx={{ color: T.accent }} /> : <DownloadIcon sx={{ fontSize: 15 }} />}
                 onClick={openExportDialog}
                 disabled={exportingExcel || periodAbstractRows.length === 0}
                 sx={{
-                  fontSize: "0.72rem", fontWeight: 700, textTransform: "none",
-                  fontFamily: T.poppins, color: "#fff", borderRadius: "8px",
-                  px: 1.25, py: 0.5, bgcolor: T.accent, boxShadow: "none",
-                  "&:hover": { bgcolor: T.accentDark, boxShadow: "none" },
-                  "&.Mui-disabled": { bgcolor: alpha(T.accent, 0.35), color: "#fff" },
+                  fontSize: "0.74rem", fontWeight: 700, textTransform: "none", fontFamily: T.poppins,
+                  color: T.accent, borderColor: alpha(T.accent, 0.35), borderRadius: "8px", px: 1.5, py: 0.55, bgcolor: "#fff",
+                  "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent },
                 }}
               >
                 Excel
@@ -1244,198 +1110,229 @@ export function Abstract({
             </span>
           </Tooltip>
 
-          <Button
-            size="small"
-            startIcon={
-              refreshingKeys
-                ? <CircularProgress size={11} sx={{ color: T.accent }} />
-                : <RefreshIcon sx={{ fontSize: 14 }} />
-            }
-            onClick={() => { fetchPayrollExistingPeriodKeys(); }}
-            disabled={refreshingKeys}
-            sx={{
-              fontSize: "0.72rem", fontWeight: 600, textTransform: "none",
-              fontFamily: T.poppins, color: T.muted, borderRadius: "8px",
-              px: 1.25, py: 0.5, border: `1px solid ${T.divider}`, bgcolor: "#fff",
-              "&:hover": { bgcolor: "rgba(0,0,0,0.03)", color: T.accent, borderColor: T.accentBorder },
-              "&.Mui-disabled": { color: T.faint },
-            }}
-          >
-            Refresh
-          </Button>
+          {displayRows.length > 0 && (
+            <Button
+              size="small"
+              variant="contained"
+              startIcon={submittingPayroll ? <CircularProgress size={11} sx={{ color: "#fff" }} /> : <PaymentIcon sx={{ fontSize: 15 }} />}
+              onClick={handleSendToPayroll}
+              disabled={submittingPayroll || selectedEligibleCount === 0}
+              sx={{
+                fontSize: "0.74rem", fontWeight: 700, textTransform: "none", fontFamily: T.poppins,
+                bgcolor: T.accent, borderRadius: "8px", px: 1.75, py: 0.6, boxShadow: `0 2px 8px ${alpha(T.accent, 0.25)}`,
+                "&:hover": { bgcolor: T.accentDark, boxShadow: `0 4px 12px ${alpha(T.accent, 0.3)}` },
+                "&.Mui-disabled": { bgcolor: alpha(T.accent, 0.3), color: "#fff", boxShadow: "none" },
+              }}
+            >
+              {submittingPayroll ? "Submitting…" : `Send to payroll${selectedEligibleCount ? ` (${selectedEligibleCount})` : ""}`}
+            </Button>
+          )}
         </Box>
       </Box>
 
-      {/* ── Alerts ── */}
-
-      {isEmpty && (
-        <Box sx={{ px: 2, pt: 1.5, pb: 0 }}>
-          <Alert
-            severity="info"
-            icon={<InfoOutlinedIcon sx={{ fontSize: 20 }} />}
-            sx={{
-              alignItems: "flex-start", fontFamily: T.poppins,
-              borderRadius: 1.75, border: `1px solid ${T.accentBorder}`, bgcolor: T.accentFaint,
-            }}
-          >
-            <Typography sx={{ fontWeight: 800, fontSize: "0.78rem", color: T.accent, fontFamily: T.poppins, mb: 0.3 }}>
-              No attendance_result records for this period
-            </Typography>
-            <Typography sx={{ fontSize: "0.72rem", color: T.muted, lineHeight: 1.55, fontFamily: T.poppins }}>
-              Nothing in <strong>attendance_result</strong> for <strong>{filterSummary}</strong>. 
-              Use the Salary Shortfall tab for the full merged registry. The ABSTRACT tab automatically 
-              shows all persisted <strong>attendance_result</strong> records once they are created.
-            </Typography>
-          </Alert>
+      {/* ── Empty states ── */}
+      {isEmpty && !loadingFetch && (
+        <Box sx={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", px: 3, py: 6 }}>
+          <Box sx={{ width: 64, height: 64, borderRadius: "50%", bgcolor: T.accentFaint, display: "flex", alignItems: "center", justifyContent: "center", mb: 1.5 }}>
+            <InfoOutlinedIcon sx={{ fontSize: 30, color: alpha(T.accent, 0.4) }} />
+          </Box>
+          <Typography sx={{ fontSize: "0.92rem", fontWeight: 700, color: T.muted, fontFamily: T.poppins, mb: 0.5 }}>
+            No attendance results for {filterSummary}
+          </Typography>
+          <Typography sx={{ fontSize: "0.76rem", color: T.faint, fontFamily: T.poppins, maxWidth: 460, lineHeight: 1.55 }}>
+            Records show up here automatically once they are created. Use the Salary Shortfall tab for the full merged registry.
+          </Typography>
         </Box>
       )}
 
       {isFilteredEmpty && (
-        <Box sx={{ px: 2, pt: 1.5, pb: 0 }}>
-          <Alert
-            severity="info"
-            icon={<InfoOutlinedIcon sx={{ fontSize: 20 }} />}
-            sx={{
-              alignItems: "center", fontFamily: T.poppins,
-              borderRadius: 1.75, border: `1px solid ${T.accentBorder}`, bgcolor: T.accentFaint,
-            }}
-            action={
-              <Button size="small" onClick={clearFilters} sx={{ fontFamily: T.poppins, textTransform: "none", fontWeight: 700, color: T.accent }}>
-                Reset filters
-              </Button>
-            }
-          >
-            <Typography sx={{ fontSize: "0.75rem", color: T.muted, fontFamily: T.poppins }}>
-              No records match your search / year / month filter. {allAbstractRows.length} record(s) found in total.
-            </Typography>
-          </Alert>
+        <Box sx={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", px: 3, py: 6 }}>
+          <Typography sx={{ fontSize: "0.9rem", fontWeight: 700, color: T.muted, fontFamily: T.poppins, mb: 0.5 }}>
+            No records match your search or filters
+          </Typography>
+          <Typography sx={{ fontSize: "0.76rem", color: T.faint, fontFamily: T.poppins, mb: 1.5 }}>
+            {allAbstractRows.length} record{allAbstractRows.length === 1 ? "" : "s"} in total.
+          </Typography>
+          <Button size="small" onClick={clearFilters} startIcon={<FilterAltOffIcon sx={{ fontSize: 15 }} />} sx={{ fontFamily: T.poppins, textTransform: "none", fontWeight: 700, color: T.accent }}>
+            Reset filters
+          </Button>
         </Box>
       )}
 
       {/* ── Employee cards ── */}
-      <Box sx={{ flex: 1, overflow: "hidden", px: 2, pt: 1.5, pb: 2, minHeight: 0, display: "flex", flexDirection: "column" }}>
-        {displayRows.length > 0 && (
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, px: 1.75, pb: 1, flexShrink: 0 }}>
-            <Tooltip title="Select all eligible rows">
-              <span>
-                <Checkbox
-                  size="small"
-                  checked={headerCheckboxState.checked}
-                  indeterminate={headerCheckboxState.indeterminate}
-                  onChange={(e) => toggleSelectAllEligible(e.target.checked)}
-                  disabled={eligiblePayrollRows.length === 0}
-                  sx={{ p: 0, color: alpha(T.accent, 0.4), "&.Mui-checked": { color: T.accent }, "&.MuiCheckbox-indeterminate": { color: T.accent }, "&.Mui-disabled": { color: "rgba(0,0,0,0.2)" } }}
-                />
-              </span>
-            </Tooltip>
-            <Typography sx={{ fontSize: "0.74rem", color: T.muted, fontFamily: T.poppins }}>
-              Select all eligible · {displayRows.length} employee row{displayRows.length === 1 ? "" : "s"}
-            </Typography>
+      {displayRows.length > 0 && (
+        <Box sx={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", bgcolor: "#faf8f8" }}>
+          {/* Selection row + legend */}
+          <Box sx={{ px: 2.5, py: 1, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1.5, flexWrap: "wrap", borderBottom: `1px solid ${T.divider}`, bgcolor: "#fff" }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Tooltip title="Select all eligible rows">
+                <span>
+                  <Checkbox
+                    size="small"
+                    checked={headerCheckboxState.checked}
+                    indeterminate={headerCheckboxState.indeterminate}
+                    onChange={(e) => toggleSelectAllEligible(e.target.checked)}
+                    disabled={eligiblePayrollRows.length === 0}
+                    sx={{ p: 0.25, color: alpha(T.accent, 0.4), "&.Mui-checked": { color: T.accent }, "&.MuiCheckbox-indeterminate": { color: T.accent }, "&.Mui-disabled": { color: "rgba(0,0,0,0.2)" } }}
+                  />
+                </span>
+              </Tooltip>
+              <Typography sx={{ fontSize: "0.74rem", color: T.muted, fontFamily: T.poppins }}>
+                {selectedPayrollKeys.size > 0
+                  ? <><Box component="span" sx={{ fontWeight: 700, color: T.accent }}>{selectedPayrollKeys.size} selected</Box> of {eligiblePayrollRows.length} eligible</>
+                  : `Select all eligible · ${eligiblePayrollRows.length} of ${displayRows.length}`}
+              </Typography>
+              {selectedPayrollKeys.size > 0 && selectedPayrollKeys.size < eligiblePayrollRows.length && (
+                <Button size="small" onClick={selectAllEligiblePayroll} sx={{ minWidth: 0, px: 1, py: 0.1, fontSize: "0.7rem", fontWeight: 700, textTransform: "none", fontFamily: T.poppins, color: T.accent, "&:hover": { bgcolor: T.accentFaint } }}>
+                  Select all
+                </Button>
+              )}
+              {selectedPayrollKeys.size > 0 && (
+                <Button size="small" onClick={clearPayrollSelection} sx={{ minWidth: 0, px: 1, py: 0.1, fontSize: "0.7rem", fontWeight: 700, textTransform: "none", fontFamily: T.poppins, color: T.muted, "&:hover": { color: T.accent, bgcolor: T.accentFaint } }}>
+                  Clear
+                </Button>
+              )}
+            </Box>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
+              {[
+                { color: T.accent, label: "Salary deduction" },
+                { color: "#2e7d32", label: "Covered by leave" },
+                { color: "#1565c0", label: "Manually added" },
+              ].map(({ color, label }) => (
+                <Box key={label} sx={{ display: "flex", alignItems: "center", gap: 0.55 }}>
+                  <Box sx={{ width: 8, height: 8, borderRadius: "2px", bgcolor: color, flexShrink: 0 }} />
+                  <Typography sx={{ fontSize: "0.66rem", color: T.muted, fontFamily: T.poppins, fontWeight: 600 }}>{label}</Typography>
+                </Box>
+              ))}
+            </Box>
           </Box>
-        )}
-        <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 1.25, pr: 0.5 }}>
-          {pagedRows.map((merged) => {
-            const rowKey    = merged.key;
-            const isDed     = merged.isDeduction;
-            const isManual  = !!merged.isManual;
-            const sent      = sentToPayrollKeys.has(rowKey);
-            const payrollDone = isRowAlreadyInPayrollProcessing(merged);
-            const open      = auditExpandedKeys.has(rowKey);
-            const sourceRows = Array.isArray(merged.abstractSourceRows) ? merged.abstractSourceRows : [];
-            const origH   = toNum(merged.originalHours);
-            const leaveH  = toNum(merged.leaveHoursUsed);
-            const unpaidH = toNum(merged.unpaidHours);
-            const status  = abstractStatusMeta(merged, isManual);
-            const bigColor = merged.allVoided ? T.faint : isManual ? "#0d47a1" : isDed ? T.accent : "#1e6b22";
 
-            const voidCodes = voidableLeaveCodes(sourceRows);
-            const voidReason = isManual
-              ? "Manually staged row — nothing to void."
-              : payrollDone || employeeYearInPayroll(payrollExistingPeriodKeys, merged.employeeNumber, merged.periodYear)
-                ? "A month of this year is already in Payroll Processing, so it cannot be voided. Remove it there first."
-                : voidCodes.length === 0
-                  ? "No active leave deductions to void (SC/CTO are voided from their own records)."
-                  : "";
+          <Box sx={{ flex: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 1, px: 2.5, py: 1.5 }}>
+            {pagedRows.map((merged) => {
+              const rowKey    = merged.key;
+              const isDed     = merged.isDeduction;
+              const isManual  = !!merged.isManual;
+              const sent      = sentToPayrollKeys.has(rowKey);
+              const payrollDone = isRowAlreadyInPayrollProcessing(merged);
+              const open      = auditExpandedKeys.has(rowKey);
+              const sourceRows = Array.isArray(merged.abstractSourceRows) ? merged.abstractSourceRows : [];
+              const origH   = toNum(merged.originalHours);
+              const leaveH  = toNum(merged.leaveHoursUsed);
+              const unpaidH = toNum(merged.unpaidHours);
+              const status  = abstractStatusMeta(merged, isManual);
+              const edgeColor = merged.allVoided ? "#bdbdbd" : isManual ? "#1565c0" : isDed ? T.accent : "#2e7d32";
+              const bigColor = merged.allVoided ? T.faint : isManual ? "#0d47a1" : isDed ? T.accent : "#1e6b22";
+              const initials = String(merged.name || "?").replace(/[^A-Za-z ,]/g, "").split(/[ ,]+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase() || "?";
 
-            const metricRows = [
-              { label: "Original", h: origH },
-              { label: "Leave-covered", h: leaveH },
-              { label: "Unpaid", h: unpaidH, strong: unpaidH > 0 },
-            ];
-            const numCell = { fontFamily: T.poppins, fontSize: "0.8rem", color: T.text, textAlign: "right", fontVariantNumeric: "tabular-nums", py: 1.1, borderBottom: `1px solid ${T.divider}` };
-            const lblCell = { fontFamily: T.poppins, fontSize: "0.8rem", color: T.muted, py: 1.1, borderBottom: `1px solid ${T.divider}` };
-            const headCell = { fontFamily: T.poppins, fontSize: "0.62rem", fontWeight: 700, color: `${T.muted} !important`, bgcolor: "transparent !important", letterSpacing: "0.06em", textTransform: "uppercase", py: 0.9, borderBottom: `1px solid ${T.divider}` };
+              const voidCodes = voidableLeaveCodes(sourceRows);
+              const voidReason = isManual
+                ? "Manually staged row — nothing to void."
+                : payrollDone || employeeYearInPayroll(payrollExistingPeriodKeys, merged.employeeNumber, merged.periodYear)
+                  ? "A month of this year is already in Payroll Processing, so it cannot be voided. Remove it there first."
+                  : voidCodes.length === 0
+                    ? "No active leave deductions to void (SC/CTO are voided from their own records)."
+                    : "";
 
-            return (
-              <Box key={rowKey} sx={{ border: `1px solid ${T.divider}`, borderRadius: "12px", bgcolor: "#fff", flexShrink: 0, overflow: "hidden", opacity: merged.allVoided ? 0.75 : 1 }}>
-                {/* Summary */}
+              const metrics = [
+                { label: "Original", h: origH, color: T.text },
+                { label: "Leave-covered", h: leaveH, color: "#1e6b22" },
+                { label: "Unpaid", h: unpaidH, color: unpaidH > 0 ? "#b3261e" : T.text },
+              ];
+              const evHead = { fontFamily: T.poppins, fontSize: "0.6rem", fontWeight: 700, color: `${T.faint} !important`, bgcolor: "transparent !important", letterSpacing: "0.07em", textTransform: "uppercase", py: 0.75, borderBottom: `1px solid ${T.divider}` };
+              const evCell = { fontFamily: T.poppins, fontSize: "0.78rem", color: T.text, py: 0.9, borderBottom: `1px solid ${T.divider}` };
+
+              return (
                 <Box
-                  role="button"
-                  tabIndex={0}
-                  aria-expanded={open}
-                  onClick={() => toggleAuditExpand(rowKey)}
-                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleAuditExpand(rowKey); } }}
-                  sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, px: 2, py: 1.5, cursor: "pointer", "&:hover": { bgcolor: "rgba(0,0,0,0.015)" }, "&:focus-visible": { outline: `2px solid ${T.accent}`, outlineOffset: -2 } }}
+                  key={rowKey}
+                  sx={{
+                    position: "relative", flexShrink: 0, overflow: "hidden",
+                    border: `1px solid ${open ? alpha(edgeColor, 0.35) : T.divider}`, borderRadius: "12px", bgcolor: "#fff",
+                    boxShadow: open ? `0 6px 18px -8px ${alpha(edgeColor, 0.35)}` : "0 1px 2px rgba(0,0,0,0.04)",
+                    opacity: merged.allVoided ? 0.7 : 1, transition: "box-shadow 0.15s ease, border-color 0.15s ease",
+                    "&::before": { content: '""', position: "absolute", left: 0, top: 0, bottom: 0, width: 4, bgcolor: edgeColor },
+                  }}
                 >
-                  <Box onClick={(e) => e.stopPropagation()} sx={{ pt: 0.25, flexShrink: 0 }}>
-                    {sent ? (
-                      <Tooltip title="Sent to payroll this session.">
-                        <Chip label="✓ Sent" size="small" sx={{ height: 20, fontSize: "0.6rem", fontWeight: 700, bgcolor: T.sentChipBg, color: T.sentChipColor, border: `1px solid ${T.sentChipBorder}`, fontFamily: T.poppins }} />
-                      </Tooltip>
-                    ) : payrollDone ? (
-                      <Tooltip title="Already in Payroll Processing for this period. Remove it there to re-send.">
-                        <Chip label="In payroll" size="small" sx={{ height: 20, fontSize: "0.6rem", fontWeight: 700, bgcolor: T.payrollDoneBg, color: T.payrollDoneColor, border: `1px solid ${T.payrollDoneBorder}`, fontFamily: T.poppins }} />
-                      </Tooltip>
-                    ) : (
-                      <Checkbox
-                        size="small"
-                        checked={selectedPayrollKeys.has(rowKey)}
-                        onChange={() => togglePayrollSelect(rowKey)}
-                        inputProps={{ "aria-label": `Select ${merged.name || merged.employeeNumber}` }}
-                        sx={{ p: 0, color: alpha(T.accent, 0.35), "&.Mui-checked": { color: T.accent } }}
-                      />
-                    )}
-                  </Box>
-
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Typography sx={{ fontSize: "0.9rem", fontWeight: 700, color: T.text, fontFamily: T.poppins }} noWrap>
-                      {merged.name ?? "—"}
-                    </Typography>
-                    <Typography sx={{ fontSize: "0.72rem", color: T.faint, fontFamily: T.poppins }}>
-                      #{merged.employeeNumber ?? "—"}{merged.period ? ` · ${merged.period}` : ""}{merged.createdAt ? ` · ${fmtCreatedAt(merged.createdAt)}` : ""}
-                    </Typography>
-                    <Box sx={{ display: "flex", alignItems: "center", flexWrap: "wrap", columnGap: 0.75, rowGap: 0.25, mt: 0.75 }}>
-                      <Typography component="span" sx={{ fontSize: "0.78rem", fontWeight: 700, color: T.text, fontFamily: T.poppins }}>
-                        {merged.leaveCode ?? "—"}
-                      </Typography>
-                      <Typography component="span" sx={{ fontSize: "0.78rem", color: T.faint }}>·</Typography>
-                      <Typography component="span" sx={{ fontSize: "0.78rem", fontWeight: 600, color: status.color, fontFamily: T.poppins }}>
-                        {status.label}
-                      </Typography>
-                      {!merged.allVoided && (
-                        <>
-                          <Typography component="span" sx={{ fontSize: "0.78rem", color: T.faint }}>·</Typography>
-                          <Typography component="span" sx={{ fontSize: "0.78rem", fontWeight: 600, fontFamily: T.poppins, color: unpaidH > 0 ? "#b3261e" : "#1e6b22" }}>
-                            {unpaidH > 0 ? `${unpaidH.toFixed(3)} hrs unpaid` : "no salary deduction"}
-                          </Typography>
-                        </>
-                      )}
-                      {!merged.allVoided && merged.voidedCount > 0 && (
-                        <Tooltip title={`${merged.voidedCount} entr${merged.voidedCount === 1 ? "y was" : "ies were"} voided and ${merged.voidedCount === 1 ? "is" : "are"} not counted.`}>
-                          <Box component="span" sx={{ px: 0.75, borderRadius: "5px", bgcolor: "rgba(0,0,0,0.06)", fontSize: "0.62rem", fontWeight: 700, color: T.muted, fontFamily: T.poppins }}>
-                            {merged.voidedCount} voided
-                          </Box>
+                  {/* Summary */}
+                  <Box
+                    role="button"
+                    tabIndex={0}
+                    aria-expanded={open}
+                    onClick={() => toggleAuditExpand(rowKey)}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleAuditExpand(rowKey); } }}
+                    sx={{ display: "flex", alignItems: "center", gap: 1.5, pl: 2.25, pr: 1.5, py: 1.25, cursor: "pointer", "&:hover": { bgcolor: "rgba(0,0,0,0.012)" }, "&:focus-visible": { outline: `2px solid ${T.accent}`, outlineOffset: -2 } }}
+                  >
+                    <Box onClick={(e) => e.stopPropagation()} sx={{ flexShrink: 0, width: 58, display: "flex", justifyContent: "center" }}>
+                      {sent ? (
+                        <Tooltip title="Sent to payroll this session.">
+                          <Chip label="✓ Sent" size="small" sx={{ height: 20, fontSize: "0.6rem", fontWeight: 700, bgcolor: T.sentChipBg, color: T.sentChipColor, border: `1px solid ${T.sentChipBorder}`, fontFamily: T.poppins }} />
                         </Tooltip>
+                      ) : payrollDone ? (
+                        <Tooltip title="Already in Payroll Processing for this period. Remove it there to re-send.">
+                          <Chip label="In payroll" size="small" sx={{ height: 20, fontSize: "0.6rem", fontWeight: 700, bgcolor: T.payrollDoneBg, color: T.payrollDoneColor, border: `1px solid ${T.payrollDoneBorder}`, fontFamily: T.poppins }} />
+                        </Tooltip>
+                      ) : (
+                        <Checkbox
+                          size="small"
+                          checked={selectedPayrollKeys.has(rowKey)}
+                          onChange={() => togglePayrollSelect(rowKey)}
+                          inputProps={{ "aria-label": `Select ${merged.name || merged.employeeNumber}` }}
+                          sx={{ p: 0.25, color: alpha(T.accent, 0.35), "&.Mui-checked": { color: T.accent } }}
+                        />
                       )}
                     </Box>
-                  </Box>
 
-                  <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexShrink: 0 }}>
-                    <Tooltip title={voidReason || "Roll back this employee's deductions and earnings for the leave (same as Leave Assignment → Void)."}>
+                    <Box sx={{ width: 36, height: 36, borderRadius: "50%", flexShrink: 0, bgcolor: alpha(edgeColor, 0.1), color: edgeColor, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.74rem", fontWeight: 800, fontFamily: T.poppins }}>
+                      {initials}
+                    </Box>
+
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, minWidth: 0 }}>
+                        <Typography noWrap sx={{ fontSize: "0.88rem", fontWeight: 700, color: T.text, fontFamily: T.poppins }}>
+                          {merged.name ?? "—"}
+                        </Typography>
+                        {!merged.allVoided && merged.voidedCount > 0 && (
+                          <Tooltip title={`${merged.voidedCount} entr${merged.voidedCount === 1 ? "y was" : "ies were"} voided and ${merged.voidedCount === 1 ? "is" : "are"} not counted.`}>
+                            <Box component="span" sx={{ px: 0.75, borderRadius: "5px", bgcolor: "rgba(0,0,0,0.06)", fontSize: "0.6rem", fontWeight: 700, color: T.muted, fontFamily: T.poppins, flexShrink: 0 }}>
+                              {merged.voidedCount} voided
+                            </Box>
+                          </Tooltip>
+                        )}
+                      </Box>
+                      <Typography noWrap sx={{ fontSize: "0.7rem", color: T.faint, fontFamily: T.poppins, fontVariantNumeric: "tabular-nums" }}>
+                        #{merged.employeeNumber ?? "—"}{merged.period ? ` · ${merged.period}` : ""}{merged.createdAt ? ` · ${fmtCreatedAt(merged.createdAt)}` : ""}
+                      </Typography>
+                    </Box>
+
+                    {/* Status pills */}
+                    <Box sx={{ display: { xs: "none", md: "flex" }, alignItems: "center", gap: 0.75, flexShrink: 0 }}>
+                      {merged.leaveCode && merged.leaveCode !== "—" && (
+                        <Box sx={{ px: 1, py: 0.25, borderRadius: "6px", bgcolor: "rgba(0,0,0,0.05)", fontSize: "0.68rem", fontWeight: 800, color: T.text, fontFamily: T.poppins, letterSpacing: "0.03em" }}>
+                          {merged.leaveCode}
+                        </Box>
+                      )}
+                      <Box sx={{ display: "inline-flex", alignItems: "center", gap: 0.5, px: 1.1, py: 0.3, borderRadius: "12px", bgcolor: alpha(status.color, 0.09), border: `1px solid ${alpha(status.color, 0.25)}` }}>
+                        <Box sx={{ width: 6, height: 6, borderRadius: "50%", bgcolor: status.color }} />
+                        <Typography sx={{ fontSize: "0.68rem", fontWeight: 700, color: status.color, fontFamily: T.poppins, whiteSpace: "nowrap" }}>
+                          {status.label}
+                        </Typography>
+                      </Box>
+                    </Box>
+
+                    <Box sx={{ textAlign: "right", minWidth: 78, flexShrink: 0 }}>
+                      <Typography sx={{ fontSize: "1.1rem", fontWeight: 800, color: bigColor, fontFamily: T.poppins, fontVariantNumeric: "tabular-nums", lineHeight: 1.15 }}>
+                        {displayDaysFromMerged(merged)}
+                      </Typography>
+                      <Typography sx={{ fontSize: "0.6rem", fontWeight: 600, color: T.faint, fontFamily: T.poppins, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                        {merged.allVoided ? "voided" : unpaidH > 0 ? `${unpaidH.toFixed(2)} h unpaid` : isDed ? "unpaid" : "covered"}
+                      </Typography>
+                    </Box>
+
+                    <Tooltip title={voidReason || "Void — roll back this employee's deductions and earnings for the leave (same as Leave Assignment → Void)."}>
                       <span onClick={(e) => e.stopPropagation()}>
-                        <Button
+                        <IconButton
                           size="small"
                           disabled={Boolean(voidReason)}
+                          aria-label="Void"
                           onClick={() =>
                             setVoidTarget({
                               employeeNumber: merged.employeeNumber,
@@ -1445,107 +1342,102 @@ export function Abstract({
                               hasScCto: sourceRows.some((r) => !isAttendanceRowVoided(r) && ["SC", "CTO"].includes(String(r.leave_used || "").toUpperCase())),
                             })
                           }
-                          startIcon={<BlockIcon sx={{ fontSize: "13px !important" }} />}
-                          sx={{ minWidth: 0, px: 1, py: 0.2, fontSize: "0.66rem", fontWeight: 700, textTransform: "none", fontFamily: T.poppins, color: "#c62828", "&:hover": { bgcolor: "rgba(198,40,40,0.06)" } }}
+                          sx={{ color: "#c62828", "&:hover": { bgcolor: "rgba(198,40,40,0.08)" }, "&.Mui-disabled": { color: "rgba(0,0,0,0.18)" } }}
                         >
-                          Void
-                        </Button>
+                          <BlockIcon sx={{ fontSize: 17 }} />
+                        </IconButton>
                       </span>
                     </Tooltip>
-                    <Box sx={{ textAlign: "right", minWidth: 64 }}>
-                      <Typography sx={{ fontSize: "1.05rem", fontWeight: 800, color: bigColor, fontFamily: T.poppins, fontVariantNumeric: "tabular-nums", lineHeight: 1.2 }}>
-                        {displayDaysFromMerged(merged)}
-                      </Typography>
-                      <Typography sx={{ fontSize: "0.6rem", color: T.faint, fontFamily: T.poppins }}>
-                        {isDed ? "unpaid" : "covered"}
-                      </Typography>
-                    </Box>
-                    <ExpandMoreIcon sx={{ fontSize: 18, color: T.faint, transform: open ? "rotate(180deg)" : "none", transition: "transform 0.18s ease" }} />
+
+                    <ExpandMoreIcon sx={{ fontSize: 20, color: T.faint, flexShrink: 0, transform: open ? "rotate(180deg)" : "none", transition: "transform 0.18s ease" }} />
                   </Box>
-                </Box>
 
-                {/* Details */}
-                {open && (
-                  <Box sx={{ borderTop: `1px dashed ${T.divider}`, px: { xs: 2, md: 4.5 }, pt: 1.25, pb: 1.75 }}>
-                    <Table size="small" sx={{ tableLayout: "fixed", mb: sourceRows.length ? 1.5 : 0 }}>
-                      <TableHead>
-                        <TableRow>
-                          <TableCell sx={{ ...headCell, width: "50%" }}>Metric</TableCell>
-                          <TableCell sx={{ ...headCell, textAlign: "right" }}>Hours</TableCell>
-                          <TableCell sx={{ ...headCell, textAlign: "right" }}>Days</TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {metricRows.map((m) => (
-                          <TableRow key={m.label}>
-                            <TableCell sx={lblCell}>{m.label}</TableCell>
-                            <TableCell sx={{ ...numCell, fontWeight: m.strong ? 700 : 400, color: m.strong ? "#b3261e" : T.text }}>{m.h.toFixed(3)}</TableCell>
-                            <TableCell sx={{ ...numCell, fontWeight: m.strong ? 700 : 400, color: m.strong ? "#b3261e" : T.text }}>{(m.h / WH).toFixed(3)}</TableCell>
-                          </TableRow>
+                  {/* Details */}
+                  {open && (
+                    <Box sx={{ borderTop: `1px solid ${T.divider}`, bgcolor: "#fcfbfb", pl: { xs: 2.25, md: 9.5 }, pr: 2, pt: 1.5, pb: 1.75 }}>
+                      {/* status on small screens (pills are hidden in the summary there) */}
+                      <Box sx={{ display: { xs: "flex", md: "none" }, gap: 0.75, mb: 1.25, flexWrap: "wrap" }}>
+                        <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: status.color, fontFamily: T.poppins }}>{status.label}</Typography>
+                        {merged.leaveCode && <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: T.text, fontFamily: T.poppins }}>· {merged.leaveCode}</Typography>}
+                      </Box>
+
+                      <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 1, mb: sourceRows.length ? 1.75 : 0 }}>
+                        {metrics.map((m) => (
+                          <Box key={m.label} sx={{ px: 1.5, py: 1, borderRadius: "10px", border: `1px solid ${T.divider}`, bgcolor: "#fff" }}>
+                            <Typography sx={{ fontSize: "0.6rem", fontWeight: 700, color: T.faint, fontFamily: T.poppins, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                              {m.label}
+                            </Typography>
+                            <Typography sx={{ fontSize: "0.95rem", fontWeight: 800, color: m.color, fontFamily: T.poppins, fontVariantNumeric: "tabular-nums", lineHeight: 1.3 }}>
+                              {(m.h / WH).toFixed(3)}<Box component="span" sx={{ fontSize: "0.68rem", fontWeight: 600, color: T.faint, ml: 0.35 }}>days</Box>
+                            </Typography>
+                            <Typography sx={{ fontSize: "0.68rem", color: T.muted, fontFamily: T.poppins, fontVariantNumeric: "tabular-nums" }}>
+                              {m.h.toFixed(3)} hrs
+                            </Typography>
+                          </Box>
                         ))}
-                      </TableBody>
-                    </Table>
+                      </Box>
 
-                    {sourceRows.length > 0 ? (
-                      <>
-                        <Typography sx={{ fontSize: "0.66rem", fontWeight: 700, color: T.muted, letterSpacing: "0.06em", textTransform: "uppercase", fontFamily: T.poppins, mb: 0.5 }}>
-                          Source events
-                        </Typography>
-                        <Table size="small" sx={{ tableLayout: "fixed" }}>
-                          <TableHead>
-                            <TableRow>
-                              <TableCell sx={{ ...headCell, width: "25%" }}>Type</TableCell>
-                              <TableCell sx={{ ...headCell, width: "16%" }}>Leave</TableCell>
-                              <TableCell sx={{ ...headCell, width: "22%" }}>Date</TableCell>
-                              <TableCell sx={{ ...headCell, textAlign: "right" }}>Days</TableCell>
-                            </TableRow>
-                          </TableHead>
-                          <TableBody>
-                            {sourceRows.map((ar, i) => {
-                              const voided = isAttendanceRowVoided(ar);
-                              const rmk = ar.remarks != null && String(ar.remarks).trim() !== "" ? String(ar.remarks) : "";
-                              return (
-                                <TableRow key={`${rowKey}-ev-${ar.id ?? i}-${i}`} sx={{ "&:last-child td": { borderBottom: "none" } }}>
-                                  <TableCell sx={{ ...lblCell, color: voided ? T.faint : T.text }}>{prettySourceType(ar.source_type)}</TableCell>
-                                  <TableCell sx={{ ...lblCell, color: voided ? T.faint : T.text }}>{ar.leave_used ?? "—"}</TableCell>
-                                  <TableCell sx={{ ...lblCell, color: voided ? T.faint : T.text }}>{ar.result_date ? String(ar.result_date).slice(0, 10) : "—"}</TableCell>
-                                  <TableCell sx={{ ...numCell, verticalAlign: "top" }}>
-                                    <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 0.75 }}>
-                                      {voided && (
-                                        <Tooltip title={ar.source_state === "missing" ? "Voided — the deduction this entry came from no longer exists." : "Voided — the deduction or earning this entry came from was voided."}>
-                                          <Box component="span" sx={{ px: 0.75, borderRadius: "5px", bgcolor: "rgba(0,0,0,0.06)", fontSize: "0.6rem", fontWeight: 700, color: T.muted }}>Voided</Box>
+                      {sourceRows.length > 0 ? (
+                        <Box sx={{ borderRadius: "10px", border: `1px solid ${T.divider}`, bgcolor: "#fff", overflow: "hidden" }}>
+                          <Typography sx={{ px: 1.5, pt: 1, pb: 0.25, fontSize: "0.64rem", fontWeight: 800, color: T.accent, letterSpacing: "0.07em", textTransform: "uppercase", fontFamily: T.poppins }}>
+                            Source events · {sourceRows.length}
+                          </Typography>
+                          <Table size="small" sx={{ tableLayout: "fixed", "& td:first-of-type, & th:first-of-type": { pl: 1.5 }, "& td:last-of-type, & th:last-of-type": { pr: 1.5 } }}>
+                            <TableHead>
+                              <TableRow>
+                                <TableCell sx={{ ...evHead, width: "26%" }}>Type</TableCell>
+                                <TableCell sx={{ ...evHead, width: "16%" }}>Leave</TableCell>
+                                <TableCell sx={{ ...evHead, width: "22%" }}>Date</TableCell>
+                                <TableCell sx={{ ...evHead, textAlign: "right" }}>Days</TableCell>
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {sourceRows.map((ar, i) => {
+                                const voided = isAttendanceRowVoided(ar);
+                                const rmk = ar.remarks != null && String(ar.remarks).trim() !== "" ? String(ar.remarks) : "";
+                                const cellColor = voided ? T.faint : T.text;
+                                return (
+                                  <TableRow key={`${rowKey}-ev-${ar.id ?? i}-${i}`} sx={{ "&:last-child td": { borderBottom: "none" }, "&:hover": { bgcolor: "rgba(0,0,0,0.015)" } }}>
+                                    <TableCell sx={{ ...evCell, color: cellColor, fontWeight: 600 }}>{prettySourceType(ar.source_type)}</TableCell>
+                                    <TableCell sx={{ ...evCell, color: cellColor }}>{ar.leave_used ?? "—"}</TableCell>
+                                    <TableCell sx={{ ...evCell, color: cellColor, fontVariantNumeric: "tabular-nums" }}>{ar.result_date ? String(ar.result_date).slice(0, 10) : "—"}</TableCell>
+                                    <TableCell sx={{ ...evCell, textAlign: "right", fontVariantNumeric: "tabular-nums", verticalAlign: "top" }}>
+                                      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 0.75 }}>
+                                        {voided && (
+                                          <Tooltip title={ar.source_state === "missing" ? "Voided — the deduction this entry came from no longer exists." : "Voided — the deduction or earning this entry came from was voided."}>
+                                            <Box component="span" sx={{ px: 0.75, borderRadius: "5px", bgcolor: "rgba(0,0,0,0.06)", fontSize: "0.6rem", fontWeight: 700, color: T.muted }}>Voided</Box>
+                                          </Tooltip>
+                                        )}
+                                        <Box component="span" sx={{ textDecoration: voided ? "line-through" : "none", color: cellColor, fontWeight: 700 }}>
+                                          {displayDaysRawAttendanceRow(ar).replace(/d$/, "")}
+                                        </Box>
+                                      </Box>
+                                      {rmk && (
+                                        <Tooltip title={rmk} placement="top-end">
+                                          <Typography sx={{ fontSize: "0.66rem", color: T.faint, fontFamily: T.poppins, mt: 0.25, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                            {rmk}
+                                          </Typography>
                                         </Tooltip>
                                       )}
-                                      <Box component="span" sx={{ textDecoration: voided ? "line-through" : "none", color: voided ? T.faint : T.text }}>
-                                        {displayDaysRawAttendanceRow(ar).replace(/d$/, "")}
-                                      </Box>
-                                    </Box>
-                                    {rmk && (
-                                      <Tooltip title={rmk} placement="top-end">
-                                        <Typography sx={{ fontSize: "0.66rem", color: T.faint, fontFamily: T.poppins, mt: 0.25, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                                          {rmk}
-                                        </Typography>
-                                      </Tooltip>
-                                    )}
-                                  </TableCell>
-                                </TableRow>
-                              );
-                            })}
-                          </TableBody>
-                        </Table>
-                      </>
-                    ) : (
-                      <Typography sx={{ fontSize: "0.74rem", color: T.faint, fontFamily: T.poppins }}>
-                        Manually staged — no attendance source events.
-                      </Typography>
-                    )}
-                  </Box>
-                )}
-              </Box>
-            );
-          })}
-        </Box>
-        {displayRows.length > 0 && (
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              })}
+                            </TableBody>
+                          </Table>
+                        </Box>
+                      ) : (
+                        <Typography sx={{ fontSize: "0.74rem", color: T.faint, fontFamily: T.poppins }}>
+                          Manually staged — no attendance source events.
+                        </Typography>
+                      )}
+                    </Box>
+                  )}
+                </Box>
+              );
+            })}
+          </Box>
+
           <TablePagination
             component="div"
             count={displayRows.length}
@@ -1558,14 +1450,14 @@ export function Abstract({
             }}
             rowsPerPageOptions={[10, 25, 50, 100]}
             labelRowsPerPage="Rows per page:"
-            labelDisplayedRows={({ from, to, count }) => `${from}–${to} of ${count} employee rows`}
+            labelDisplayedRows={({ from, to, count }) => `${from}–${to} of ${count} employees`}
             sx={{
-              flexShrink: 0,
+              flexShrink: 0, bgcolor: "#fff", borderTop: `1px solid ${T.divider}`,
               "& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows, & .MuiInputBase-root": { fontFamily: T.poppins, fontSize: "0.74rem" },
             }}
           />
-        )}
-      </Box>
+        </Box>
+      )}
 
       {/* ── Export filters + prepared by ── */}
       <Dialog

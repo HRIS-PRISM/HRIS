@@ -507,7 +507,7 @@ const fetchAttendanceForEmployee = async (
       s: `${year}-${String(month).padStart(2, "0")}-01`,
       e: (() => {
         const d = new Date(year, month, 5);
-        return d.toISOString().split("T")[0];
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       })(),
     },
   ];

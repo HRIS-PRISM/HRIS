@@ -3980,7 +3980,7 @@ const EarningsManagement = () => {
                     fontFamily: T.poppins,
                   }}
                 >
-                  Earnings Management
+                  Deductions & Earnings Management
                 </Typography>
                 <Typography
                   sx={{
@@ -4004,7 +4004,7 @@ const EarningsManagement = () => {
                 zIndex: 1,
               }}
             >
-              {connected && (
+              {/* {connected && (
                 <Tooltip title="Realtime updates: connected — refreshes when attendance, leave, SC/CTO, payroll, or salary shortfall data changes.">
                   <Chip
                     size="small"
@@ -4020,7 +4020,7 @@ const EarningsManagement = () => {
                     }}
                   />
                 </Tooltip>
-              )}
+              )} */}
               <Typography
                 sx={{
                   fontSize: "0.7rem",

@@ -338,6 +338,18 @@ const PayrollJO = () => {
   const [selectedPayrollMonth, setSelectedPayrollMonth] = useState(null);
   const [selectedMonthDays, setSelectedMonthDays] = useState(null);
 
+  // Rendered time is stored as hours (rh) + minutes (rm) + seconds (rs); pay uses all
+  // of it, so e.g. 21:54 rendered is paid as 21.9 h rather than 21 h.
+  const renderedHoursOf = (row) =>
+    (parseFloat(row?.rh) || 0) + (parseFloat(row?.rm) || 0) / 60 + (parseFloat(row?.rs) || 0) / 3600;
+  const renderedLabel = (row) => {
+    const totalMin = Math.round(renderedHoursOf(row) * 60);
+    const days = Math.floor(totalMin / 480);
+    const hours = Math.floor((totalMin % 480) / 60);
+    const mins = totalMin % 60;
+    return `${days}d ${hours}h${mins ? ` ${mins}m` : ''}`;
+  };
+
   const computeHourDeduction = (ratePerDay, hours) =>
     !ratePerDay || !hours ? 0 : (ratePerDay / 8) * hours;
   const computeMinuteDeduction = (ratePerDay, minutes) =>
@@ -435,7 +447,7 @@ const PayrollJO = () => {
             const { daysCovered, numberOfDays, timeRange } =
               officialTimeCache[row.employeeNumber];
             const ratePerDay = row.ratePerDay || 0;
-            const grossAmount = (ratePerDay / 8) * row.rh;
+            const grossAmount = (ratePerDay / 8) * renderedHoursOf(row);
             return {
               ...row,
               renderedDays,
@@ -785,8 +797,8 @@ const PayrollJO = () => {
       'No. of Days': row.numberOfDays || '',
       'Official Time': row.officialTime || '',
       Period: row.renderedDays || '',
-      'No. of Days (Rendered)': row.rh ? Math.floor(row.rh / 8) : '',
-      'No. of Hours (Rendered)': row.rh ? row.rh % 8 : '',
+      'No. of Days (Rendered)': renderedHoursOf(row) ? Math.floor(renderedHoursOf(row) / 8) : '',
+      'No. of Hours (Rendered)': renderedHoursOf(row) ? Number((renderedHoursOf(row) % 8).toFixed(2)) : '',
       'Gross Amount': row.grossAmount || 0,
       'Deduction (Hrs)': row.h || 0,
       'Deduction (Mins)': row.m || 0,
@@ -2227,7 +2239,7 @@ const PayrollJO = () => {
                           <ExcelTableCell
                             sx={{ borderBottom: 'none', minWidth: 90 }}
                           >
-                            {row.rh ? (
+                            {renderedHoursOf(row) ? (
                               <Box>
                                 <Typography
                                   sx={{
@@ -2237,8 +2249,7 @@ const PayrollJO = () => {
                                     lineHeight: 1.2,
                                   }}
                                 >
-                                  {Math.floor(parseFloat(row.rh) / 8)}d{' '}
-                                  {parseFloat(row.rh) % 8}h
+                                  {renderedLabel(row)}
                                 </Typography>
                               </Box>
                             ) : (

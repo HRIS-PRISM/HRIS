@@ -469,7 +469,7 @@ const SCDeductionReceipt = ({
           period_year: parseInt(year, 10),
           period_month: parseInt(month, 10),
           entry_type: "DEDUCTION",
-          remarks: `Auto-deduction: ${absentDays > 0 ? `${absentDays}d absent` : ""}${absentDays > 0 && tardDays > 0 ? " + " : ""}${tardDays > 0 ? `${tardDays.toFixed(3)}d tardiness` : ""} = ${remainingToDeductDec.toFixed(3)}d for ${monthName(month)} ${year}`,
+          remarks: `Auto-deduction: ${absentDays > 0 ? `${Number(absentDays).toFixed(3)}d absent` : ""}${absentDays > 0 && tardDays > 0 ? " + " : ""}${tardDays > 0 ? `${tardDays.toFixed(3)}d tardiness` : ""} = ${remainingToDeductDec.toFixed(3)}d for ${monthName(month)} ${year}`,
         },
         { headers: { Authorization: `Bearer ${token}` } },
       );

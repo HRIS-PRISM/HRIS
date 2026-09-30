@@ -114,6 +114,15 @@ const DEFAULT_CATEGORY_COLOR = "#757575";
 // [NEW #K] Palette for day-pattern presets — mirrors the concept prototype
 const PATTERN_COLORS = ["#6d2323", "#2e6b4f", "#1d5b8b", "#8a5a1d", "#6a1f8a", "#0d7a7a", "#a3781d"];
 
+// Outlined accent button for the pattern shortcuts (Save a pattern / Manage).
+const patternButtonSx = {
+  height: 40, flexShrink: 0, px: 1.75, borderRadius: "8px",
+  textTransform: "none", fontWeight: 700, fontSize: "0.8rem",
+  color: T.accent, borderColor: alpha(T.accent, 0.45), bgcolor: "#fff",
+  "&:hover": { borderColor: T.accent, bgcolor: T.accentFaint },
+  "&.Mui-disabled": { color: T.faint, borderColor: T.accentBorder },
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SHIMMER
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1863,21 +1872,19 @@ const OfficialTimeForm = ({
   const draftStatus = "active";
 
   // ── [NEW #K] Day-pattern presets ("Patterns") ──────────────────────────
-  // Optional shortcut only. Stored client-side (localStorage) for now — see
-  // the note in the patch docs for swapping this to a real backend table
-  // (GET/POST/DELETE /officialtime/patterns) later without touching the JSX
-  // below. Picking a pattern only changes what pre-fills modalRecords when
-  // the Create Schedule modal opens; the modal itself (ScheduleTimeRows,
-  // Fill Break, Copy/Apply, overlap validation) is completely unchanged.
-  const PATTERNS_STORAGE_KEY = "earist-official-time-patterns";
-  const [patterns, setPatterns] = useState(() => {
-    try {
-      const raw = localStorage.getItem(PATTERNS_STORAGE_KEY);
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
-    }
-  });
+  // Optional shortcut only, shared by all admins — stored in the database
+  // (GET/POST/DELETE /officialtime/patterns). Picking a pattern only changes
+  // what pre-fills modalRecords when the Create Schedule modal opens; the
+  // modal itself (ScheduleTimeRows, Fill Break, Copy/Apply, overlap
+  // validation) is completely unchanged.
+  // Patterns used to live only in this browser's localStorage under this key;
+  // any found there are moved to the database once, then the key is removed.
+  const LEGACY_PATTERNS_STORAGE_KEY = "earist-official-time-patterns";
+  const [patterns, setPatterns] = useState([]);
+  const [patternsLoading, setPatternsLoading] = useState(true);
+  const [patternSaving, setPatternSaving] = useState(false);
+  const [patternError, setPatternError] = useState("");
+  const [confirmDeletePatternId, setConfirmDeletePatternId] = useState(null);
   const [selectedPatternId, setSelectedPatternId] = useState("");
   const [showPatternManager, setShowPatternManager] = useState(false);
   const [patternDraft, setPatternDraft] = useState({
@@ -1891,14 +1898,94 @@ const OfficialTimeForm = ({
   // that isn't one of the 7 presets — see the dashed "+" swatch below.
   const customColorInputRef = useRef(null);
 
-  const persistPatterns = useCallback((next) => {
-    setPatterns(next);
+  const loadPatterns = useCallback(async () => {
+    setPatternsLoading(true);
     try {
-      localStorage.setItem(PATTERNS_STORAGE_KEY, JSON.stringify(next));
-    } catch {
-      /* ignore quota / private mode */
+      let legacy = [];
+      try {
+        const raw = localStorage.getItem(LEGACY_PATTERNS_STORAGE_KEY);
+        legacy = raw ? JSON.parse(raw) : [];
+      } catch {
+        legacy = [];
+      }
+      if (Array.isArray(legacy) && legacy.length) {
+        const r = await axios.post(`${API_BASE_URL}/officialtime/patterns/import`, { patterns: legacy }, getAuthHeaders());
+        try { localStorage.removeItem(LEGACY_PATTERNS_STORAGE_KEY); } catch { /* ignore */ }
+        setPatterns(Array.isArray(r.data?.patterns) ? r.data.patterns : []);
+      } else {
+        const r = await axios.get(`${API_BASE_URL}/officialtime/patterns`, getAuthHeaders());
+        setPatterns(Array.isArray(r.data) ? r.data : []);
+      }
+      setPatternError("");
+    } catch (err) {
+      setPatternError(err?.response?.data?.error || "Could not load saved patterns.");
+    } finally {
+      setPatternsLoading(false);
     }
   }, []);
+
+  useEffect(() => { loadPatterns(); }, [loadPatterns]);
+
+  const patternDraftStarted = patternDraft.name.trim() !== "";
+  const patternDraftComplete =
+    patternDraftStarted && patternDraft.days.length > 0 && Boolean(patternDraft.timeIn) && Boolean(patternDraft.timeOut);
+
+  // Saves the draft; returns true when it was saved.
+  const savePatternDraft = useCallback(async () => {
+    setPatternSaving(true);
+    setPatternError("");
+    try {
+      const r = await axios.post(
+        `${API_BASE_URL}/officialtime/patterns`,
+        { ...patternDraft, name: patternDraft.name.trim() },
+        getAuthHeaders(),
+      );
+      setPatterns((prev) => [...prev, r.data]);
+      setPatternDraft({
+        name: "",
+        days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+        timeIn: "08:00:00 AM",
+        timeOut: "05:00:00 PM",
+        color: PATTERN_COLORS[(patterns.length + 1) % PATTERN_COLORS.length],
+      });
+      return true;
+    } catch (err) {
+      setPatternError(err?.response?.data?.error || "Could not save the pattern. Please try again.");
+      return false;
+    } finally {
+      setPatternSaving(false);
+    }
+  }, [patternDraft, patterns.length]);
+
+  const deletePattern = useCallback(async (id) => {
+    setPatternSaving(true);
+    setPatternError("");
+    try {
+      await axios.delete(`${API_BASE_URL}/officialtime/patterns/${id}`, getAuthHeaders());
+      setPatterns((prev) => prev.filter((x) => x.id !== id));
+      setSelectedPatternId((cur) => (cur === id ? "" : cur));
+      setConfirmDeletePatternId(null);
+    } catch (err) {
+      setPatternError(err?.response?.data?.error || "Could not delete the pattern. Please try again.");
+    } finally {
+      setPatternSaving(false);
+    }
+  }, []);
+
+  // "Done" keeps a filled-in pattern instead of silently dropping it.
+  const closePatternManager = useCallback(async () => {
+    if (patternSaving) return;
+    if (patternDraftStarted) {
+      if (!patternDraftComplete) {
+        setPatternError("Finish the pattern (pick at least one working day) or clear its name before closing.");
+        return;
+      }
+      if (!(await savePatternDraft())) return;
+    }
+    setPatternError("");
+    setConfirmDeletePatternId(null);
+    setShowPatternManager(false);
+  }, [patternSaving, patternDraftStarted, patternDraftComplete, savePatternDraft]);
 
   // Builds the same 7-row shape makeDefaultRow() produces, but filled from a
   // saved pattern instead of the hardcoded 8AM–5PM default. Days not in the
@@ -3187,22 +3274,24 @@ const OfficialTimeForm = ({
                             </MenuItem>
                           ))}
                         </ModernTextField>
-                        <Tooltip title="Manage patterns">
-                          <IconButton
-                            size="small"
-                            onClick={() => setShowPatternManager(true)}
-                            sx={{ border: `1px solid ${T.accentBorder}`, color: T.accent, borderRadius: 1.5, height: 36, width: 36, flexShrink: 0 }}
-                          >
-                            <Edit sx={{ fontSize: 14 }} />
-                          </IconButton>
-                        </Tooltip>
+                        <Button
+                          variant="outlined" size="small"
+                          onClick={() => setShowPatternManager(true)}
+                          startIcon={<Edit sx={{ fontSize: 15 }} />}
+                          sx={patternButtonSx}
+                        >
+                          Manage
+                        </Button>
                       </Box>
                     ) : (
                       <Button
-                        size="small" variant="text" onClick={() => setShowPatternManager(true)}
-                        sx={{ mb: 1.5, textTransform: "none", color: T.accent, fontWeight: 700, fontSize: "0.76rem", justifyContent: "flex-start", px: 0 }}
+                        fullWidth variant="outlined" size="small"
+                        onClick={() => setShowPatternManager(true)}
+                        disabled={patternsLoading}
+                        startIcon={patternsLoading ? <CircularProgress size={14} sx={{ color: T.accent }} /> : <Add sx={{ fontSize: 17 }} />}
+                        sx={{ ...patternButtonSx, mb: 1.5, borderStyle: "dashed", "&:hover": { ...patternButtonSx["&:hover"], borderStyle: "dashed" } }}
                       >
-                        + Save a pattern (optional shortcut)
+                        {patternsLoading ? "Loading saved patterns…" : "Save a pattern (optional shortcut)"}
                       </Button>
                     )}
 
@@ -4345,7 +4434,7 @@ const OfficialTimeForm = ({
               below (Name / Time In / Time Out / Color, then Working days). */}
           <Dialog
             open={showPatternManager}
-            onClose={() => setShowPatternManager(false)}
+            onClose={closePatternManager}
             maxWidth="sm"
             fullWidth
             PaperProps={{ sx: { borderRadius: "16px", overflow: "hidden" } }}
@@ -4357,16 +4446,23 @@ const OfficialTimeForm = ({
                   Day-Pattern Presets
                 </Typography>
               </Box>
-              {dialogCloseBtn(() => setShowPatternManager(false))}
+              {dialogCloseBtn(closePatternManager)}
             </Box>
 
             <Box sx={{ bgcolor: "#fff", px: 3, pt: 2.5, pb: 1, maxHeight: "70vh", overflowY: "auto" }}>
               <Typography sx={{ fontSize: "0.78rem", color: T.muted, mb: 2, lineHeight: 1.5 }}>
                 Save a recurring weekly pattern (e.g. "Mon–Thu 7–6") so creating a
                 schedule is pick-dates + pick-pattern instead of retyping every field.
-                Patterns are optional — for faculty or irregular schedules you can
-                still leave this blank and fill the table manually, same as before.
+                Patterns are saved for all administrators. They are optional — for
+                faculty or irregular schedules you can still leave this blank and
+                fill the table manually, same as before.
               </Typography>
+
+              {patternError && (
+                <Alert severity="error" onClose={() => setPatternError("")} sx={{ mb: 2, fontSize: "0.78rem", borderRadius: "8px" }}>
+                  {patternError}
+                </Alert>
+              )}
 
               {/* Preset cards */}
               {patterns.length > 0 ? (
@@ -4391,16 +4487,34 @@ const OfficialTimeForm = ({
                         "&:hover": { boxShadow: "0 3px 12px rgba(0,0,0,0.08)", borderColor: p.color || T.accent },
                       }}
                     >
-                      <IconButton
-                        size="small"
-                        onClick={() => {
-                          persistPatterns(patterns.filter((x) => x.id !== p.id));
-                          if (selectedPatternId === p.id) setSelectedPatternId("");
-                        }}
-                        sx={{ position: "absolute", top: 4, right: 4, width: 20, height: 20, color: T.faint, "&:hover": { color: "#c62828", bgcolor: "rgba(198,40,40,0.08)" } }}
-                      >
-                        <Close sx={{ fontSize: 13 }} />
-                      </IconButton>
+                      {confirmDeletePatternId === p.id ? (
+                        <Box sx={{ position: "absolute", inset: 0, borderRadius: "10px", bgcolor: "rgba(255,255,255,0.96)", zIndex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 0.75, px: 1 }}>
+                          <Typography sx={{ fontSize: "0.76rem", fontWeight: 700, color: T.text, textAlign: "center" }} noWrap>
+                            Delete “{p.name}”?
+                          </Typography>
+                          <Box sx={{ display: "flex", gap: 0.75 }}>
+                            <Button size="small" disabled={patternSaving} onClick={() => setConfirmDeletePatternId(null)}
+                              sx={{ textTransform: "none", fontWeight: 600, fontSize: "0.72rem", color: T.muted, minWidth: 0, px: 1.25 }}>
+                              Cancel
+                            </Button>
+                            <Button size="small" variant="contained" disabled={patternSaving} onClick={() => deletePattern(p.id)}
+                              sx={{ textTransform: "none", fontWeight: 700, fontSize: "0.72rem", minWidth: 0, px: 1.25, bgcolor: "#c62828", boxShadow: "none", "&:hover": { bgcolor: "#a51f1f", boxShadow: "none" } }}>
+                              {patternSaving ? <CircularProgress size={12} sx={{ color: "#fff" }} /> : "Delete"}
+                            </Button>
+                          </Box>
+                        </Box>
+                      ) : (
+                        <Tooltip title="Delete pattern">
+                          <IconButton
+                            size="small"
+                            disabled={patternSaving}
+                            onClick={() => setConfirmDeletePatternId(p.id)}
+                            sx={{ position: "absolute", top: 4, right: 4, width: 20, height: 20, color: T.faint, "&:hover": { color: "#c62828", bgcolor: "rgba(198,40,40,0.08)" } }}
+                          >
+                            <Close sx={{ fontSize: 13 }} />
+                          </IconButton>
+                        </Tooltip>
+                      )}
                       <Box sx={{ display: "flex", alignItems: "center", gap: 0.75, mb: 0.4 }}>
                         <Box sx={{ width: 10, height: 10, borderRadius: "3px", bgcolor: p.color || T.accent, flexShrink: 0 }} />
                         <Typography sx={{ fontSize: "0.85rem", fontWeight: 700, color: T.text, pr: 2, lineHeight: 1.25 }} noWrap>
@@ -4419,7 +4533,7 @@ const OfficialTimeForm = ({
               ) : (
                 <Box sx={{ mb: 2.5, py: 2, textAlign: "center", border: `1.5px dashed ${T.accentBorder}`, borderRadius: 2, bgcolor: T.accentFaint }}>
                   <Typography sx={{ fontSize: "0.78rem", color: T.faint, fontStyle: "italic" }}>
-                    No patterns saved yet — add your first one below.
+                    {patternsLoading ? "Loading saved patterns…" : "No patterns saved yet — add your first one below."}
                   </Typography>
                 </Box>
               )}
@@ -4541,29 +4655,24 @@ const OfficialTimeForm = ({
 
                 <Button
                   variant="contained" size="small"
-                  startIcon={<Add sx={{ fontSize: 16 }} />}
-                  disabled={!patternDraft.name.trim() || !patternDraft.days.length || !patternDraft.timeIn || !patternDraft.timeOut}
-                  onClick={() => {
-                    const next = [...patterns, { id: `pat_${Date.now()}`, ...patternDraft, name: patternDraft.name.trim() }];
-                    persistPatterns(next);
-                    setPatternDraft({
-                      name: "",
-                      days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
-                      timeIn: "08:00:00 AM",
-                      timeOut: "05:00:00 PM",
-                      color: PATTERN_COLORS[(patterns.length + 1) % PATTERN_COLORS.length],
-                    });
-                  }}
+                  startIcon={patternSaving ? <CircularProgress size={14} sx={{ color: "#fff" }} /> : <Add sx={{ fontSize: 16 }} />}
+                  disabled={patternSaving || !patternDraftComplete}
+                  onClick={savePatternDraft}
                   sx={{ bgcolor: T.accent, color: "#fff", fontWeight: 700, textTransform: "none", borderRadius: "8px", "&:hover": { bgcolor: T.accentDark }, "&.Mui-disabled": { bgcolor: "#c0a0a0", color: "#fff" } }}
                 >
-                  Add preset
+                  {patternSaving ? "Saving…" : "Add preset"}
                 </Button>
               </Box>
             </Box>
 
-            <Box sx={{ borderTop: `1px solid ${T.divider}`, bgcolor: "#fafafa", px: 3, py: 2, display: "flex", justifyContent: "flex-end" }}>
-              <Button variant="outlined" onClick={() => setShowPatternManager(false)} sx={{ borderColor: "#ccc", color: "#444", fontWeight: 600, textTransform: "none" }}>
-                Done
+            <Box sx={{ borderTop: `1px solid ${T.divider}`, bgcolor: "#fafafa", px: 3, py: 2, display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 1.5 }}>
+              {patternDraftStarted && (
+                <Typography sx={{ fontSize: "0.72rem", color: T.muted, mr: "auto" }}>
+                  {patternDraftComplete ? "The pattern you're adding will be saved when you click Done." : "Unfinished pattern — pick at least one working day."}
+                </Typography>
+              )}
+              <Button variant="outlined" onClick={closePatternManager} disabled={patternSaving} sx={{ borderColor: "#ccc", color: "#444", fontWeight: 600, textTransform: "none" }}>
+                {patternDraftStarted && patternDraftComplete ? "Save & close" : "Done"}
               </Button>
             </Box>
           </Dialog>

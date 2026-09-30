@@ -57,8 +57,9 @@ import useAttendanceWorkflow from '../../hooks/useAttendanceWorkflow';
 import AttendanceWorkflowNav from './AttendanceWorkflowNav';
 import { ATTENDANCE_PAGE_BOTTOM_PAD } from './attendanceFilterLayout';
 import {
-  fetchEmploymentCategoryRow,
-  isJobOrderEmploymentCategory,
+  classifyRecordsForPayroll,
+  employmentCategoryLabel as payrollCategoryLabel,
+  recordEmployeeNumber,
 } from '../../utils/regularPayrollFromAttendance';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import {
@@ -634,7 +635,15 @@ const StyledModal = ({ open, onClose, title, message, type = 'info', onConfirm, 
 };
 
 // ─── Payroll Confirmation Dialog ──────────────────────────────────────────────
-const PayrollConfirmDialog = ({ open, onClose, onConfirm, title, subtitle, recordCount, recordLabel, isSubmitting }) => {
+const PayrollConfirmDialog = ({
+  open, onClose, onConfirm, title, subtitle, recordCount, recordLabel, isSubmitting,
+  /** Records that will NOT be submitted (other payroll type / no category). */
+  excludedCount = 0,
+  excludedNote = '',
+  /** Categories still being checked — counts are not final yet. */
+  checking = false,
+}) => {
+  const nothingToSubmit = !checking && recordCount === 0;
   const [checked, setChecked] = useState(false);
   useEffect(() => { if (!open) setChecked(false); }, [open]);
 
@@ -655,13 +664,27 @@ const PayrollConfirmDialog = ({ open, onClose, onConfirm, title, subtitle, recor
           <Box sx={{ width: 34, height: 34, borderRadius: R.control, flexShrink: 0, bgcolor: alpha(T.accent, 0.1), display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Assignment sx={{ fontSize: 17, color: T.accent }} />
           </Box>
-          <Box>
+          <Box sx={{ minWidth: 0 }}>
             <Typography sx={{ fontSize: '0.72rem', fontWeight: 600, color: T.muted, lineHeight: 1.3 }}>Records for submission</Typography>
             <Typography sx={{ fontSize: '0.95rem', fontWeight: 800, color: T.text, lineHeight: 1.25 }}>
-              {recordCount} {recordCount === 1 ? 'Record' : 'Records'} — {recordLabel}
+              {checking
+                ? 'Checking employment categories…'
+                : `${recordCount} ${recordCount === 1 ? 'Record' : 'Records'} — ${recordLabel}`}
             </Typography>
+            {!checking && excludedCount > 0 && (
+              <Typography sx={{ fontSize: '0.72rem', color: '#9a6700', fontWeight: 600, mt: 0.3 }}>
+                {excludedCount} excluded — {excludedNote}
+              </Typography>
+            )}
           </Box>
         </Box>
+        {nothingToSubmit && (
+          <Box sx={{ mb: 2, px: 1.75, py: 1.25, borderRadius: R.panel, bgcolor: 'rgba(154,103,0,0.07)', border: '1px solid rgba(154,103,0,0.25)' }}>
+            <Typography sx={{ fontSize: '0.78rem', color: '#7a5200', fontWeight: 600, lineHeight: 1.5 }}>
+              None of the loaded employees can be submitted here. {excludedNote}
+            </Typography>
+          </Box>
+        )}
         <Box
           onClick={() => setChecked(p => !p)}
           sx={{
@@ -693,19 +716,19 @@ const PayrollConfirmDialog = ({ open, onClose, onConfirm, title, subtitle, recor
         <RowBtn icon={null} label="Cancel" color={T.muted} hoverBg="rgba(0,0,0,0.05)" onClick={onClose} />
         <button
           className="oa-btn"
-          disabled={!checked || isSubmitting}
+          disabled={!checked || isSubmitting || checking || nothingToSubmit}
           onClick={() => { onClose(); onConfirm(); }}
           style={{
-            background: !checked || isSubmitting ? alpha(T.accent, 0.3) : T.accent,
+            background: !checked || isSubmitting || checking || nothingToSubmit ? alpha(T.accent, 0.3) : T.accent,
             color: '#fff', border: 'none', borderRadius: '8px',
             padding: '9px 24px', fontWeight: 700, fontSize: '0.8rem',
             fontFamily: 'inherit',
-            cursor: !checked || isSubmitting ? 'not-allowed' : 'pointer',
+            cursor: !checked || isSubmitting || checking || nothingToSubmit ? 'not-allowed' : 'pointer',
             transition: 'background 0.15s',
             display: 'flex', alignItems: 'center', gap: '6px',
           }}
-          onMouseEnter={e => { if (checked && !isSubmitting) e.currentTarget.style.background = T.accentDark; }}
-          onMouseLeave={e => { if (checked && !isSubmitting) e.currentTarget.style.background = T.accent; }}
+          onMouseEnter={e => { if (checked && !isSubmitting && !checking && !nothingToSubmit) e.currentTarget.style.background = T.accentDark; }}
+          onMouseLeave={e => { if (checked && !isSubmitting && !checking && !nothingToSubmit) e.currentTarget.style.background = T.accent; }}
         >
           {isSubmitting ? <><CircularProgress size={12} sx={{ color: '#fff' }} /> Submitting…</> : 'Submit'}
         </button>
@@ -829,6 +852,11 @@ const OverallAttendance = () => {
   const [attendanceData, setAttendanceData] = useState([]);
   const [editRecord, setEditRecord]         = useState(null);
   const [isSubmittingJO, setIsSubmittingJO] = useState(false);
+  // Loaded records split by payroll type (Job Order / Regular / no category) — known
+  // before either payroll button is used, so each button only sends its own employees.
+  const [payrollEligibility, setPayrollEligibility] = useState({
+    loading: false, jobOrder: [], regular: [], missingCategory: [], categoryByEmployee: new Map(),
+  });
   const [loading, setLoading]               = useState(false);
   const [pageLoading, setPageLoading]       = useState(true);
   const [processingOverlay, setProcessingOverlay] = useState(false);
@@ -1473,6 +1501,33 @@ const OverallAttendance = () => {
     halfDay: attendanceData.filter((r) => Number(r.halfDays) > 0).length,
   }), [attendanceData, resultDepartments]);
 
+  // ── Payroll eligibility (Job Order vs Regular) ─────────────────────────────
+  // Classified as soon as records load, so the buttons and the confirm dialog show
+  // the real counts before anything is clicked.
+  const eligibilityRunRef = useRef(0);
+  useEffect(() => {
+    const runId = ++eligibilityRunRef.current;
+    if (!attendanceData.length) {
+      setPayrollEligibility({ loading: false, jobOrder: [], regular: [], missingCategory: [], categoryByEmployee: new Map() });
+      return;
+    }
+    setPayrollEligibility((p) => ({ ...p, loading: true }));
+    classifyRecordsForPayroll(attendanceData, getAuthHeaders)
+      .then((res) => {
+        if (runId === eligibilityRunRef.current) setPayrollEligibility({ loading: false, ...res });
+      })
+      .catch(() => {
+        if (runId === eligibilityRunRef.current) setPayrollEligibility((p) => ({ ...p, loading: false }));
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attendanceData]);
+
+  /** "• Employee 2013…: reason" lines for the excluded employees of one payroll type. */
+  const describeExcluded = (records, reasonFor) =>
+    records.map((r) => `• Employee ${recordEmployeeNumber(r)}: ${reasonFor(r)}`).join('\n');
+  const categoryOf = (record, categoryByEmployee) =>
+    payrollCategoryLabel(categoryByEmployee.get(recordEmployeeNumber(record)));
+
   // ── CRUD ──────────────────────────────────────────────────────────────────
   const updateRecord = async () => {
     if (!editRecord || !editRecord.totalRenderedTimeMorning) return;
@@ -1482,9 +1537,9 @@ const OverallAttendance = () => {
         editRecord,
         getAuthHeaders(),
       );
+      // Refresh the table in place — a full page reload lost the filters and scroll.
+      fetchAttendanceData();
       showModal('Update Successful', 'Record updated successfully.', 'success', () => {
-        fetchAttendanceData();
-        window.location.reload();
         closeModal();
       });
     } catch (error) {
@@ -1514,29 +1569,81 @@ const OverallAttendance = () => {
     }, true);
   };
 
-  const goToEarningsForRegularPayroll = () => {
+  const withLateTotal = (r) => ({
+    ...r,
+    overallRenderedOfficialTimeTardiness:
+      r.overallRenderedOfficialTimeTardiness != null &&
+      String(r.overallRenderedOfficialTimeTardiness).trim() !== ''
+        ? r.overallRenderedOfficialTimeTardiness
+        : r._lateTotal != null && String(r._lateTotal).trim() !== ''
+          ? r._lateTotal
+          : '',
+  });
+
+  // ── Regular payroll → Earnings Management ─────────────────────────────────
+  // Job Order employees are paid through Job Order payroll, so they can never be
+  // routed here. Checked fresh on click (not only from the cached classification).
+  const [checkingRegular, setCheckingRegular] = useState(false);
+  const goToEarningsForRegularPayroll = async () => {
     if (!attendanceData || attendanceData.length === 0) {
       showModal('No Data', 'No attendance records available.', 'warning');
       return;
     }
-    navigate('/earnings-management', {
+    if (checkingRegular) return;
+    setCheckingRegular(true);
+    let classified;
+    try {
+      classified = await classifyRecordsForPayroll(attendanceData, getAuthHeaders);
+    } catch (e) {
+      console.error('Employment category check failed:', e);
+      showModal('Check Failed', 'Could not verify the employees’ employment categories. Please try again.', 'error');
+      setCheckingRegular(false);
+      return;
+    }
+    setCheckingRegular(false);
+    const { jobOrder, regular, missingCategory, categoryByEmployee } = classified;
+
+    const excludedText = [
+      describeExcluded(jobOrder, (r) => `Job Order (${categoryOf(r, categoryByEmployee)}) — use Submit Payroll JO`),
+      describeExcluded(missingCategory, () => 'No employment category — set it in Employment Category first'),
+    ].filter(Boolean).join('\n');
+
+    const go = (records) => navigate('/earnings-management', {
       state: {
         fromAttendanceSummaryRegular: true,
-        payrollAttendanceRecords: attendanceData.map((r) => ({
-          ...r,
-          overallRenderedOfficialTimeTardiness:
-            r.overallRenderedOfficialTimeTardiness != null &&
-            String(r.overallRenderedOfficialTimeTardiness).trim() !== ''
-              ? r.overallRenderedOfficialTimeTardiness
-              : r._lateTotal != null && String(r._lateTotal).trim() !== ''
-                ? r._lateTotal
-                : '',
-        })),
+        payrollAttendanceRecords: records.map(withLateTotal),
       },
     });
+
+    if (regular.length === 0) {
+      showModal(
+        'Not Allowed — Regular Payroll',
+        `These employees cannot go through Regular payroll (Earnings Management):\n\n${excludedText}\n\nJob Order employees are paid through Job Order payroll.`,
+        'warning',
+      );
+      return;
+    }
+    if (jobOrder.length > 0 || missingCategory.length > 0) {
+      showModal(
+        'Some Employees Excluded',
+        `${regular.length} Regular record(s) will continue to Earnings Management.\n${jobOrder.length + missingCategory.length} excluded:\n\n${excludedText}\n\nContinue with the Regular records only?`,
+        'warning',
+        () => { closeModal(); go(regular); },
+        true,
+      );
+      return;
+    }
+    go(regular);
   };
 
   // ── Payroll JO ────────────────────────────────────────────────────────────
+  /** "21:54" / "21:54:30" → { h, m, s } (whole numbers, never negative). */
+  const parseHms = (value) => {
+    const parts = String(value ?? '').trim().split(':');
+    const n = (i) => Math.max(0, parseInt(parts[i], 10) || 0);
+    return parts.length && parts[0] !== '' ? { h: n(0), m: n(1), s: n(2) } : { h: 0, m: 0, s: 0 };
+  };
+
   const submitPayrollJO = async () => {
     if (isSubmittingJO) return;
     if (!attendanceData || attendanceData.length === 0) {
@@ -1544,43 +1651,36 @@ const OverallAttendance = () => {
     }
     setIsSubmittingJO(true);
     setProcessingOverlay(true);
-    setProcessingMessage('Submitting JO payroll...');
+    setProcessingMessage('Checking employment categories...');
     try {
-      const filteredRecords = [], invalidRecords = [];
-      for (const record of attendanceData) {
-        const empNum = record.personID || record.employeeNumber;
-        const catRow = await fetchEmploymentCategoryRow(empNum);
-        if (!catRow || catRow.employmentCategory == null || catRow.employmentCategory === '') {
-          invalidRecords.push({ employeeNumber: empNum, reason: 'Employment category not found in system' });
-          continue;
-        }
-        if (isJobOrderEmploymentCategory(catRow)) filteredRecords.push(record);
-        else
-          invalidRecords.push({
-            employeeNumber: empNum,
-            reason: 'Not Job Order (J0) — use Regular payroll for this employment category',
-          });
-      }
+      const { jobOrder, regular, missingCategory, categoryByEmployee } =
+        await classifyRecordsForPayroll(attendanceData, getAuthHeaders);
 
-      if (invalidRecords.length > 0) {
-        if (filteredRecords.length === 0) {
-          showModal(
-            'Submission Blocked — Job Order Payroll',
-            `The following employee(s) could not be processed for Job Order (JO) Payroll submission:\n\n${invalidRecords.map(r => `• Employee ${r.employeeNumber}: ${r.reason}`).join('\n')}\n\nPlease verify and update the employment status on record before resubmitting.`,
-            'warning',
-          );
-          setProcessingOverlay(false); setIsSubmittingJO(false); return;
-        }
+      const excludedText = [
+        describeExcluded(regular, (r) => `Not a Job Order category (${categoryOf(r, categoryByEmployee)}) — use Regular · Earnings Management`),
+        describeExcluded(missingCategory, () => 'No employment category — set it in Employment Category first'),
+      ].filter(Boolean).join('\n');
+
+      if (jobOrder.length === 0) {
+        showModal(
+          'Submission Blocked — Job Order Payroll',
+          `The following employee(s) could not be processed for Job Order Payroll submission:\n\n${excludedText}\n\nOnly employees with a Job Order employment category can be submitted here. Check their category in Employment Category.`,
+          'warning',
+        );
+        return;
+      }
+      if (regular.length > 0 || missingCategory.length > 0) {
+        setProcessingOverlay(false);
         showModal(
           'Confirm Submission',
-          `${filteredRecords.length} eligible record(s)\n${invalidRecords.length} excluded\n\nProceed with submission?`,
+          `${jobOrder.length} Job Order record(s) will be submitted.\n${regular.length + missingCategory.length} excluded:\n\n${excludedText}\n\nProceed with the Job Order records only?`,
           'warning',
-          async () => { closeModal(); await continuePayrollJOSubmission(filteredRecords); },
+          async () => { closeModal(); await continuePayrollJOSubmission(jobOrder); },
           true,
         );
-        setProcessingOverlay(false); return;
+        return;
       }
-      await continuePayrollJOSubmission(filteredRecords);
+      await continuePayrollJOSubmission(jobOrder);
     } catch (error) {
       console.error('Error submitting Payroll JO:', error);
       handlePayrollJOError(error);
@@ -1589,70 +1689,65 @@ const OverallAttendance = () => {
     }
   };
 
+  /** Submits Job Order records. Holds the "Submitting…" lock itself, so it is safe to
+   *  call from the partial-confirm modal as well as directly. */
   const continuePayrollJOSubmission = async (filteredRecords) => {
+    setIsSubmittingJO(true);
+    setProcessingOverlay(true);
+    setProcessingMessage('Checking for existing payroll entries...');
     try {
-      const duplicateRecords = [];
-      for (const record of filteredRecords) {
-        const empNum = record.personID || record.employeeNumber;
+      // Same test the server applies: ANY payroll row (Job Order or Regular) for the
+      // employee + period blocks a new one. Checked in parallel.
+      const checks = await Promise.all(filteredRecords.map(async (record) => {
+        const empNum = recordEmployeeNumber(record);
         const { startDate, endDate } = record;
         try {
-          const checkResponse = await axios.get(
+          const res = await axios.get(
             `${API_BASE_URL}/PayrollJORoutes/payroll-jo`,
             { ...getAuthHeaders(), params: { employeeNumber: empNum, startDate, endDate } },
           );
-          if (checkResponse.data && checkResponse.data.length > 0)
-            duplicateRecords.push({ employeeNumber: empNum, startDate, endDate });
+          const hit = Array.isArray(res.data) && res.data.length > 0 ? res.data[0] : null;
+          return hit ? { employeeNumber: empNum, startDate, endDate, payrollType: hit.payrollType || 'Payroll' } : null;
         } catch (checkError) {
-          if (checkError.response?.status === 404) continue;
-          console.warn(`Could not check duplicate for ${empNum}:`, checkError);
+          if (checkError.response?.status !== 404) console.warn(`Could not check duplicate for ${empNum}:`, checkError);
+          return null;
         }
-      }
+      }));
+      const duplicateRecords = checks.filter(Boolean);
 
       if (duplicateRecords.length > 0) {
         showModal(
           'Duplicate Entries — Job Order Payroll',
-          `The system has detected existing Job Order Payroll records for the specified period:\n\n${duplicateRecords.map(r => `• Employee ${r.employeeNumber}: ${r.startDate} → ${r.endDate}`).join('\n')}\n\nPlease verify and review the existing entries before resubmitting.`,
+          `These employees already have a payroll entry for the period:\n\n${duplicateRecords.map(r => `• Employee ${r.employeeNumber}: ${r.startDate} → ${r.endDate} (existing ${r.payrollType} payroll)`).join('\n')}\n\nRemove or review the existing entry in payroll processing before resubmitting.`,
           'warning',
         );
-        setProcessingOverlay(false); return;
+        return;
       }
 
-      let successCount = 0, failedRecords = [];
+      setProcessingMessage('Submitting JO payroll...');
+      let successCount = 0;
+      const failedRecords = [];
       for (const record of filteredRecords) {
+        const empNum = recordEmployeeNumber(record);
         try {
-          let rhHours = 0;
-          if (record.overallRenderedOfficialTime) {
-            const parts = record.overallRenderedOfficialTime.split(':');
-            rhHours = parseInt(parts[0], 10) || 0;
-          }
-          let h = 0, m = 0, s = 0;
-          const tardStr =
-            record.overallRenderedOfficialTimeTardiness != null &&
-            String(record.overallRenderedOfficialTimeTardiness).trim() !== ''
-              ? record.overallRenderedOfficialTimeTardiness
-              : record._lateTotal != null && String(record._lateTotal).trim() !== ''
-                ? record._lateTotal
-                : '';
-          if (tardStr) {
-            const tParts = String(tardStr).split(':');
-            h = parseInt(tParts[0], 10) || 0;
-            m = parseInt(tParts[1], 10) || 0;
-            s = parseInt(tParts[2], 10) || 0;
-          }
+          // Rendered time goes as hours + minutes + seconds, so 21:54 is not cut to 21 h
+          // and under an hour (0:45) is still accepted.
+          const rendered = parseHms(record.overallRenderedOfficialTime);
+          const tardiness = parseHms(withLateTotal(record).overallRenderedOfficialTimeTardiness);
           const payload = {
-            employeeNumber: record.employeeNumber || record.personID,
+            employeeNumber: empNum,
             startDate: record.startDate,
             endDate: record.endDate,
-            h, m, s, rh: rhHours,
+            h: tardiness.h, m: tardiness.m, s: tardiness.s,
+            rh: rendered.h, rm: rendered.m, rs: rendered.s,
             department: record.code,
           };
-          console.log('Submitting JO payload:', payload);
           await axios.post(`${API_BASE_URL}/PayrollJORoutes/payroll-jo`, payload, getAuthHeaders());
           successCount++;
         } catch (recordError) {
-          console.error(`Failed to submit record for ${record.personID}:`, recordError);
-          const errorMsg = recordError.response?.data?.message || recordError.response?.data?.error || 'Unknown error';
-          failedRecords.push({ employeeNumber: record.personID || record.employeeNumber, error: errorMsg });
+          console.error(`Failed to submit record for ${empNum}:`, recordError);
+          const errorMsg = recordError.response?.data?.error || recordError.response?.data?.message || 'Unknown error';
+          failedRecords.push({ employeeNumber: empNum, error: errorMsg });
         }
       }
 
@@ -1662,12 +1757,15 @@ const OverallAttendance = () => {
           showModal('Partial Success', `Submitted: ${successCount}\nFailed: ${failedRecords.length}\n\n${failedList}`, 'warning');
         else
           showModal('Submission Failed', `All submissions failed:\n\n${failedList}`, 'error');
-        setProcessingOverlay(false);
       } else {
-        setProcessingOverlay(false);
         setSuccessAction('send'); setSuccessRedirect('/payroll-jo'); setSuccessOverlay(true);
       }
-    } catch (error) { handlePayrollJOError(error); }
+    } catch (error) {
+      handlePayrollJOError(error);
+    } finally {
+      setProcessingOverlay(false);
+      setIsSubmittingJO(false);
+    }
   };
 
   const handlePayrollJOError = (error) => {
@@ -2479,6 +2577,9 @@ const OverallAttendance = () => {
                     <Typography sx={{ fontSize: '0.86rem', fontWeight: 800, color: T.accent, lineHeight: 1.2 }}>Route to payroll</Typography>
                     <Typography sx={{ fontSize: '0.72rem', color: T.muted, fontWeight: 500 }}>
                       {attendanceData.length} {attendanceData.length === 1 ? 'record' : 'records'} ready
+                      {payrollEligibility.loading
+                        ? ' · checking categories…'
+                        : ` · ${payrollEligibility.jobOrder.length} Job Order · ${payrollEligibility.regular.length} Regular${payrollEligibility.missingCategory.length ? ` · ${payrollEligibility.missingCategory.length} no category` : ''}`}
                     </Typography>
                   </Box>
                 </Box>
@@ -2512,14 +2613,19 @@ const OverallAttendance = () => {
                   </Tooltip>
 
                   <Tooltip
-                    title="Leave deductions and SC/CTO are applied in Earnings Management; regular payroll is submitted only after that step."
+                    title={
+                      !payrollEligibility.loading && payrollEligibility.regular.length === 0
+                        ? 'Not available: none of the loaded employees has a Regular employment category. Job Order employees are paid through Submit Payroll JO.'
+                        : 'Leave deductions and SC/CTO are applied in Earnings Management; regular payroll is submitted only after that step. Job Order employees are never sent here.'
+                    }
                     arrow placement="top" enterDelay={300}
                   >
                     <span>
                       <PrimaryBtn
                         icon={<ChevronRightIcon sx={{ fontSize: 18, order: 2 }} />}
-                        label="Regular · Earnings Management"
+                        label={checkingRegular ? 'Checking categories…' : 'Regular · Earnings Management'}
                         onClick={goToEarningsForRegularPayroll}
+                        disabled={checkingRegular || (!payrollEligibility.loading && payrollEligibility.regular.length === 0)}
                       />
                     </span>
                   </Tooltip>
@@ -2594,9 +2700,15 @@ const OverallAttendance = () => {
           onConfirm={submitPayrollJO}
           title="Job Order Payroll Submission"
           subtitle="The following records are pending submission to Job Order Payroll. Verify all entries are accurate before proceeding."
-          recordCount={attendanceData.length}
+          recordCount={payrollEligibility.jobOrder.length}
           recordLabel="Job Order Payroll"
           isSubmitting={isSubmittingJO}
+          checking={payrollEligibility.loading}
+          excludedCount={payrollEligibility.regular.length + payrollEligibility.missingCategory.length}
+          excludedNote={[
+            payrollEligibility.regular.length ? `${payrollEligibility.regular.length} not a Job Order category (use Regular · Earnings Management)` : '',
+            payrollEligibility.missingCategory.length ? `${payrollEligibility.missingCategory.length} with no employment category` : '',
+          ].filter(Boolean).join('; ')}
         />
 
         {/* ── Styled Modal ── */}

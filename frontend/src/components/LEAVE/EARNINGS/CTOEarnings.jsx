@@ -786,7 +786,7 @@ const CTOInputColumn = ({
             value={expiryDate}
             onChange={(e) => setExpiryDate(e.target.value)}
             InputLabelProps={{ shrink: true }}
-            inputProps={{ min: new Date().toISOString().split("T")[0] }}
+            inputProps={{ min: (() => { const t = new Date(); return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`; })() }}
           />
         </Box>
       </Box>

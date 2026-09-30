@@ -271,7 +271,10 @@ router.get('/employment-category/:employeeNumber', authenticateToken, (req, res)
     if (results.length === 0)
       return res.status(404).json({ message: 'Employment category not found' });
 
-    logAudit(req.user, 'view', 'employment_category', results[0].id, employeeNumber);
+    // Background eligibility checks (payroll submission) pass ?quiet=1 — they are
+    // not someone viewing the record, so they would only flood the audit log.
+    const quiet = String(req.query.quiet || '') === '1';
+    if (!quiet) logAudit(req.user, 'view', 'employment_category', results[0].id, employeeNumber);
     res.json(results[0]);
   });
 });

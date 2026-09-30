@@ -2255,9 +2255,13 @@ const goToComputationModule = async (selectedComputationType) => {
       }, getAuthHeaders());
       const targetModuleId =
         COMPUTATION_TYPE_TO_MODULE_ID[selectedComputationType] || 'non_teaching';
+      // Open the computation module's own page (Non-teaching → /attendance_module,
+      // Faculty 30 hrs → /attendance_module_faculty, Faculty designated →
+      // /attendance_module_faculty_40hrs) — not DTR Overall with a drawer. The
+      // page loads this employee and period from the workflow state.
       navigateAttendanceWorkflow(
         navigate,
-        'dtr',
+        targetModuleId,
         {
           employeeNumber: personID,
           fullName: personName,
@@ -2265,7 +2269,7 @@ const goToComputationModule = async (selectedComputationType) => {
           endDate,
         },
         {
-          openComputationModule: targetModuleId,
+          openComputationModule: null,
           fromDevice: true,
         },
       );

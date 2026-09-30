@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import axios from "axios";
 import API_BASE_URL from "../../../apiConfig";
 import {
@@ -121,7 +121,13 @@ export function useLeavePeriodData(employeeNumber, refreshKey = 0) {
     cto: { hasRows: false, remainingHours: 0 },
   });
 
+  // Only the newest request may update state: switching employees while a slower
+  // request for the previous one is still running must not show that employee's
+  // balances on the new one's cards.
+  const requestIdRef = useRef(0);
+
   const load = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
     const emp = String(employeeNumber || "").trim();
     if (!emp) {
       setState((s) => ({ ...s, loading: false, error: "", loadedFor: "", periods: [], currentTotals: {} }));
@@ -136,6 +142,7 @@ export function useLeavePeriodData(employeeNumber, refreshKey = 0) {
       axios.get(`${API_BASE_URL}/api/earnings/sc/${emp}/balance`, { headers }),
       axios.get(`${API_BASE_URL}/api/earnings/cto/${emp}/balance`, { headers }),
     ]);
+    if (requestId !== requestIdRef.current) return; // a newer load has started — drop this result
     const earningsList =
       earn.status === "fulfilled" && Array.isArray(earn.value.data?.earnings) ? earn.value.data.earnings : [];
     const leaveTypes = {};

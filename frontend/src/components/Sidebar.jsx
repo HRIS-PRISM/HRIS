@@ -3374,7 +3374,7 @@ const Sidebar = ({
                     <EventNote sx={{ color: settings.textSecondaryColor }} />
                   </ListItemIcon>
                   <ListItemText
-                    primary="Leave Management"
+                    primary="Credits Management"
                     sx={{ marginLeft: "-10px", whiteSpace: "noWrap" }}
                   />
                   <ListItemIcon
@@ -3497,7 +3497,7 @@ const Sidebar = ({
                             <PlaylistAdd />
                           </ListItemIcon>
                           <ListItemText
-                            primary="Earnings Management"
+                            primary="Deductions & Earnings Management"
                             sx={{ marginLeft: "-10px" }}
                           />
                         </ListItem>
@@ -3607,7 +3607,7 @@ const Sidebar = ({
                             <MonetizationOnIcon />
                           </ListItemIcon>
                           <ListItemText
-                            primary="Leave Commutation"
+                            primary="Commutation"
                             sx={{ marginLeft: "-10px" }}
                           />
                         </ListItem>

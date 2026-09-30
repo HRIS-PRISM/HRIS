@@ -12,12 +12,15 @@ const { authenticateToken, logAudit, requireAdmin, requireSelfOrAdmin } = requir
 router.get('/payroll-jo', authenticateToken, requireAdmin, (req, res) => {
   const { employeeNumber, startDate, endDate } = req.query;
 
-  // When called with specific params, just check for existence (used by duplicate pre-check)
+  // When called with specific params, just check for existence (used by duplicate pre-check).
+  // Same test as POST /payroll-jo: ANY payroll row for the employee + period blocks the
+  // insert (a Regular payroll row too), so report it with its type to explain why.
   if (employeeNumber && startDate && endDate) {
     const checkQuery = `
-      SELECT id FROM payroll_processing
+      SELECT id,
+             CASE WHEN rh IS NOT NULL AND rh != '' THEN 'Job Order' ELSE 'Regular' END AS payrollType
+      FROM payroll_processing
       WHERE employeeNumber = ? AND startDate = ? AND endDate = ?
-        AND rh IS NOT NULL AND rh != ''
       LIMIT 1
     `;
     db.query(checkQuery, [employeeNumber, startDate, endDate], (err, result) => {
@@ -66,30 +69,29 @@ router.get('/payroll-jo', authenticateToken, requireAdmin, (req, res) => {
     COALESCE(rt.sss, '0') AS sssContribution,
     COALESCE(rt.pagibig, '0') AS pagibigContribution
   FROM payroll_processing p
-  LEFT JOIN person_table pt ON pt.agencyEmployeeNum = p.employeeNumber
+  LEFT JOIN person_table pt ON TRIM(pt.agencyEmployeeNum) REGEXP '^[0-9]+$' AND TRIM(pt.agencyEmployeeNum) = p.employeeNumber
   LEFT JOIN (
-    SELECT employeeID, item_description, salary_grade, step, effectivityDate,
-           MAX(id) as max_id
+    SELECT CAST(TRIM(employeeID) AS UNSIGNED) AS empNum, MAX(id) AS max_id
     FROM item_table
-    GROUP BY employeeID
-  ) itt_max ON p.employeeNumber = itt_max.employeeID
-  LEFT JOIN item_table itt ON itt.employeeID = p.employeeNumber 
-    AND itt.id = itt_max.max_id
+    WHERE TRIM(employeeID) REGEXP '^[0-9]+$'
+    GROUP BY empNum
+  ) itt_max ON itt_max.empNum = p.employeeNumber
+  LEFT JOIN item_table itt ON itt.id = itt_max.max_id
   LEFT JOIN salary_grade_table sgt ON sgt.sg_number = itt.salary_grade 
     AND sgt.effectivityDate = itt.effectivityDate
   LEFT JOIN (
-    SELECT employeeNumber, code, name, MAX(id) as max_id
+    SELECT CAST(TRIM(employeeNumber) AS UNSIGNED) AS empNum, MAX(id) AS max_id
     FROM department_assignment
-    GROUP BY employeeNumber
-  ) da_max ON p.employeeNumber = da_max.employeeNumber
-  LEFT JOIN department_assignment da ON da.employeeNumber = p.employeeNumber 
-    AND da.id = da_max.max_id
+    WHERE TRIM(employeeNumber) REGEXP '^[0-9]+$'
+    GROUP BY empNum
+  ) da_max ON da_max.empNum = p.employeeNumber
+  LEFT JOIN department_assignment da ON da.id = da_max.max_id
   LEFT JOIN overall_attendance_record oar 
-    ON oar.personID = p.employeeNumber 
+    ON TRIM(oar.personID) REGEXP '^[0-9]+$' AND TRIM(oar.personID) = p.employeeNumber 
     AND oar.startDate = p.startDate 
     AND oar.endDate = p.endDate
   LEFT JOIN remittance_table rt 
-    ON CAST(rt.employeeNumber AS UNSIGNED) = p.employeeNumber
+    ON TRIM(rt.employeeNumber) REGEXP '^[0-9]+$' AND CAST(TRIM(rt.employeeNumber) AS UNSIGNED) = p.employeeNumber
   WHERE p.rh IS NOT NULL AND p.rh != ""
   ORDER BY p.dateCreated DESC
 `;
@@ -142,26 +144,25 @@ router.get('/payroll-jo/:id', authenticateToken, requireAdmin, (req, res) => {
     oar.overallRenderedOfficialTime,
     oar.overallRenderedOfficialTimeTardiness AS hms
   FROM payroll_processing p
-  LEFT JOIN person_table pt ON pt.agencyEmployeeNum = p.employeeNumber
+  LEFT JOIN person_table pt ON TRIM(pt.agencyEmployeeNum) REGEXP '^[0-9]+$' AND TRIM(pt.agencyEmployeeNum) = p.employeeNumber
   LEFT JOIN (
-    SELECT employeeID, item_description, salary_grade, step, effectivityDate,
-           MAX(id) as max_id
+    SELECT CAST(TRIM(employeeID) AS UNSIGNED) AS empNum, MAX(id) AS max_id
     FROM item_table
-    GROUP BY employeeID
-  ) itt_max ON p.employeeNumber = itt_max.employeeID
-  LEFT JOIN item_table itt ON itt.employeeID = p.employeeNumber 
-    AND itt.id = itt_max.max_id
+    WHERE TRIM(employeeID) REGEXP '^[0-9]+$'
+    GROUP BY empNum
+  ) itt_max ON itt_max.empNum = p.employeeNumber
+  LEFT JOIN item_table itt ON itt.id = itt_max.max_id
   LEFT JOIN salary_grade_table sgt ON sgt.sg_number = itt.salary_grade 
     AND sgt.effectivityDate = itt.effectivityDate
   LEFT JOIN (
-    SELECT employeeNumber, code, name, MAX(id) as max_id
+    SELECT CAST(TRIM(employeeNumber) AS UNSIGNED) AS empNum, MAX(id) AS max_id
     FROM department_assignment
-    GROUP BY employeeNumber
-  ) da_max ON p.employeeNumber = da_max.employeeNumber
-  LEFT JOIN department_assignment da ON da.employeeNumber = p.employeeNumber 
-    AND da.id = da_max.max_id
+    WHERE TRIM(employeeNumber) REGEXP '^[0-9]+$'
+    GROUP BY empNum
+  ) da_max ON da_max.empNum = p.employeeNumber
+  LEFT JOIN department_assignment da ON da.id = da_max.max_id
   LEFT JOIN overall_attendance_record oar 
-    ON oar.personID = p.employeeNumber 
+    ON TRIM(oar.personID) REGEXP '^[0-9]+$' AND TRIM(oar.personID) = p.employeeNumber 
     AND oar.startDate = p.startDate 
     AND oar.endDate = p.endDate
   WHERE p.id = ? 
@@ -217,26 +218,25 @@ router.get('/payroll-jo/search', authenticateToken, requireAdmin, (req, res) => 
     oar.overallRenderedOfficialTime,
     oar.overallRenderedOfficialTimeTardiness AS hms
   FROM payroll_processing p
-  LEFT JOIN person_table pt ON pt.agencyEmployeeNum = p.employeeNumber
+  LEFT JOIN person_table pt ON TRIM(pt.agencyEmployeeNum) REGEXP '^[0-9]+$' AND TRIM(pt.agencyEmployeeNum) = p.employeeNumber
   LEFT JOIN (
-    SELECT employeeID, item_description, salary_grade, step, effectivityDate,
-           MAX(id) as max_id
+    SELECT CAST(TRIM(employeeID) AS UNSIGNED) AS empNum, MAX(id) AS max_id
     FROM item_table
-    GROUP BY employeeID
-  ) itt_max ON p.employeeNumber = itt_max.employeeID
-  LEFT JOIN item_table itt ON itt.employeeID = p.employeeNumber 
-    AND itt.id = itt_max.max_id
+    WHERE TRIM(employeeID) REGEXP '^[0-9]+$'
+    GROUP BY empNum
+  ) itt_max ON itt_max.empNum = p.employeeNumber
+  LEFT JOIN item_table itt ON itt.id = itt_max.max_id
   LEFT JOIN salary_grade_table sgt ON sgt.sg_number = itt.salary_grade 
     AND sgt.effectivityDate = itt.effectivityDate
   LEFT JOIN (
-    SELECT employeeNumber, code, name, MAX(id) as max_id
+    SELECT CAST(TRIM(employeeNumber) AS UNSIGNED) AS empNum, MAX(id) AS max_id
     FROM department_assignment
-    GROUP BY employeeNumber
-  ) da_max ON p.employeeNumber = da_max.employeeNumber
-  LEFT JOIN department_assignment da ON da.employeeNumber = p.employeeNumber 
-    AND da.id = da_max.max_id
+    WHERE TRIM(employeeNumber) REGEXP '^[0-9]+$'
+    GROUP BY empNum
+  ) da_max ON da_max.empNum = p.employeeNumber
+  LEFT JOIN department_assignment da ON da.id = da_max.max_id
   LEFT JOIN overall_attendance_record oar 
-    ON oar.personID = p.employeeNumber 
+    ON TRIM(oar.personID) REGEXP '^[0-9]+$' AND TRIM(oar.personID) = p.employeeNumber 
     AND oar.startDate = p.startDate 
     AND oar.endDate = p.endDate
   WHERE p.rh IS NOT NULL AND p.rh != ""
@@ -277,11 +277,13 @@ router.post('/payroll-jo', authenticateToken, requireAdmin, async (req, res) => 
   } = req.body;
 
   try {
-    // ✅ VALIDATION: Check if rh exists and is greater than 0
-    if (!rh || rh === 0 || rh === '0' || rh === null || rh === '') {
+    // Rendered time must be greater than zero — hours, minutes and seconds together,
+    // so e.g. 0:45 rendered is accepted (rh 0, rm 45).
+    const renderedSeconds =
+      (Number(rh) || 0) * 3600 + (Number(rm) || 0) * 60 + (Number(rs) || 0);
+    if (!(renderedSeconds > 0)) {
       return res.status(400).json({
-        error:
-          'Rendered hours (rh) is required and must be greater than 0 for Payroll JO submission.',
+        error: 'Rendered time is required and must be greater than 0 for Payroll JO submission.',
         employeeNumber: employeeNumber,
       });
     }
@@ -323,12 +325,21 @@ router.post('/payroll-jo', authenticateToken, requireAdmin, async (req, res) => 
       h || 0,
       m || 0,
       s || 0,
-      rh, // Now validated above
+      Number(rh) || 0,
       rm || null,
       rs || null,
       department || null,
       employeeNumber,
     ]);
+
+    // INSERT … SELECT FROM person_table inserts nothing when the employee has no
+    // personal (PDS) record — report that instead of a false "added successfully".
+    if (!result || result.affectedRows === 0) {
+      return res.status(422).json({
+        error: 'No personal record (PDS) found for this employee, so the payroll row could not be created. Add the employee in Personal Information first.',
+        employeeNumber,
+      });
+    }
 
     logAudit(
       req.user,

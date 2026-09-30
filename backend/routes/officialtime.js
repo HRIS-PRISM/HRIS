@@ -4550,4 +4550,185 @@ router.get(
   },
 );
 
+// ─────────────────────────────────────────────────────────────────────────────
+// DAY-PATTERN PRESETS ("Patterns") — shared by all admins
+// ─────────────────────────────────────────────────────────────────────────────
+// Saved weekly shortcuts (e.g. "Mon–Thu 7–6") used to pre-fill the Create
+// Schedule modal. Previously kept only in the browser's localStorage, so they
+// vanished on another computer/browser; now stored here and shared.
+
+const PATTERN_COLOR_RE = /^#[0-9a-f]{3,8}$/i;
+const PATTERN_NAME_MAX = 80;
+
+const patternQuery = (sql, params = []) =>
+  new Promise((resolve, reject) =>
+    db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows))),
+  );
+
+let patternTableReady = null;
+function ensurePatternTable() {
+  if (!patternTableReady) {
+    patternTableReady = patternQuery(
+      `CREATE TABLE IF NOT EXISTS official_time_patterns (
+        id INT(11) NOT NULL AUTO_INCREMENT,
+        name VARCHAR(${PATTERN_NAME_MAX}) NOT NULL,
+        days VARCHAR(200) NOT NULL COMMENT 'JSON array of day names',
+        time_in VARCHAR(16) NOT NULL,
+        time_out VARCHAR(16) NOT NULL,
+        color VARCHAR(16) NULL DEFAULT NULL,
+        created_by VARCHAR(64) NULL DEFAULT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        UNIQUE KEY uq_official_time_pattern_name (name)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Shared Official Time day-pattern presets'`,
+    ).catch((err) => {
+      patternTableReady = null; // retry on the next request
+      throw err;
+    });
+  }
+  return patternTableReady;
+}
+
+function rowToPattern(r) {
+  let days = [];
+  try {
+    days = JSON.parse(r.days);
+  } catch {
+    days = [];
+  }
+  return {
+    id: String(r.id),
+    name: r.name,
+    days: Array.isArray(days) ? days : [],
+    timeIn: r.time_in,
+    timeOut: r.time_out,
+    color: r.color || null,
+    createdBy: r.created_by || null,
+  };
+}
+
+/** Validates and normalizes a pattern from the request body; returns { error } or { value }. */
+function normalizePatternInput(body) {
+  const name = String(body?.name || "").trim();
+  if (!name) return { error: "Pattern name is required." };
+  if (name.length > PATTERN_NAME_MAX)
+    return { error: `Pattern name must be ${PATTERN_NAME_MAX} characters or fewer.` };
+  const days = Array.isArray(body?.days)
+    ? DAYS_ORDER.filter((d) => body.days.includes(d))
+    : [];
+  if (!days.length) return { error: "Choose at least one working day." };
+  const timeIn = String(body?.timeIn || "").trim();
+  const timeOut = String(body?.timeOut || "").trim();
+  if (!VALID_TIME_RE.test(timeIn) || !VALID_TIME_RE.test(timeOut))
+    return { error: "Time In and Time Out must look like 08:00:00 AM." };
+  const color = body?.color && PATTERN_COLOR_RE.test(String(body.color)) ? String(body.color) : null;
+  return { value: { name, days, timeIn, timeOut, color } };
+}
+
+router.get("/officialtime/patterns", authenticateToken, async (req, res) => {
+  try {
+    await ensurePatternTable();
+    const rows = await patternQuery(
+      "SELECT * FROM official_time_patterns ORDER BY created_at, id",
+    );
+    res.json(rows.map(rowToPattern));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/officialtime/patterns", authenticateToken, async (req, res) => {
+  if (!isOfficialTimeAdminRole(req.user))
+    return res.status(403).json({ error: "Only administrators can save patterns." });
+  const { error, value } = normalizePatternInput(req.body);
+  if (error) return res.status(400).json({ error });
+  try {
+    await ensurePatternTable();
+    const result = await patternQuery(
+      `INSERT INTO official_time_patterns (name, days, time_in, time_out, color, created_by)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        value.name,
+        JSON.stringify(value.days),
+        value.timeIn,
+        value.timeOut,
+        value.color,
+        req.user?.employeeNumber || null,
+      ],
+    );
+    const [row] = await patternQuery(
+      "SELECT * FROM official_time_patterns WHERE id = ?",
+      [result.insertId],
+    );
+    try {
+      logAudit(req.user, "Create", "official_time_patterns", result.insertId, null, {
+        name: value.name,
+      });
+    } catch {
+      /* audit is best-effort */
+    }
+    res.status(201).json(rowToPattern(row));
+  } catch (err) {
+    if (err.code === "ER_DUP_ENTRY")
+      return res.status(409).json({ error: `A pattern named "${value.name}" already exists.` });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// One-time move of patterns a browser saved in localStorage before patterns
+// were stored here. Names that already exist are skipped, so re-sending is safe.
+router.post("/officialtime/patterns/import", authenticateToken, async (req, res) => {
+  if (!isOfficialTimeAdminRole(req.user))
+    return res.status(403).json({ error: "Only administrators can save patterns." });
+  const incoming = Array.isArray(req.body?.patterns) ? req.body.patterns.slice(0, 100) : [];
+  try {
+    await ensurePatternTable();
+    let imported = 0;
+    for (const p of incoming) {
+      const { value } = normalizePatternInput(p);
+      if (!value) continue;
+      const result = await patternQuery(
+        `INSERT IGNORE INTO official_time_patterns (name, days, time_in, time_out, color, created_by)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [
+          value.name,
+          JSON.stringify(value.days),
+          value.timeIn,
+          value.timeOut,
+          value.color,
+          req.user?.employeeNumber || null,
+        ],
+      );
+      imported += result.affectedRows || 0;
+    }
+    const rows = await patternQuery(
+      "SELECT * FROM official_time_patterns ORDER BY created_at, id",
+    );
+    res.json({ imported, patterns: rows.map(rowToPattern) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete("/officialtime/patterns/:id", authenticateToken, async (req, res) => {
+  if (!isOfficialTimeAdminRole(req.user))
+    return res.status(403).json({ error: "Only administrators can delete patterns." });
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid pattern id." });
+  try {
+    await ensurePatternTable();
+    const [row] = await patternQuery("SELECT * FROM official_time_patterns WHERE id = ?", [id]);
+    if (!row) return res.status(404).json({ error: "Pattern not found." });
+    await patternQuery("DELETE FROM official_time_patterns WHERE id = ?", [id]);
+    try {
+      logAudit(req.user, "Delete", "official_time_patterns", id, null, { name: row.name });
+    } catch {
+      /* audit is best-effort */
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

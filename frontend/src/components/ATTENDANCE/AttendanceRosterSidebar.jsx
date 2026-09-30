@@ -109,6 +109,12 @@ const AttendanceRosterSidebar = ({
   selectedEmployeeNumber,
   doneCount = 0,
   totalCount = 0,
+  /**
+   * Stretch to the height of the column it sits in (instead of the viewport
+   * height) and show as many employees per page as fit, so the sidebar runs
+   * alongside the whole results area with no blank space under it.
+   */
+  fillHeight = false,
 }) => {
   // Callers pass different-sized theme objects: the computation modules carry the
   // full status palette (tardiness / rendered / absent / halfDay / …), while
@@ -117,9 +123,31 @@ const AttendanceRosterSidebar = ({
   const T = themeT || {};
   const warnColor = T.tardiness?.color || T.accent || '#b71c1c';
 
-  const PAGE_SIZE = 12;
+  const DEFAULT_PAGE_SIZE = 12;
   const listRef = useRef(null);
   const [page, setPage] = useState(0);
+  // fillHeight: rows per page follow the list's visible height
+  const [fitPageSize, setFitPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const PAGE_SIZE = fillHeight ? fitPageSize : DEFAULT_PAGE_SIZE;
+
+  useEffect(() => {
+    if (!fillHeight || !listRef.current || typeof ResizeObserver === 'undefined') return undefined;
+    const el = listRef.current;
+    const measure = () => {
+      // Rows differ in height (a "No official time" line adds one), so size
+      // pages by the average rendered row rather than just the first one.
+      const rendered = [...el.querySelectorAll('[data-roster-row]')];
+      const rowH = rendered.length
+        ? rendered.reduce((sum, r) => sum + r.offsetHeight, 0) / rendered.length
+        : 66;
+      const next = Math.max(8, Math.floor(el.clientHeight / rowH));
+      setFitPageSize((prev) => (prev === next ? prev : next));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [fillHeight, loading, rows.length]);
   const pct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
   const monthLabel = `${MONTH_NAMES_FULL[month - 1] || ''} ${year}`;
   const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
@@ -138,11 +166,21 @@ const AttendanceRosterSidebar = ({
   return (
     <SectionCard
       sx={{
-        // Capped to the viewport so the roster scrolls inside its own card and
-        // keeps pace with the sticky sidebar column.
-        height: 'calc(100vh - 190px)',
-        minHeight: 420,
-        maxHeight: 'calc(100vh - 190px)',
+        ...(fillHeight
+          ? {
+            // Fill the sidebar column exactly. Absolutely positioned so the
+            // employee rows never add to the grid row's height — the results
+            // column alone sets it, and both columns end on the same line.
+            // (The column wrapper must be position: relative with a min height.)
+            position: 'absolute',
+            inset: 0,
+          }
+          : {
+            // Capped to the viewport so the roster scrolls inside its own card.
+            height: 'calc(100vh - 190px)',
+            minHeight: 420,
+            maxHeight: 'calc(100vh - 190px)',
+          }),
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
@@ -404,6 +442,7 @@ const AttendanceRosterSidebar = ({
             return (
               <Box
                 key={row.employeeNumber}
+                data-roster-row
                 onClick={() => onSelectEmployee(row)}
                 role="button"
                 tabIndex={0}
