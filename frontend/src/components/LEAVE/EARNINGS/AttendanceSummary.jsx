@@ -10,7 +10,7 @@ import {
   Chip,
   Button,
   Tooltip,
-  Alert,
+  Alert,  
   IconButton,
   Dialog,
   Table,
@@ -833,8 +833,15 @@ const AttendanceSummary = ({
   deductedVlHalfDates = [],
   onDeductHalfDayVLRequested,
   filedLeaveByDate = {},
+  /** "all" (default) | "metrics" (Step 2) | "deduct" (Step 3 of the Earnings stepper). */
+  section = "all",
+  hideBalances = false,
+  cscCategory = null,
+  onDeductStatusChange = null,
 }) => {
   const navigate = useNavigate();
+  const showMetrics = section !== "deduct";
+  const showDeduct = section !== "metrics";
 
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1189,7 +1196,11 @@ const AttendanceSummary = ({
           </Alert>
         )}
 
-        {!raw ? (
+        {!raw && !showMetrics ? (
+          <Typography sx={{ fontSize: "0.7rem", color: T.muted, fontFamily: T.poppins, px: 0.5, py: 1 }}>
+            Save the attendance summary for {monthName(month)} {year} first (Attendance &amp; overtime).
+          </Typography>
+        ) : !raw ? (
           /* ── Empty state — must save in Attendance Summary first ── */
           <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
             <ColHeader icon={DateRangeIcon} label="Attendance Summary" color={T.accent} />
@@ -1244,6 +1255,7 @@ const AttendanceSummary = ({
           /* ── Main content ── */
           <Box sx={{ display: "flex", flexDirection: "column", gap: 1.25 }}>
             {/* ── Col Header with Edit + Refresh ── */}
+            {showMetrics && (
             <ColHeader icon={DateRangeIcon} label="Attendance Summary" color={T.accent}>
               <Box sx={{ display: "flex", gap: 0.75, alignItems: "center", flexShrink: 0 }}>
                 <Button
@@ -1269,8 +1281,10 @@ const AttendanceSummary = ({
                 </IconButton>
               </Box>
             </ColHeader>
+            )}
 
             <Box sx={{ px: 0.5, display: "flex", flexDirection: "column", gap: 1.25 }}>
+              {showMetrics && (<>
               {/* Period info */}
               <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1.5, flexWrap: "wrap", rowGap: 0.5 }}>
                 <Typography sx={{ fontSize: "0.6875rem", color: T.muted, fontFamily: T.poppins, flex: "1 1 auto", minWidth: 0 }}>
@@ -1338,6 +1352,7 @@ const AttendanceSummary = ({
                   </Box>
 
                   {/* ── Leave balances — unified style ── */}
+                  {!hideBalances && (
                   <Box>
                     <Typography sx={{
                       fontSize: "0.6rem", fontWeight: 800, color: T.faint,
@@ -1419,10 +1434,13 @@ const AttendanceSummary = ({
                       })}
                     </Box>
                   </Box>
+                  )}
                 </Box>
               </Box>
+              </>)}
 
               {/* ── Deduction receipt switcher ── */}
+              {showDeduct && (
               <DeductionReceiptSwitcher
                 employee={employee}
                 attendanceData={attendanceData}
@@ -1442,8 +1460,11 @@ const AttendanceSummary = ({
                 leaveByDate={officialCalendarMaps?.leaveByDate || {}}
                 filedLeaveByDate={filedLeaveByDate}
                 metricsTardinessHrs={tardHrs}
-                metricsAbsentDays={absentDays}   
+                metricsAbsentDays={absentDays}
+                cscCategory={cscCategory}
+                onStatusChange={onDeductStatusChange}
               />
+              )}
 
               {summaryUpdateNote ? (
                 <Typography sx={{ fontSize: "0.58rem", color: T.muted, fontFamily: T.poppins, textAlign: "center", pt: 0.75, pb: 0.25 }}>

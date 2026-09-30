@@ -17,8 +17,15 @@
     Chip,
     Checkbox,
     Tooltip,
+    IconButton,
+    TablePagination,
   } from "@mui/material";
-  import { Refresh as RefreshIcon, InfoOutlined as InfoOutlinedIcon } from "@mui/icons-material";
+  import {
+    Refresh as RefreshIcon,
+    InfoOutlined as InfoOutlinedIcon,
+    KeyboardArrowDown as KeyboardArrowDownIcon,
+    KeyboardArrowUp as KeyboardArrowUpIcon,
+  } from "@mui/icons-material";
 
   const T = {
     accent: "#6d2323",
@@ -172,6 +179,20 @@
   //   salary-deduction rows first, covered rows second.
   // Source field helps avoid showing duplicates: a B row that has a registry ID
   // is already represented by its A row — we skip it.
+  /** What kind of attendance gap an entry charged: Absence, Tardiness, Half day or Manual. */
+  export function deductionKindOf({ sourceKey, sourceType, leaveCode, entryType, remarks, fromHalfDayLog }) {
+    const key = String(sourceKey || "").toUpperCase();
+    const st = String(sourceType || "").toUpperCase();
+    const code = String(leaveCode || "").toUpperCase();
+    const et = String(entryType || "").toUpperCase();
+    const rm = String(remarks || "").toLowerCase();
+    if (fromHalfDayLog || key.startsWith("HALF_DAY") || et.includes("HALF_DAY") || rm.includes("half-day") || rm.includes("half day")) return "Half day";
+    if (st.includes("TARD") || code === "TARDINESS" || et.includes("TARDINESS") || rm.includes("tardiness")) return "Tardiness";
+    if (key.startsWith("MANUAL")) return "Manual";
+    if (st === "ABSENT" || code === "ABSENCE" || et.includes("ABSENCE") || et.includes("ATTENDANCE") || rm.includes("absence")) return "Absence";
+    return "Other";
+  }
+
   export function buildMergedRows(sectionARows, sectionBRows, attendanceResults = []) {
     const merged = [];
 
@@ -222,6 +243,11 @@
         createdAt: r.processed_at,
         isDeduction,
         source: "AR",
+        // "active" | "voided" | "missing" (server: the deduction/earning it came from)
+        sourceState: r.source_state || "active",
+        coveredBy: r.leave_used ? String(r.leave_used).toUpperCase() : null,
+        kind: deductionKindOf({ sourceKey: r.source_key, sourceType: r.source_type, remarks: r.remarks }),
+        remarks: r.remarks || "",
       });
     });
 
@@ -246,6 +272,8 @@
         createdAt: r.created_at,
         isDeduction,
         source: "A",
+        kind: deductionKindOf({ leaveCode: r.leave_code, entryType: r.entry_type, remarks: r.remarks }),
+        remarks: r.remarks || "",
       });
     });
 
@@ -287,6 +315,7 @@
         createdAt: r.created_at,
         isDeduction,
         source: "B",
+        kind: "Half day",
       });
     });
 
@@ -309,13 +338,24 @@
     onPayrollToggle,
     onPayroll,
     payrollChecking,
+    asChild = false,
   }) {
     const bg = row.isDeduction ? T.salaryBg : T.coveredBg;
     const textColor = row.isDeduction ? T.salaryText : T.coveredText;
     const chipBg = row.isDeduction ? T.salaryChipBg : T.coveredChipBg;
     const chipColor = row.isDeduction ? T.salaryChipColor : T.coveredChipColor;
     const chipBorder = row.isDeduction ? T.salaryChipBorder : T.coveredChipBorder;
-    const chipLabel = row.isDeduction ? "Salary deduction" : "No salary deduction";
+    const isVoided = row.sourceState === "voided" || row.sourceState === "missing";
+    const chipLabel = isVoided
+      ? "Voided"
+      : row.isDeduction
+        ? "Salary deduction"
+        : `No salary deduction | Covered by ${coveredByLabel(row.coveredBy || row.leaveCode)}`;
+    const chipTip = isVoided
+      ? row.sourceState === "missing"
+        ? "Voided — the deduction this entry came from no longer exists."
+        : "Voided — the deduction or earning this entry came from was voided."
+      : "";
 
     const cellSx = {
       fontFamily: T.poppins,
@@ -357,28 +397,33 @@
             )}
           </TableCell>
         )}
-        <TableCell sx={cellSx}>{row.employeeNumber}</TableCell>
-        <TableCell sx={{ ...cellSx, maxWidth: 180, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-          {row.name}
+        <TableCell sx={cellSx}>{asChild ? "" : row.employeeNumber}</TableCell>
+        <TableCell sx={{ ...cellSx, maxWidth: 180, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", ...(asChild ? { pl: 3, color: T.faint } : {}) }}>
+          {asChild ? "↳" : row.name}
+        </TableCell>
+        <TableCell sx={cellSx}>
+          <KindChip kind={row.kind || "Other"} tip={row.remarks || ""} />
         </TableCell>
         <TableCell sx={cellSx}>{row.leaveCode}</TableCell>
         <TableCell sx={cellSx}>
           {row.halfDayDate || "—"}
         </TableCell>
         <TableCell sx={cellSx}>
-          <Chip
-            label={chipLabel}
-            size="small"
-            sx={{
-              height: 20,
-              fontSize: "0.58rem",
-              fontWeight: 800,
-              fontFamily: T.poppins,
-              bgcolor: chipBg,
-              color: chipColor,
-              border: `1px solid ${chipBorder}`,
-            }}
-          />
+          <Tooltip title={chipTip}>
+            <Chip
+              label={chipLabel}
+              size="small"
+              sx={{
+                height: 20,
+                fontSize: "0.58rem",
+                fontWeight: 800,
+                fontFamily: T.poppins,
+                bgcolor: isVoided ? "rgba(0,0,0,0.06)" : chipBg,
+                color: isVoided ? T.muted : chipColor,
+                border: `1px solid ${isVoided ? "rgba(0,0,0,0.12)" : chipBorder}`,
+              }}
+            />
+          </Tooltip>
         </TableCell>
         <TableCell sx={{ ...cellSx, fontWeight: row.isDeduction ? 700 : 400 }}>
           {row.toSalaryDays != null
@@ -387,7 +432,7 @@
               : "—"
             : "—"}
         </TableCell>
-        <TableCell sx={{ ...cellSx, fontWeight: row.isDeduction ? 700 : 400 }}>
+        <TableCell sx={{ ...cellSx, fontWeight: row.isDeduction ? 700 : 400, ...(isVoided ? { color: T.faint, textDecoration: "line-through" } : {}) }}>
           {row.hours != null ? row.hours.toFixed(3) : "—"}
         </TableCell>
         <TableCell sx={{ ...cellSx, fontSize: "0.68rem", color: T.faint }}>
@@ -395,6 +440,158 @@
         </TableCell>
       </TableRow>
     );
+  }
+
+  const KIND_STYLE = {
+    Absence: { bg: "#fdeaed", fg: "#b4283f" },
+    Tardiness: { bg: "#fdebc8", fg: "#8a5d06" },
+    "Half day": { bg: "rgba(124,58,237,0.12)", fg: "#6d28d9" },
+    Manual: { bg: "rgba(0,0,0,0.06)", fg: "#555" },
+    Other: { bg: "rgba(0,0,0,0.06)", fg: "#555" },
+  };
+  export function KindChip({ kind, count, tip }) {
+    const st = KIND_STYLE[kind] || KIND_STYLE.Other;
+    const chip = (
+      <Box component="span" sx={{ display: "inline-block", px: 0.9, py: "1px", borderRadius: 99, fontSize: "0.6rem", fontWeight: 700, fontFamily: T.poppins, bgcolor: st.bg, color: st.fg, whiteSpace: "nowrap" }}>
+        {kind}{count != null ? ` ${count}` : ""}
+      </Box>
+    );
+    return tip ? <Tooltip title={tip}>{chip}</Tooltip> : chip;
+  }
+
+  const COVER_LABELS = { VL: "VL", SL: "SL", SC: "SC", CTO: "CTO" };
+  /** "VL" → "VL"; unknown or empty → "Leave". */
+  export function coveredByLabel(code) {
+    const c = String(code || "").trim().toUpperCase();
+    return COVER_LABELS[c] || (c && c !== "—" && c !== "NONE" ? c : "Leave");
+  }
+  const rowIsVoided = (r) => r.sourceState === "voided" || r.sourceState === "missing";
+
+  /**
+   * One summary row per employee with a dropdown for their individual entries.
+   * Totals and "Covered by" use active entries only; voided entries are counted separately.
+   */
+  /** [[employeeNumber, entries[]], …] in first-seen order. */
+  export function groupByEmployee(rows) {
+    const map = new Map();
+    for (const r of rows) {
+      const k = String(r.employeeNumber || "").trim();
+      if (!map.has(k)) map.set(k, []);
+      map.get(k).push(r);
+    }
+    return [...map.entries()];
+  }
+
+  /** Entries shown in an open dropdown before "Show all". */
+  const CHILD_PREVIEW = 15;
+
+  export function EmployeeGroupRows({ groups }) {
+    const [open, setOpen] = useState({});
+    const [showAll, setShowAll] = useState({});
+
+    return groups.map(([emp, list]) => {
+      const active = list.filter((r) => !rowIsVoided(r));
+      const voidedCount = list.length - active.length;
+      const isDeduction = list[0]?.isDeduction;
+      const pools = [...new Set(active.map((r) => coveredByLabel(r.coveredBy || r.leaveCode)))];
+      const dates = list.map((r) => r.halfDayDate).filter(Boolean).sort();
+      const hours = active.reduce((sum, r) => sum + (Number(r.hours) || 0), 0);
+      const toSalary = active.reduce((sum, r) => sum + (Number(r.toSalaryDays) || 0), 0);
+      const latest = list.map((r) => r.createdAt).filter(Boolean).sort().pop();
+      const kindCounts = ["Absence", "Tardiness", "Half day", "Manual", "Other"]
+        .map((k) => [k, active.filter((r) => (r.kind || "Other") === k).length])
+        .filter(([, n]) => n > 0);
+      const isOpen = Boolean(open[emp]);
+      const bg = isDeduction ? T.salaryBg : T.coveredBg;
+      const cellSx = {
+        fontFamily: T.poppins,
+        fontSize: "0.72rem",
+        bgcolor: bg,
+        color: isDeduction ? T.salaryText : T.coveredText,
+        borderBottom: `1px solid ${isDeduction ? T.salaryBorder : T.coveredBorder}`,
+        fontWeight: 600,
+      };
+      const statusLabel = active.length === 0
+        ? "Voided"
+        : isDeduction
+          ? "Salary deduction"
+          : `No salary deduction | Covered by ${pools.join(", ")}`;
+      return (
+        <React.Fragment key={emp}>
+          <TableRow hover sx={{ cursor: "pointer" }} onClick={() => setOpen((o) => ({ ...o, [emp]: !o[emp] }))}>
+            <TableCell sx={cellSx}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                <IconButton
+                  size="small"
+                  aria-label={isOpen ? `Hide entries for ${emp}` : `Show entries for ${emp}`}
+                  aria-expanded={isOpen}
+                  onClick={(e) => { e.stopPropagation(); setOpen((o) => ({ ...o, [emp]: !o[emp] })); }}
+                  sx={{ p: 0.25 }}
+                >
+                  {isOpen ? <KeyboardArrowUpIcon sx={{ fontSize: 16 }} /> : <KeyboardArrowDownIcon sx={{ fontSize: 16 }} />}
+                </IconButton>
+                {emp}
+              </Box>
+            </TableCell>
+            <TableCell sx={{ ...cellSx, maxWidth: 180, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{list[0]?.name}</TableCell>
+            <TableCell sx={cellSx}>
+              <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
+                {kindCounts.length ? kindCounts.map(([k, n]) => <KindChip key={k} kind={k} count={n} />) : "—"}
+              </Box>
+            </TableCell>
+            <TableCell sx={cellSx}>{pools.join(" · ") || "—"}</TableCell>
+            <TableCell sx={cellSx}>
+              {list.length} {list.length === 1 ? "entry" : "entries"}
+              {dates.length ? ` · ${dates[0]}${dates.length > 1 && dates[dates.length - 1] !== dates[0] ? ` → ${dates[dates.length - 1]}` : ""}` : ""}
+            </TableCell>
+            <TableCell sx={cellSx}>
+              <Box sx={{ display: "flex", gap: 0.5, flexWrap: "wrap" }}>
+                <Chip
+                  label={statusLabel}
+                  size="small"
+                  sx={{
+                    height: 20,
+                    fontSize: "0.58rem",
+                    fontWeight: 800,
+                    fontFamily: T.poppins,
+                    bgcolor: active.length === 0 ? "rgba(0,0,0,0.06)" : isDeduction ? T.salaryChipBg : T.coveredChipBg,
+                    color: active.length === 0 ? T.muted : isDeduction ? T.salaryChipColor : T.coveredChipColor,
+                    border: `1px solid ${active.length === 0 ? "rgba(0,0,0,0.12)" : isDeduction ? T.salaryChipBorder : T.coveredChipBorder}`,
+                  }}
+                />
+                {voidedCount > 0 && active.length > 0 && (
+                  <Chip
+                    label={`${voidedCount} voided`}
+                    size="small"
+                    sx={{ height: 20, fontSize: "0.58rem", fontWeight: 800, fontFamily: T.poppins, bgcolor: "rgba(0,0,0,0.06)", color: T.muted }}
+                  />
+                )}
+              </Box>
+            </TableCell>
+            <TableCell sx={cellSx}>{isDeduction ? toSalary.toFixed(3) : "—"}</TableCell>
+            <TableCell sx={cellSx}>{hours.toFixed(3)}</TableCell>
+            <TableCell sx={{ ...cellSx, fontSize: "0.68rem", color: T.faint, fontWeight: 400 }}>{fmtWhen(latest)}</TableCell>
+          </TableRow>
+          {isOpen &&
+            (showAll[emp] ? list : list.slice(0, CHILD_PREVIEW)).map((r) => (
+              <MergedRow key={r.key} row={r} showPayrollColumn={false} asChild />
+            ))}
+          {isOpen && list.length > CHILD_PREVIEW && (
+            <TableRow>
+              <TableCell colSpan={9} sx={{ py: 0.5, pl: 6, bgcolor: bg, borderBottom: `1px solid ${T.divider}` }}>
+                <Button
+                  size="small"
+                  onClick={() => setShowAll((o) => ({ ...o, [emp]: !o[emp] }))}
+                  sx={{ textTransform: "none", fontFamily: T.poppins, fontSize: "0.68rem", fontWeight: 700, color: T.accent }}
+                >
+                  {showAll[emp] ? "Show fewer" : `Show all ${list.length} entries`}
+                </Button>
+              </TableCell>
+            </TableRow>
+          )}
+        </React.Fragment>
+      );
+    });
   }
 
   // ── Divider row ───────────────────────────────────────────────────────────────
@@ -500,6 +697,29 @@
       [mergedRows],
     );
     const isEmpty = !loading && !error && mergedRows.length === 0;
+
+    // ── Pagination by employee (one summary row = one item) ──
+    const deductionGroups = useMemo(() => groupByEmployee(deductionRows), [deductionRows]);
+    const coveredGroups = useMemo(() => groupByEmployee(coveredRows), [coveredRows]);
+    const allGroups = useMemo(
+      () => [
+        ...deductionGroups.map((g) => ({ section: "deduction", g })),
+        ...coveredGroups.map((g) => ({ section: "covered", g })),
+      ],
+      [deductionGroups, coveredGroups],
+    );
+    const [page, setPage] = useState(0);
+    const [rowsPerPage, setRowsPerPage] = useState(10);
+    useEffect(() => {
+      setPage(0);
+    }, [employee?.employeeNumber, year, month]);
+    useEffect(() => {
+      const last = Math.max(0, Math.ceil(allGroups.length / rowsPerPage) - 1);
+      if (page > last) setPage(last);
+    }, [allGroups.length, rowsPerPage, page]);
+    const pageItems = allGroups.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+    const pageDeductionGroups = pageItems.filter((x) => x.section === "deduction").map((x) => x.g);
+    const pageCoveredGroups = pageItems.filter((x) => x.section === "covered").map((x) => x.g);
 
     return (
       <Box
@@ -635,7 +855,7 @@
           <Table size="small" stickyHeader>
             <TableHead>
               <TableRow>
-                {["Emp #", "Name", "Leave", "Half-day date", "Status", "To salary (d)", "Hours", "Created"].map((h) => (
+                {["Emp #", "Name", "Deduction", "Leave", "Date", "Status", "To salary (d)", "Hours", "Created"].map((h) => (
                   <TableCell
                     key={h}
                     sx={{
@@ -656,26 +876,22 @@
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
                     <CircularProgress size={22} sx={{ color: T.accent }} />
                   </TableCell>
                 </TableRow>
               ) : mergedRows.length === 0 ? null : (
                 <>
-                  {deductionRows.length > 0 && (
+                  {pageDeductionGroups.length > 0 && (
                     <>
-                      <DividerRow label="Salary deductions" count={deductionRows.length} colSpan={8} />
-                      {deductionRows.map((r) => (
-                        <MergedRow key={r.key} row={r} showPayrollColumn={false} />
-                      ))}
+                      <DividerRow label="Salary deductions" count={deductionRows.length} colSpan={9} />
+                      <EmployeeGroupRows groups={pageDeductionGroups} />
                     </>
                   )}
-                  {coveredRows.length > 0 && (
+                  {pageCoveredGroups.length > 0 && (
                     <>
-                      <DividerRow label="Covered by leave credits" count={coveredRows.length} colSpan={8} />
-                      {coveredRows.map((r) => (
-                        <MergedRow key={r.key} row={r} showPayrollColumn={false} />
-                      ))}
+                      <DividerRow label="Covered by leave credits" count={coveredRows.length} colSpan={9} />
+                      <EmployeeGroupRows groups={pageCoveredGroups} />
                     </>
                   )}
                 </>
@@ -683,6 +899,27 @@
             </TableBody>
           </Table>
         </TableContainer>
+        {!loading && allGroups.length > 0 && (
+          <TablePagination
+            component="div"
+            count={allGroups.length}
+            page={page}
+            onPageChange={(_, p) => setPage(p)}
+            rowsPerPage={rowsPerPage}
+            onRowsPerPageChange={(e) => {
+              setRowsPerPage(parseInt(e.target.value, 10));
+              setPage(0);
+            }}
+            rowsPerPageOptions={[10, 25, 50, 100]}
+            labelRowsPerPage="Employees per page:"
+            labelDisplayedRows={({ from, to, count }) => `${from}–${to} of ${count} employee rows`}
+            sx={{
+              flexShrink: 0,
+              borderTop: `1px solid ${T.divider}`,
+              "& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows, & .MuiInputBase-root": { fontFamily: T.poppins, fontSize: "0.72rem" },
+            }}
+          />
+        )}
       </Box>
     );
   }

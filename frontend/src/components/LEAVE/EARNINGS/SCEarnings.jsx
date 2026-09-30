@@ -32,6 +32,15 @@ import {
 } from "@mui/material";
 import { alpha, styled } from "@mui/material/styles";
 import {
+  useOvertimeProposal,
+  differsFromOvertimeProposal,
+  OvertimeProposalCard,
+  OvertimeAuthorityAndOverride,
+} from "./OvertimeCreditProposal";
+
+/** Manual entry first: HR types the service credit; the automatic computation is off for now. */
+const MANUAL_ENTRY_FIRST = true;
+import {
   EventNote as LeaveIcon,
   WorkHistory as SCIcon,
   AccessTime as CTOIcon,
@@ -576,12 +585,26 @@ const SCInputColumn = ({
       );
   }, []);
 
+  const [overrideReason, setOverrideReason] = useState("");
+  const [proposalKey, setProposalKey] = useState(0);
+  // Rendered service-credit time for the month, 8 h = 1 day (server computation).
+  const { proposal, loading: proposalLoading, error: proposalError } = useOvertimeProposal("sc", MANUAL_ENTRY_FIRST ? null : employee, year, month, proposalKey);
+
   useEffect(() => {
     setOtValues({});
     setOtDrafts({});
     setRemarks("");
     setError("");
+    setOverrideReason("");
   }, [employee, year, month]);
+
+  // Pre-fill the first OT line with the computed hours.
+  const firstTypeId = otTypes[0]?.id;
+  useEffect(() => {
+    if (!proposal || !firstTypeId) return;
+    setOtValues(proposal.eligible && Number(proposal.hours) > 0 ? { [firstTypeId]: Number(proposal.hours) } : {});
+    setOtDrafts({});
+  }, [proposal, firstTypeId]);
 
   // When inputUnit toggles, wipe drafts so each cell recalculates its display
   useEffect(() => {
@@ -600,6 +623,8 @@ const SCInputColumn = ({
   }, [otValues, otTypes]);
 
   const payloadScType = "non_commutative";
+  const overrideNeeded = differsFromOvertimeProposal(proposal, computedSC.total) && (computedSC.total > 0 || proposal?.eligible);
+  const missingOverride = overrideNeeded && !overrideReason.trim();
 
   const handleSave = async () => {
     if (!employee) {
@@ -608,6 +633,10 @@ const SCInputColumn = ({
     }
     if (computedSC.total <= 0) {
       setError("OT hours must be > 0");
+      return;
+    }
+    if (missingOverride) {
+      setError("Enter an override reason — the amount differs from the computation.");
       return;
     }
     setLoading(true);
@@ -633,6 +662,7 @@ const SCInputColumn = ({
           period_year: parseInt(year, 10) || new Date().getFullYear(),
           period_month: parseInt(month, 10),
           remarks: remarks || null,
+          override_reason: overrideNeeded ? overrideReason.trim() : undefined,
           emp_category_snapshot: {
             label: empCat?.label || "",
             colorHex: empCat?.colorHex,
@@ -647,10 +677,12 @@ const SCInputColumn = ({
       setOtValues({});
       setOtDrafts({});
       setRemarks("");
+      setOverrideReason("");
+      setProposalKey((k) => k + 1);
       if (onRecordsRefresh) onRecordsRefresh();
       setTimeout(() => setSuccess(""), 3500);
     } catch (err) {
-      setError("Failed: " + (err.response?.data?.error || err.message));
+      setError(err.response?.data?.error || "Failed: " + err.message);
     } finally {
       setLoading(false);
     }
@@ -790,6 +822,13 @@ const SCInputColumn = ({
           {/* Label reflects current inputUnit */}
           OT {inputUnit === "days" ? "Days" : "Hours"} Input
         </Typography>
+        {!MANUAL_ENTRY_FIRST && <OvertimeProposalCard
+          kind="sc"
+          proposal={proposal}
+          loading={proposalLoading}
+          error={proposalError}
+          onUse={proposal?.eligible && firstTypeId ? () => { setOtValues({ [firstTypeId]: Number(proposal.hours) || 0 }); setOtDrafts({}); } : null}
+        />}
 
         {/* Pass inputUnit down instead of the parent unit prop */}
         <CompactInputGrid
@@ -906,6 +945,13 @@ const SCInputColumn = ({
           borderTop: `1px solid ${T.divider}`,
         }}
       >
+        <OvertimeAuthorityAndOverride
+          kind="sc"
+          overrideNeeded={overrideNeeded}
+          overrideReason={overrideReason}
+          onOverrideReason={setOverrideReason}
+          proposal={proposal}
+        />
         <FieldInput
           size="small"
           fullWidth
@@ -918,7 +964,7 @@ const SCInputColumn = ({
           variant="contained"
           fullWidth
           onClick={handleSave}
-          disabled={loading || computedSC.total <= 0}
+          disabled={loading || computedSC.total <= 0 || missingOverride}
           startIcon={
             loading ? (
               <CircularProgress size={14} sx={{ color: "#fff" }} />

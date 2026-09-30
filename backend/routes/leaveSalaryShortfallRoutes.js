@@ -5,6 +5,7 @@ const { authenticateToken, requireAdmin } = require("../middleware/auth");
 const { mirrorAttendanceSalaryShortfallToAuditTrail } = require("../services/leaveSalaryShortfallMirror");
 const attendanceWriter = require("../services/attendanceResultWriter");
 const { notifyEarningsChanged } = require("../socket/socketService");
+const { annotateSafely } = require("../services/attendanceSourceState");
 
 const toNum = (v) => {
   const n = Number(v);
@@ -185,15 +186,19 @@ router.get("/", authenticateToken, (req, res) => {
             attendanceResults: [],
           });
         }
-        res.json({
-          rows: baseRows,
-          salaryHalfDayPolicyLog: logRows || [],
-          attendanceResults: arRows || [],
-        });
+        annotateSafely(arRows || [])
+          .then((annotated) =>
+            res.json({
+              rows: baseRows,
+              salaryHalfDayPolicyLog: logRows || [],
+              attendanceResults: annotated,
+            }),
+          );
       });
     });
   });
 });
+
 
 /**
  * POST /api/leave-salary-shortfall

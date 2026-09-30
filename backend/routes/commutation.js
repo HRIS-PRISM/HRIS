@@ -25,7 +25,7 @@ const express = require('express');
 const router  = express.Router();
 const db      = require('../db');
 const jwt     = require('jsonwebtoken');
-const { logAudit, authenticateToken, requireAdmin } = require('../middleware/auth');
+const { logAudit, authenticateToken, requireAdmin, requireSelfOrAdmin } = require('../middleware/auth');
 const {
   getScDisplayRemainingHours,
   computeScBalances,
@@ -304,7 +304,7 @@ const hasActiveCommutation = async (assignmentId) => {
 
 // ─── GET /leave_commutation ───────────────────────────────────────────────────
 
-router.get('/leave_commutation', (req, res) => {
+router.get('/leave_commutation', authenticateToken, requireAdmin, (req, res) => {
   const sql = `
     SELECT lc.*,
            lt.leave_description,
@@ -328,7 +328,7 @@ router.get('/leave_commutation', (req, res) => {
 
 // ─── GET /leave_commutation/employee/:employeeNumber ─────────────────────────
 
-router.get('/leave_commutation/employee/:employeeNumber', (req, res) => {
+router.get('/leave_commutation/employee/:employeeNumber', authenticateToken, requireSelfOrAdmin('employeeNumber'), (req, res) => {
   const sql = `
     SELECT lc.*,
            lt.leave_description,
@@ -347,7 +347,7 @@ router.get('/leave_commutation/employee/:employeeNumber', (req, res) => {
 
 // ─── GET /leave_commutation/carried-forward/:employeeNumber/:leave_code ───────
 
-router.get('/leave_commutation/carried-forward/:employeeNumber/:leave_code', (req, res) => {
+router.get('/leave_commutation/carried-forward/:employeeNumber/:leave_code', authenticateToken, requireSelfOrAdmin('employeeNumber'), (req, res) => {
   const { employeeNumber, leave_code } = req.params;
   const sql = `
     SELECT COALESCE(SUM(commuted_hours), 0) AS total_commuted_hours,
@@ -368,10 +368,10 @@ router.get('/leave_commutation/carried-forward/:employeeNumber/:leave_code', (re
 
 // ─── POST /leave_commutation/commute/:assignmentId ───────────────────────────
 
-router.post('/leave_commutation/commute/:assignmentId', async (req, res) => {
+router.post('/leave_commutation/commute/:assignmentId', authenticateToken, requireAdmin, async (req, res) => {
   const { assignmentId } = req.params;
-  const { commuted_by, remarks } = req.body || {};
-  const actorEmpNum = getActorEmployeeNumber(req, commuted_by);
+  const { remarks } = req.body || {};
+  const actorEmpNum = getActorEmployeeNumber(req);
 
   try {
     await ensureCommutedColumn();
@@ -435,7 +435,7 @@ router.post('/leave_commutation/commute/:assignmentId', async (req, res) => {
           asgn.period_semester || null,
           remainingHours,
           commutedDays,
-          commuted_by || null,
+          actorEmpNum,
           remarks     || null,
         ],
       );
@@ -539,8 +539,8 @@ router.post('/leave_commutation/commute/:assignmentId', async (req, res) => {
 
 async function commuteServiceCreditPeriod(req, res) {
   const serviceCreditId = parseInt(req.params.serviceCreditId, 10);
-  const { commuted_by, remarks } = req.body || {};
-  const actorEmpNum = getActorEmployeeNumber(req, commuted_by);
+  const { remarks } = req.body || {};
+  const actorEmpNum = getActorEmployeeNumber(req);
 
   if (!Number.isFinite(serviceCreditId) || serviceCreditId <= 0) {
     return res.status(400).json({ error: 'Invalid service credit id' });
@@ -622,7 +622,7 @@ async function commuteServiceCreditPeriod(req, res) {
           periodRow.period_month ?? null,
           remainingHours,
           commutedDays,
-          commuted_by || null,
+          actorEmpNum,
           remarks || `Transferred Service Credit (${commutedDays.toFixed(2)} days) to Leave Commutation.`,
         ],
       );
@@ -727,8 +727,8 @@ router.post('/leave_commutation/commute-sc/:serviceCreditId', authenticateToken,
 
 async function commuteCtoPeriod(req, res) {
   const ctoCreditId = parseInt(req.params.ctoCreditId, 10);
-  const { commuted_by, remarks } = req.body || {};
-  const actorEmpNum = getActorEmployeeNumber(req, commuted_by);
+  const { remarks } = req.body || {};
+  const actorEmpNum = getActorEmployeeNumber(req);
 
   if (!Number.isFinite(ctoCreditId) || ctoCreditId <= 0) {
     return res.status(400).json({ error: 'Invalid CTO credit id' });
@@ -810,7 +810,7 @@ async function commuteCtoPeriod(req, res) {
           periodRow.period_month ?? null,
           remainingHours,
           commutedDays,
-          commuted_by || null,
+          actorEmpNum,
           remarks || `Transferred CTO (${commutedDays.toFixed(2)} days) to Leave Commutation.`,
         ],
       );
@@ -915,16 +915,29 @@ async function commuteCtoPeriod(req, res) {
 router.post('/leave_commutation/commute-cto/:ctoCreditId', authenticateToken, requireAdmin, commuteCtoPeriod);
 
 // ─── PUT /leave_commutation/:id ───────────────────────────────────────────────
+// Edits approval details (approved_by is the signatory named on the form). Status may move
+// between Pending/Approved/Released only; cancelling goes through DELETE so the source
+// balance is restored in the same step.
 
-router.put('/leave_commutation/:id', (req, res) => {
+router.put('/leave_commutation/:id', authenticateToken, requireAdmin, (req, res) => {
   const { id } = req.params;
-  const { status, approved_by, remarks } = req.body;
+  const { status, approved_by, remarks } = req.body || {};
+  const actorEmpNum = getActorEmployeeNumber(req);
+
+  if (status !== undefined && ![0, 1, 2].includes(Number(status))) {
+    return res.status(400).json({
+      error: 'Status must be 0 (Pending), 1 (Approved) or 2 (Released). Use cancel to void a commutation.',
+    });
+  }
 
   db.query('SELECT * FROM leave_commutation WHERE id = ?', [id], (err, rows) => {
     if (err)          return res.status(500).json({ error: err.message });
     if (!rows.length) return res.status(404).json({ error: 'Record not found' });
 
     const current    = rows[0];
+    if (Number(current.status) === 3) {
+      return res.status(409).json({ error: 'This commutation was cancelled and can no longer be edited.' });
+    }
     const newStatus  = status !== undefined ? Number(status) : current.status;
     const approvedAt =
       newStatus === 1 && current.status !== 1 ? new Date() : current.approved_at;
@@ -942,6 +955,16 @@ router.put('/leave_commutation/:id', (req, res) => {
       ],
       (updateErr) => {
         if (updateErr) return res.status(500).json({ error: updateErr.message });
+        logAudit(
+          { employeeNumber: actorEmpNum },
+          `Update Leave Commutation #${id}`,
+          'leave_commutation',
+          id,
+          current.employeeNumber,
+          { before: { status: current.status, approved_by: current.approved_by, remarks: current.remarks },
+            after: { status: newStatus, approved_by: approved_by !== undefined ? approved_by : current.approved_by,
+                     remarks: remarks !== undefined ? remarks : current.remarks } },
+        );
         emitChange('leaveCommutationChanged');
         res.json({ id, status: newStatus, approved_by, approved_at: approvedAt, remarks });
       },
@@ -950,43 +973,63 @@ router.put('/leave_commutation/:id', (req, res) => {
 });
 
 // ─── DELETE /leave_commutation/:id ────────────────────────────────────────────
-// Voids the usage row and unlocks the assignment so the balance is restored.
+// Cancels the commutation (status 3): voids its usage row and unlocks the source period so
+// the balance is restored. The record is kept for the audit trail. Released commutations
+// (already paid) cannot be cancelled.
 
-router.delete('/leave_commutation/:id', async (req, res) => {
+router.delete('/leave_commutation/:id', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
+    const actorEmpNum = getActorEmployeeNumber(req);
+
+    const lcRows = await query(
+      'SELECT id, employeeNumber, status, leave_assignment_id, service_credit_id, cto_credit_id FROM leave_commutation WHERE id = ?',
+      [id],
+    );
+    if (!lcRows.length) return res.status(404).json({ error: 'Record not found' });
+    const row = lcRows[0];
+    if (Number(row.status) === 3) {
+      return res.status(409).json({ error: 'This commutation is already cancelled.' });
+    }
+    if (Number(row.status) === 2) {
+      return res.status(409).json({
+        error: 'This commutation was already released (paid) and cannot be cancelled. Record a correction instead.',
+      });
+    }
 
     await query(
       `UPDATE leave_credit_usage SET voided_at = NOW()
-        WHERE source_type = 'commutation' AND source_id = ?`,
+        WHERE source_type = 'commutation' AND source_id = ? AND voided_at IS NULL`,
       [id],
     );
-
-    const lcRows = await query(
-      'SELECT leave_assignment_id, service_credit_id, cto_credit_id FROM leave_commutation WHERE id = ?',
-      [id],
-    );
-    if (lcRows.length) {
-      const row = lcRows[0];
-      if (row.leave_assignment_id) {
-        await unmarkAssignmentCommuted(row.leave_assignment_id);
-      }
-      if (row.service_credit_id) {
-        await unmarkServiceCreditCommuted(row.service_credit_id);
-      }
-      if (row.cto_credit_id) {
-        await unmarkCtoCreditCommuted(row.cto_credit_id);
-      }
+    if (row.leave_assignment_id) {
+      await unmarkAssignmentCommuted(row.leave_assignment_id);
+    }
+    if (row.service_credit_id) {
+      await unmarkServiceCreditCommuted(row.service_credit_id);
+    }
+    if (row.cto_credit_id) {
+      await unmarkCtoCreditCommuted(row.cto_credit_id);
     }
 
-    await query('DELETE FROM leave_commutation WHERE id = ?', [id]);
+    await query(
+      `UPDATE leave_commutation SET status = 3, remarks = CONCAT(COALESCE(remarks, ''), ?) WHERE id = ?`,
+      [` [Cancelled by ${actorEmpNum} on ${new Date().toISOString().slice(0, 10)}]`, id],
+    );
+    logAudit(
+      { employeeNumber: actorEmpNum },
+      `Cancel Leave Commutation #${id}`,
+      'leave_commutation',
+      id,
+      row.employeeNumber,
+    );
 
     emitChange('leaveCommutationChanged');
     emitChange('leaveAssignmentChanged');
-    res.json({ message: 'Commutation record deleted and balance restored' });
+    res.json({ message: 'Commutation cancelled and balance restored' });
   } catch (err) {
     console.error('[DELETE /leave_commutation]', err.message);
-    res.status(500).json({ error: 'Failed to delete record: ' + err.message });
+    res.status(500).json({ error: 'Failed to cancel commutation: ' + err.message });
   }
 });
 

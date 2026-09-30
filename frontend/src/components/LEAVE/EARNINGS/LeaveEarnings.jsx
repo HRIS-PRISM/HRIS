@@ -41,6 +41,7 @@ import {
   EventNote as LeaveIcon,
   WorkHistory as SCIcon,
   AccessTime as CTOIcon,
+  InfoOutlined as InfoOutlinedIcon,
   Close,
   Person as PersonIcon,
   Search as SearchIcon,
@@ -426,6 +427,10 @@ const LeaveInputColumn = ({
   const [success, setSuccess] = useState("");
   const [periodClosed, setPeriodClosed] = useState(null); // { requestedMonth, suggestedMonth }
   const [refreshKey, setRefreshKey] = useState(0);
+  /** CSC accrual proposal from the server (1.25 d less leave without pay, by category). */
+  const [proposal, setProposal] = useState(null);
+  const [proposalLoading, setProposalLoading] = useState(false);
+  const [overrideReason, setOverrideReason] = useState("");
   const calDays = getCalendarDays(year, month);
   const employeeGender = employee?.sex || employee?.gender || null;
 
@@ -504,6 +509,8 @@ const LeaveInputColumn = ({
         const et = String(e.entry_type || "EARNED").toUpperCase();
         if (et !== "EARNED" && et !== "ADJUSTMENT") continue;
         if (e.earn_status === "rejected") continue;
+        // Voided earnings (e.g. rolled back by Leave Assignment → Void) no longer block re-posting.
+        if (e.voided_at || Number(e.voided) === 1) continue;
         const code = String(e.leave_code).toUpperCase();
         const prev = map[code];
         if (e.earn_status === "approved") map[code] = "approved";
@@ -528,25 +535,74 @@ const LeaveInputColumn = ({
   }, [employee, year, month, fetchBalances, fetchExistingEarned, refreshKey, externalRefreshKey]);
 
   useEffect(() => {
+    if (!employee) {
+      setProposal(null);
+      return;
+    }
+    let cancelled = false;
+    setProposalLoading(true);
+    axios
+      .get(`${API_BASE_URL}/api/earnings/leave/proposal/${employee.employeeNumber}`, {
+        params: { year, month },
+        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+      })
+      .then((r) => {
+        if (!cancelled) setProposal(r.data || null);
+      })
+      .catch(() => {
+        if (!cancelled) setProposal(null);
+      })
+      .finally(() => {
+        if (!cancelled) setProposalLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [employee, year, month, refreshKey, externalRefreshKey]);
+
+  /** SL/VL start at the computed amount (0 when the category does not earn them). */
+  const accrualDefaults = useCallback(() => {
+    const defaults = {};
+    visibleLeaveTypes.forEach((lt) => {
+      if (!SL_VL_AUTO_CODES.includes(lt.leave_code)) return;
+      const p = proposal?.codes?.[lt.leave_code];
+      defaults[lt.leave_code] = p ? (p.eligible ? toNum(p.hours) : 0) : SL_VL_DEFAULT_HOURS;
+    });
+    return defaults;
+  }, [visibleLeaveTypes, proposal]);
+  // Only reset the inputs when the computed amounts actually change (not on every refetch).
+  const proposalSig = proposal
+    ? SL_VL_AUTO_CODES.map((c) => `${c}:${proposal.codes?.[c]?.eligible ? 1 : 0}:${proposal.codes?.[c]?.hours ?? ""}`).join("|")
+    : "none";
+
+  useEffect(() => {
     if (!employee || visibleLeaveTypes.length === 0) {
       setEarnedHours({});
       setEarnedDraft({});
       setUserTouched({});
       setRemarks("");
+      setOverrideReason("");
       setError("");
       return;
     }
-    const defaults = {};
-    visibleLeaveTypes.forEach((lt) => {
-      if (SL_VL_AUTO_CODES.includes(lt.leave_code))
-        defaults[lt.leave_code] = SL_VL_DEFAULT_HOURS;
-    });
+    const defaults = accrualDefaults();
     setEarnedHours(defaults);
     setEarnedDraft({});
-    setUserTouched({});
+    setUserTouched(Object.fromEntries(Object.keys(defaults).filter((c) => defaults[c] > 0).map((c) => [c, true])));
     setRemarks("");
+    setOverrideReason("");
     setError("");
-  }, [employee, year, month, visibleLeaveTypes]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [employee, year, month, visibleLeaveTypes, proposalSig]);
+
+  const proposalFor = (code) => proposal?.codes?.[String(code).toUpperCase()] || null;
+  /** True when the posted amount is not the CSC computation (or the category does not earn it). */
+  const differsFromProposal = (code, hrs) => {
+    const p = proposalFor(code);
+    if (!p) return false;
+    if (!p.eligible) return hrs > 0;
+    return Math.abs(hrs - toNum(p.hours)) > 0.0005;
+  };
 
   const activeLeaves = useMemo(
     () =>
@@ -577,25 +633,38 @@ const LeaveInputColumn = ({
       setError("Enter earned hours for at least one leave type");
       return;
     }
+    const needsOverride = activeLeaves.some((lt) => {
+      const st = existingEarnedByCode[String(lt.leave_code).toUpperCase()];
+      if (st === "approved" || st === "pending") return false;
+      return differsFromProposal(lt.leave_code, toNum(earnedHours[lt.leave_code]));
+    });
+    if (needsOverride && !overrideReason.trim()) {
+      setError("Enter an override reason — the amount differs from the CSC computation.");
+      return;
+    }
     setLoading(true);
     setError("");
     setPeriodClosed(null);
     const token = localStorage.getItem("token");
     let created = 0;
+
+    const failures = [];
     for (const lt of activeLeaves) {
       const status = existingEarnedByCode[String(lt.leave_code).toUpperCase()];
       if (status === "approved" || status === "pending") continue;
+      const postHrs = toNum(earnedHours[lt.leave_code]);
       try {
         await axios.post(
           `${API_BASE_URL}/api/earnings/leave`,
           {
             employeeNumber: employee.employeeNumber,
             leave_code: lt.leave_code,
-            earned_hours: toNum(earnedHours[lt.leave_code]),
+            earned_hours: postHrs,
             period_year: parseInt(year, 10) || new Date().getFullYear(),
             period_month: parseInt(month, 10),
             entry_type: "EARNED",
             remarks: remarks || null,
+            override_reason: differsFromProposal(lt.leave_code, postHrs) ? overrideReason.trim() : undefined,
           },
           { headers: { Authorization: `Bearer ${token}` } },
         );
@@ -610,27 +679,26 @@ const LeaveInputColumn = ({
           setError(d.error || "This period is already closed.");
           break;
         }
+        failures.push(`${lt.leave_code}: ${d?.error || e.message}`);
       }
     }
     setLoading(false);
+    if (failures.length) setError(failures.join(" · "));
     if (created > 0) {
       setSuccess(
         `${created} leave earning(s) submitted for ${monthName(month)} ${year}.`,
       );
-      const defaults = {};
-      visibleLeaveTypes.forEach((lt) => {
-        if (SL_VL_AUTO_CODES.includes(lt.leave_code))
-          defaults[lt.leave_code] = SL_VL_DEFAULT_HOURS;
-      });
+      const defaults = accrualDefaults();
       setEarnedHours(defaults);
       setEarnedDraft({});
-      setUserTouched({});
+      setUserTouched(Object.fromEntries(Object.keys(defaults).filter((c) => defaults[c] > 0).map((c) => [c, true])));
       setRemarks("");
+      setOverrideReason("");
       setRefreshKey((k) => k + 1);
       if (onRecordsRefresh) onRecordsRefresh();
       setTimeout(() => setSuccess(""), 3500);
     } else {
-      if (!periodClosed) {
+      if (!periodClosed && !failures.length) {
         setError("All selected leave earnings are already submitted (pending/approved).");
       }
     }
@@ -720,984 +788,575 @@ const LeaveInputColumn = ({
       </Box>
     );
 
-  return (
-    <Box
-      sx={{
-        display: "flex",
-        flexDirection: "column",
-        height: "100%",
-        minHeight: 0,
-      }}
-    >
-      <ColHeader icon={LeaveIcon} label="Leave Earning Input" color={T.accent}>
-        {autoDefaultCodes.length > 0 && (
-          <Tooltip
-            title={`${autoDefaultCodes.join(" & ")} are pre-filled with 1.25d — confirm to include in Step 3`}
-          >
-            <Chip
-              size="small"
-              label={`${autoDefaultCodes.join("+")} default 1.25d`}
-              sx={{
-                height: 15,
-                fontSize: "0.54rem",
-                fontWeight: 700,
-                bgcolor: "rgba(0,0,0,0.05)",
-                color: T.muted,
-                border: "1px solid rgba(0,0,0,0.1)",
-                cursor: "help",
-              }}
-            />
-          </Tooltip>
-        )}
-      </ColHeader>
+  // ── Card grid (SL/VL on top, other leaves below) ──────────────────────────
+  const unitWord = unit === "days" ? "d" : "h";
+  const stepSize = unit === "days" ? 0.25 : 2;
+  const toUnit = (h) => (unit === "days" ? h / 8 : h);
+  const fmtU = (h) => toUnit(h).toFixed(3);
+  const statusOf = (code) => existingEarnedByCode[String(code).toUpperCase()];
+  const isLockedCode = (code) => {
+    const s = statusOf(code);
+    return s === "approved" || s === "pending";
+  };
+  /** What "Post earnings" will actually create: selected, and not already pending/approved. */
+  const postable = activeLeaves.filter((lt) => !isLockedCode(lt.leave_code));
+  const overrideCodes = postable
+    .filter((lt) => differsFromProposal(lt.leave_code, toNum(earnedHours[lt.leave_code])))
+    .map((lt) => lt.leave_code);
+  const overrideMissing = overrideCodes.length > 0 && !overrideReason.trim();
+  const totalToAddHrs = postable.reduce((s, lt) => s + toNum(earnedHours[lt.leave_code]), 0);
 
-      {/* ── Compact employee meta + restrictions bar ── */}
+  const setValueHrs = (code, hrs) => {
+    setEarnedHours((p) => ({ ...p, [code]: Math.max(0, hrs) }));
+    setUserTouched((p) => ({ ...p, [code]: true }));
+  };
+  const toggleLeave = (lt, isActive) => {
+    const code = lt.leave_code;
+    if (isLockedCode(code)) return;
+    setEarnedDraft((p) => {
+      const { [code]: _, ...rest } = p;
+      return rest;
+    });
+    if (isActive) setValueHrs(code, 0);
+    else {
+      const p = proposalFor(code);
+      setValueHrs(code, SL_VL_AUTO_CODES.includes(code) ? (p?.eligible ? toNum(p.hours) : SL_VL_DEFAULT_HOURS) : 8);
+    }
+  };
+
+  const sortedLeaves = [...visibleLeaveTypes].sort((a, b) => a.leave_code.localeCompare(b.leave_code));
+  const baseLeaves = SL_VL_AUTO_CODES.map((c) => sortedLeaves.find((lt) => lt.leave_code === c)).filter(Boolean);
+  const otherLeaves = sortedLeaves.filter((lt) => !SL_VL_AUTO_CODES.includes(lt.leave_code));
+
+  const renderCard = (lt, big) => {
+    const code = lt.leave_code;
+    const restriction = getLeaveGenderRestriction(lt);
+    const balance = assignmentMap[code];
+    const remaining = toNum(balance?.remaining_hours);
+    const hasBalance = balance != null && toNum(balance?.total_hours) > 0;
+    const valHrs = toNum(earnedHours[code]);
+    const isAuto = SL_VL_AUTO_CODES.includes(code);
+    const isTouched = !!userTouched[code];
+    const status = statusOf(code);
+    const isLocked = status === "approved" || status === "pending";
+    const isActive = !isLocked && valHrs > 0 && (isTouched || !isAuto);
+    const draft = earnedDraft[code];
+    const displayVal = draft !== undefined ? draft : String(parseFloat(toUnit(valHrs).toFixed(3)));
+
+    return (
       <Box
+        key={code}
         sx={{
-          flexShrink: 0,
-          px: 1.5,
-          py: 0.85,
-          borderBottom: `1px solid ${T.divider}`,
-          bgcolor: alpha(T.accent, 0.03),
-          display: "flex",
-          flexDirection: "column",
-          gap: 0.55,
+          position: "relative",
+          border: `1.5px solid ${isActive ? T.accent : T.divider}`,
+          borderRadius: "11px",
+          bgcolor: isActive ? alpha(T.accent, 0.07) : "#fff",
+          boxShadow: isActive ? `0 10px 22px -16px ${T.accent}` : "none",
+          opacity: isLocked ? 0.75 : 1,
+          transition: "all .2s",
+          "&:hover": isLocked ? {} : { transform: "translateY(-2px)" },
         }}
       >
-        <Dialog
-          open={!!periodClosed}
-          onClose={() => setPeriodClosed(null)}
-          maxWidth="xs"
-          fullWidth
-          PaperProps={{
-            sx: {
-              borderRadius: 3,
-              overflow: "hidden",
-              border: `1px solid rgba(109,35,35,0.12)`,
-              boxShadow: "0 18px 60px rgba(0,0,0,0.18), 0 2px 10px rgba(0,0,0,0.08)",
-            },
+        <Box
+          component="button"
+          type="button"
+          aria-pressed={isActive}
+          disabled={isLocked}
+          onClick={() => toggleLeave(lt, isActive)}
+          sx={{
+            all: "unset",
+            boxSizing: "border-box",
+            display: "block",
+            width: "100%",
+            p: "8px 28px 8px 10px",
+            borderRadius: "11px",
+            cursor: isLocked ? "default" : "pointer",
+            "&:focus-visible": { outline: `2px solid ${T.accent}` },
           }}
         >
-          <DialogTitle
-            sx={{
-              fontFamily: T.poppins,
-              fontWeight: 800,
-              fontSize: "0.95rem",
-              color: T.accent,
-              pb: 1.25,
-              pt: 1.6,
-              px: 2.5,
-              bgcolor: "#fff",
-              display: "flex",
-              alignItems: "center",
-              gap: 1,
-              borderBottom: "1px solid rgba(0,0,0,0.08)",
-            }}
-          >
-            <Box
-              sx={{
-                width: 28,
-                height: 28,
-                borderRadius: 2,
-                bgcolor: "rgba(109,35,35,0.08)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                flexShrink: 0,
-              }}
-            >
-              <WarnIcon sx={{ fontSize: 16, color: T.accent }} />
-            </Box>
-            Period closed
-          </DialogTitle>
-          <DialogContent sx={{ px: 2.25, pt: 2, pb: 0 }}>
-            <Typography
-              sx={{
-                fontSize: "0.82rem",
-                lineHeight: 1.6,
-                color: "#333",
-                fontFamily: T.poppins,
-                mb: 1.25,
-              }}
-            >
-              This payroll period is already closed. To keep balances correct, please post the
-              missed earning as an <strong>adjustment</strong> in the suggested period.
+          <Box sx={{ display: "flex", alignItems: "center", gap: 0.4 }}>
+            {restriction === "male" && <MaleIcon sx={{ fontSize: 12, color: "#1565C0" }} />}
+            {restriction === "female" && <FemaleIcon sx={{ fontSize: 12, color: "#c2185b" }} />}
+            <Typography component="b" sx={{ fontSize: big ? "0.95rem" : "0.88rem", fontWeight: 800, fontFamily: T.poppins, color: T.text }}>
+              {code}
             </Typography>
-
-            {periodClosed?.suggestedMonth && (
-              <Box
-                sx={{
-                  borderRadius: 2,
-                  border: "1px solid rgba(0,0,0,0.10)",
-                  bgcolor: "rgba(0,0,0,0.015)",
-                  overflow: "hidden",
-                  mb: 0.5,
-                }}
-              >
-                <Box
-                  sx={{
-                    px: 1.75,
-                    py: 1.05,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 1.25,
-                  }}
-                >
-                  <Typography
-                    sx={{
-                      fontSize: "0.7rem",
-                      fontWeight: 800,
-                      color: T.muted,
-                      fontFamily: T.poppins,
-                    }}
-                  >
-                    Suggested period
-                  </Typography>
-                  <Typography
-                    sx={{
-                      fontSize: "0.78rem",
-                      fontWeight: 900,
-                      color: T.accent,
-                      fontFamily: T.poppins,
-                    }}
-                  >
-                    {monthName(periodClosed.suggestedMonth)} {year}
-                  </Typography>
+          </Box>
+          <Typography component="small" sx={{ display: "block", color: T.muted, fontSize: "0.66rem", lineHeight: 1.3, fontFamily: T.poppins }}>
+            {lt.leave_description}
+          </Typography>
+          {isAuto && !isLocked && (() => {
+            const p = proposalFor(code);
+            if (proposalLoading && !p) {
+              return <Typography sx={{ fontSize: "0.64rem", color: T.faint, fontFamily: T.poppins }}>Computing…</Typography>;
+            }
+            if (!p) return null;
+            if (!p.eligible) {
+              return (
+                <Typography sx={{ fontSize: "0.64rem", color: "#b4283f", fontWeight: 600, fontFamily: T.poppins, lineHeight: 1.3 }}>
+                  Not earned: {p.reason}
+                </Typography>
+              );
+            }
+            const overridden = isActive && differsFromProposal(code, valHrs);
+            // Status: the amount is the automatic computation, or HR changed it (override).
+            const chip = overridden
+              ? { label: "Override", bg: "#fdebc8", fg: "#8a5d06", tip: `Changed from the computed ${fmtU(toNum(p.hours))} ${unitWord}. A reason is required to post.` }
+              : isActive
+                ? { label: "Auto-computed", bg: "rgba(46,125,50,0.12)", fg: "#1b5e20", tip: p.formula || "" }
+                : null;
+            const lwop = proposal?.lwop;
+            const explain = (
+              <Box sx={{ fontFamily: T.poppins, fontSize: "0.72rem", lineHeight: 1.5, maxWidth: 300 }}>
+                <Box sx={{ fontWeight: 700, mb: 0.5 }}>How {fmtU(toNum(p.hours))} {unitWord} was computed</Box>
+                <Box>• Base: 1.25 d a month (15 days a year ÷ 12) — CSC MC 41 s.1998, Sec. 1.</Box>
+                <Box>
+                  • Leave without pay this month: {lwop ? `${Number(lwop.days).toFixed(3)} d (${Number(lwop.hours).toFixed(3)} h charged to salary)` : "none"}.
                 </Box>
-                <Box
-                  sx={{
-                    px: 1.75,
-                    py: 1,
-                    borderTop: "1px solid rgba(0,0,0,0.06)",
-                    bgcolor: "#fff",
-                  }}
-                >
-                  <Typography
-                    sx={{
-                      fontSize: "0.72rem",
-                      color: T.muted,
-                      fontFamily: T.poppins,
-                    }}
-                  >
-                    This will be saved as <strong>ADJUSTMENT</strong>.
-                  </Typography>
+                <Box>• Formula: 1.25 × (30 − days without pay) ÷ 30.</Box>
+                <Box sx={{ mt: 0.5, fontWeight: 600 }}>{p.formula}</Box>
+                <Box sx={{ mt: 0.5, opacity: 0.8 }}>
+                  Absences, half days and tardiness covered by VL, SL, SC or CTO are paid, so they do not lower the earning. Only time charged to salary does (Sec. 28 / Table III).
                 </Box>
               </Box>
-            )}
-          </DialogContent>
-          <DialogActions
-            sx={{
-              px: 2.5,
-              pb: 2.25,
-              pt: 1.75,
-              gap: 1,
-              bgcolor: "#fff",
-            }}
-          >
-            <Button
-              onClick={() => setPeriodClosed(null)}
-              sx={{
-                textTransform: "none",
-                color: T.muted,
-                fontFamily: T.poppins,
-                fontWeight: 700,
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={applyAsAdjustment}
-              variant="contained"
-              disabled={!periodClosed?.suggestedMonth}
-              sx={{
-                bgcolor: T.accent,
-                textTransform: "none",
-                fontFamily: T.poppins,
-                fontWeight: 700,
-                borderRadius: 2,
-                px: 2,
-                "&:hover": { bgcolor: T.accentDark },
-              }}
-            >
-              Add as Adjustment to {periodClosed?.suggestedMonth ? `${monthName(periodClosed.suggestedMonth)} ${year}` : "current period"}
-            </Button>
-          </DialogActions>
-        </Dialog>
-
-        {/* Row 1: gender / dept / category badges */}
-        <Box sx={{ display: "flex", alignItems: "center", gap: 0.6, flexWrap: "wrap" }}>
-          {employeeGender && <GenderBadge gender={employeeGender} />}
-          {deptMap?.[String(employee.employeeNumber)] && (
-            <DeptBadge code={deptMap[String(employee.employeeNumber)]} />
-          )}
-          {empCatMap?.[String(employee.employeeNumber)]?.label && (
-            <EmpCatBadge
-              label={empCatMap[String(employee.employeeNumber)].label}
-              colorHex={empCatMap[String(employee.employeeNumber)].colorHex}
-            />
-          )}
-          <Tooltip title="Service Credit remaining (from service_credit)">
-            <Chip
-              size="small"
-              icon={<SCIcon sx={{ fontSize: 13 }} />}
-              label={`SC: ${unit === "days" ? (scTotalRemaining / 8).toFixed(3) : scTotalRemaining.toFixed(3)}${unit === "days" ? "d" : "h"}`}
-              sx={{
-                height: 18,
-                fontSize: "0.58rem",
-                fontWeight: 800,
-                fontFamily: T.poppins,
-                bgcolor: "rgba(46,125,50,0.08)",
-                border: "1px solid rgba(46,125,50,0.25)",
-                color: "#1b5e20",
-              }}
-            />
-          </Tooltip>
-          <Tooltip title="CTO remaining (from cto_credit)">
-            <Chip
-              size="small"
-              icon={<CTOIcon sx={{ fontSize: 13 }} />}
-              label={`CTO: ${unit === "days" ? (ctoTotalRemaining / 8).toFixed(3) : ctoTotalRemaining.toFixed(3)}${unit === "days" ? "d" : "h"}`}
-              sx={{
-                height: 18,
-                fontSize: "0.58rem",
-                fontWeight: 800,
-                fontFamily: T.poppins,
-                bgcolor: "rgba(25,118,210,0.08)",
-                border: "1px solid rgba(25,118,210,0.25)",
-                color: "#0d47a1",
-              }}
-            />
-          </Tooltip>
-          {!employeeGender && (
-            <Box sx={{ display: "flex", alignItems: "center", gap: 0.4 }}>
-              <WarningIcon sx={{ fontSize: 11, color: "#e65100" }} />
-              <Typography sx={{ fontSize: "0.58rem", color: "#e65100", fontWeight: 700, fontFamily: T.poppins }}>
-                No gender — restricted types hidden
-              </Typography>
+            );
+            return (
+              <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap", mt: 0.25 }}>
+                <Typography component="span" sx={{ fontSize: "0.64rem", color: T.muted, fontFamily: T.poppins }}>
+                  Computed {fmtU(toNum(p.hours))} {unitWord}
+                </Typography>
+                <Tooltip title={explain} arrow enterTouchDelay={0} leaveTouchDelay={6000}>
+                  {/* span, not <button>: it sits inside the card's toggle button */}
+                  <IconButton
+                    component="span"
+                    role="button"
+                    tabIndex={0}
+                    size="small"
+                    aria-label={`How the ${code} earning is computed`}
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => e.stopPropagation()}
+                    sx={{ p: 0.15, color: T.accent }}
+                  >
+                    <InfoOutlinedIcon sx={{ fontSize: 14 }} />
+                  </IconButton>
+                </Tooltip>
+                {chip && (
+                  <Tooltip title={chip.tip} arrow>
+                    <Box component="span" sx={{ px: 0.8, borderRadius: 99, fontSize: "0.58rem", fontWeight: 700, bgcolor: chip.bg, color: chip.fg, fontFamily: T.poppins, cursor: "help" }}>
+                      {chip.label}
+                    </Box>
+                  </Tooltip>
+                )}
+              </Box>
+            );
+          })()}
+          {isLocked ? (
+            <Box component="span" sx={{ display: "inline-block", mt: 0.4, px: 0.9, borderRadius: 99, fontSize: "0.6rem", fontWeight: 700, fontFamily: T.poppins, ...(status === "approved" ? { bgcolor: "rgba(46,125,50,0.12)", color: "#1b5e20" } : { bgcolor: "#fdebc8", color: "#8a5d06" }) }}>
+              {status === "approved" ? "Approved" : "Pending"} this month
             </Box>
-          )}
+          ) : !isActive ? (
+            hasBalance ? (
+              <Typography sx={{ fontSize: "0.66rem", color: "#2e7d32", fontWeight: 600, fontFamily: T.poppins }}>
+                {fmtU(remaining)} {unitWord} now
+              </Typography>
+            ) : (
+              <Typography sx={{ fontSize: "0.66rem", color: T.muted, fontStyle: "italic", fontFamily: T.poppins }}>
+                No balance yet
+              </Typography>
+            )
+          ) : null}
         </Box>
 
-        {/* Row 2: leave type chips + hidden pill — all in one tight line */}
-        {leaveTypes.length > 0 && (
-          <Box sx={{ display: "flex", alignItems: "center", gap: 0.4, flexWrap: "wrap" }}>
-            <Typography
-              sx={{
-                fontSize: "0.55rem",
-                fontWeight: 800,
-                color: T.faint,
-                fontFamily: T.poppins,
-                textTransform: "uppercase",
-                letterSpacing: "0.07em",
-                flexShrink: 0,
-                mr: 0.25,
-              }}
-            >
-              Leaves:
-            </Typography>
+        {/* check mark */}
+        <Box
+          aria-hidden="true"
+          sx={{
+            position: "absolute",
+            right: 8,
+            top: 8,
+            width: 17,
+            height: 17,
+            borderRadius: "50%",
+            border: `2px solid ${isActive ? T.accent : T.divider}`,
+            bgcolor: isActive ? T.accent : "transparent",
+            color: "#fff",
+            display: "grid",
+            placeItems: "center",
+            fontSize: "9px",
+            pointerEvents: "none",
+          }}
+        >
+          {isActive ? "✓" : ""}
+        </Box>
 
-            {visibleLeaveTypes.map((lt) => {
-              const r = getLeaveGenderRestriction(lt);
-              const tip = [
-                lt.leave_description || lt.leave_name || "",
-                r === "male" ? "Male only" : r === "female" ? "Female only" : "No restriction",
-                "Shown in earning input.",
-              ].filter(Boolean).join(" · ");
-              return (
-                <Tooltip key={lt.leave_code} title={tip} arrow>
-                  <Chip
-                    size="small"
-                    label={lt.leave_code}
-                    icon={
-                      r === "male"
-                        ? <MaleIcon sx={{ fontSize: 9, color: "#1565C0 !important" }} />
-                        : r === "female"
-                          ? <FemaleIcon sx={{ fontSize: 9, color: "#c2185b !important" }} />
-                          : undefined
-                    }
-                    sx={{
-                      height: 17,
-                      fontSize: "0.57rem",
-                      fontWeight: 700,
-                      fontFamily: T.poppins,
-                      bgcolor: "rgba(46,125,50,0.08)",
-                      border: "1px solid rgba(46,125,50,0.25)",
-                      color: "#1b5e20",
-                      cursor: "default",
-                      "& .MuiChip-label": { px: 0.55 },
-                      "& .MuiChip-icon": { ml: 0.4 },
-                    }}
-                  />
-                </Tooltip>
-              );
-            })}
-
-            {hiddenLeaveTypesForPrompt.length > 0 && (
-              <Tooltip
-                arrow
-                title={
-                  <Box sx={{ p: 0.25 }}>
-                    <Typography sx={{ fontSize: "0.68rem", fontWeight: 800, mb: 0.6, color: "#fff" }}>
-                      Hidden (gender-restricted):
-                    </Typography>
-                    {hiddenLeaveTypesForPrompt.map((row) => (
-                      <Box key={row.code} sx={{ display: "flex", alignItems: "center", gap: 0.5, mb: 0.3 }}>
-                        {row.restriction === "male"
-                          ? <MaleIcon sx={{ fontSize: 11, color: "#90caf9" }} />
-                          : <FemaleIcon sx={{ fontSize: 11, color: "#f48fb1" }} />
-                        }
-                        <Typography sx={{ fontSize: "0.65rem", color: "rgba(255,255,255,0.9)" }}>
-                          <strong>{row.code}</strong>
-                          {row.description ? ` — ${row.description}` : ""}
-                          <span style={{ opacity: 0.7 }}> ({row.who})</span>
-                        </Typography>
-                      </Box>
-                    ))}
-                  </Box>
-                }
+        {isActive && (
+          <>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, px: "10px", pb: 1 }}>
+              <Box
+                component="button"
+                type="button"
+                aria-label={`Less ${code}`}
+                onClick={() => setValueHrs(code, valHrs - toHours(stepSize, unit))}
+                sx={stepBtnSx}
               >
-                <Chip
-                  size="small"
-                  label={`+${hiddenLeaveTypesForPrompt.length} hidden`}
-                  icon={<GenderIcon sx={{ fontSize: 10, opacity: 0.55 }} />}
-                  sx={{
-                    height: 17,
-                    fontSize: "0.57rem",
-                    fontWeight: 700,
-                    fontFamily: T.poppins,
-                    bgcolor: "rgba(0,0,0,0.05)",
-                    border: "1px dashed rgba(0,0,0,0.2)",
-                    color: T.muted,
-                    cursor: "help",
-                    "& .MuiChip-label": { px: 0.55 },
-                    "& .MuiChip-icon": { ml: 0.4 },
-                  }}
-                />
-              </Tooltip>
-            )}
-          </Box>
+                −
+              </Box>
+              <input
+                type="text"
+                inputMode="decimal"
+                aria-label={`${unit === "days" ? "Days" : "Hours"} for ${code}`}
+                value={displayVal}
+                onChange={(e) => {
+                  setEarnedDraft((p) => ({ ...p, [code]: e.target.value }));
+                  const n = parseFloat(e.target.value);
+                  setEarnedHours((p) => ({ ...p, [code]: isNaN(n) ? 0 : toHours(n, unit) }));
+                  setUserTouched((p) => ({ ...p, [code]: true }));
+                }}
+                onFocus={() => setEarnedDraft((p) => ({ ...p, [code]: displayVal }))}
+                onBlur={() => {
+                  const n = parseFloat(earnedDraft[code] ?? displayVal);
+                  setEarnedHours((p) => ({ ...p, [code]: isNaN(n) ? 0 : Math.max(0, toHours(n, unit)) }));
+                  setEarnedDraft((p) => {
+                    const { [code]: _, ...rest } = p;
+                    return rest;
+                  });
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.currentTarget.blur();
+                }}
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  textAlign: "center",
+                  font: `700 13px ${T.poppins}`,
+                  padding: "2px",
+                  height: 26,
+                  boxSizing: "border-box",
+                  borderRadius: 9,
+                  border: `1.5px solid ${T.divider}`,
+                  background: "#fff",
+                  color: T.text,
+                  outline: "none",
+                }}
+              />
+              <Box
+                component="button"
+                type="button"
+                aria-label={`More ${code}`}
+                onClick={() => setValueHrs(code, valHrs + toHours(stepSize, unit))}
+                sx={stepBtnSx}
+              >
+                +
+              </Box>
+            </Box>
+            <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", alignItems: "end", mx: "10px", mb: 1, pt: 1, borderTop: `1px solid ${T.divider}`, fontFamily: T.poppins }}>
+              <Box>
+                <Typography component="small" sx={{ display: "block", fontSize: "0.6rem", color: T.muted, fontFamily: T.poppins }}>Before</Typography>
+                <Typography component="b" sx={{ fontSize: "0.8rem", fontWeight: 700, fontVariantNumeric: "tabular-nums", fontFamily: T.poppins }}>{fmtU(remaining)}</Typography>
+              </Box>
+              <Box sx={{ textAlign: "right" }}>
+                <Typography component="small" sx={{ display: "block", fontSize: "0.6rem", color: T.muted, fontFamily: T.poppins }}>After</Typography>
+                <Typography component="b" sx={{ fontSize: "0.8rem", fontWeight: 700, color: "#2e7d32", fontVariantNumeric: "tabular-nums", fontFamily: T.poppins }}>{fmtU(remaining + valHrs)}</Typography>
+              </Box>
+            </Box>
+          </>
         )}
       </Box>
+    );
+  };
 
-      {/* ── Scrollable input area ── */}
-      <Box
-        sx={{
-          flex: 1,
-          overflowY: "auto",
-          px: 1.5,
-          pt: 1.25,
-          pb: 1,
-          minHeight: 0,
-          "&::-webkit-scrollbar": { width: 3 },
-          "&::-webkit-scrollbar-thumb": {
-            bgcolor: "rgba(0,0,0,0.1)",
-            borderRadius: 2,
+  return (
+    <Box sx={{ display: "flex", flexDirection: "column", minHeight: 0, p: "4px 2px 2px" }}>
+      <Dialog
+        open={!!periodClosed}
+        onClose={() => setPeriodClosed(null)}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 3,
+            overflow: "hidden",
+            border: `1px solid rgba(109,35,35,0.12)`,
+            boxShadow: "0 18px 60px rgba(0,0,0,0.18), 0 2px 10px rgba(0,0,0,0.08)",
           },
         }}
       >
-        {error && (
-          <Alert
-            severity="error"
-            sx={{ borderRadius: 2, mb: 0.75, fontSize: "0.75rem", py: 0 }}
-          >
-            {error}
-          </Alert>
-        )}
-        {success && (
-          <Alert
-            severity="success"
-            sx={{ borderRadius: 2, mb: 0.75, fontSize: "0.75rem", py: 0 }}
-          >
-            {success}
-          </Alert>
-        )}
-        {leaveTypes.length > 0 && visibleLeaveTypes.length === 0 && (
-          <Alert
-            severity="warning"
-            sx={{ borderRadius: 2, mb: 0.75, fontSize: "0.75rem", py: 0 }}
-          >
-            No leave types available for this employee — gender missing or none match. Update Leave Table or personnel gender.
-          </Alert>
-        )}
-        <Box
+        <DialogTitle
           sx={{
-            mb: 1,
-            px: 0.75,
-            py: 0.4,
-            borderRadius: 1.5,
-            bgcolor: "rgba(0,0,0,0.03)",
-            border: "1px solid rgba(0,0,0,0.08)",
+            fontFamily: T.poppins,
+            fontWeight: 800,
+            fontSize: "0.95rem",
+            color: T.accent,
+            pb: 1.25,
+            pt: 1.6,
+            px: 2.5,
+            bgcolor: "#fff",
             display: "flex",
             alignItems: "center",
-            gap: 0.5,
+            gap: 1,
+            borderBottom: "1px solid rgba(0,0,0,0.08)",
           }}
         >
-          <DateRangeIcon sx={{ fontSize: 11, color: T.faint }} />
+          <Box
+            sx={{
+              width: 28,
+              height: 28,
+              borderRadius: 2,
+              bgcolor: "rgba(109,35,35,0.08)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+            }}
+          >
+            <WarnIcon sx={{ fontSize: 16, color: T.accent }} />
+          </Box>
+          Period closed
+        </DialogTitle>
+        <DialogContent sx={{ px: 2.25, pt: 2, pb: 0 }}>
           <Typography
             sx={{
-              fontSize: "0.62rem",
-              color: "#444",
+              fontSize: "0.82rem",
+              lineHeight: 1.6,
+              color: "#333",
               fontFamily: T.poppins,
-              fontWeight: 600,
+              mb: 1.25,
             }}
           >
-            {monthName(month)} {year} · {calDays} days = {calDays * 8}h
+            This payroll period is already closed. To keep balances correct, please post the
+            missed earning as an <strong>adjustment</strong> in the suggested period.
           </Typography>
-        </Box>
-        <Typography
-          sx={{
-            fontSize: "0.6rem",
-            fontWeight: 800,
-            color: T.faint,
-            fontFamily: T.poppins,
-            textTransform: "uppercase",
-            letterSpacing: "0.08em",
-            mb: 0.5,
-          }}
-        >
-          Step 1 — Leave Balances · Enter days to earn
-        </Typography>
-        <Box sx={{ mb: 1.25 }}>
-          {[...visibleLeaveTypes]
-            .sort((a, b) => {
-              const aB = assignmentMap[a.leave_code];
-              const bB = assignmentMap[b.leave_code];
-              return (
-                toNum(bB?.total_hours) - toNum(aB?.total_hours) ||
-                a.leave_code.localeCompare(b.leave_code)
-              );
-            })
-            .map((lt) => {
-              const restriction = getLeaveGenderRestriction(lt);
-              const balance = assignmentMap[lt.leave_code];
-              const remaining = toNum(balance?.remaining_hours);
-              const total = toNum(balance?.total_hours);
-              const isAuto = SL_VL_AUTO_CODES.includes(lt.leave_code);
-              const isTouched = !!userTouched[lt.leave_code];
-              const valHrs = toNum(earnedHours[lt.leave_code]);
-              const isActive = valHrs > 0 && (isTouched || !isAuto);
-              const isAutoUnconfirmed = isAuto && !isTouched && valHrs > 0;
-              const status = existingEarnedByCode[String(lt.leave_code).toUpperCase()];
-              const isLocked = status === "approved" || status === "pending";
-              const draft = earnedDraft[lt.leave_code];
-              const displayVal =
-                draft !== undefined
-                  ? draft
-                  : valHrs === 0
-                    ? ""
-                    : unit === "days"
-                      ? String(parseFloat((valHrs / 8).toFixed(3)))
-                      : String(valHrs);
-              return (
-                <Box
-                  key={lt.leave_code}
-                  sx={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr auto",
-                    alignItems: "center",
-                    gap: 1,
-                    mb: 0.5,
-                    px: 1,
-                    py: 0.65,
-                    borderRadius: 1.5,
-                    border: `1.5px solid ${isLocked ? "rgba(0,0,0,0.12)" : isActive ? "rgba(0,0,0,0.18)" : isAutoUnconfirmed ? "rgba(0,0,0,0.12)" : "rgba(0,0,0,0.08)"}`,
-                    bgcolor: isActive
-                      ? "rgba(0,0,0,0.03)"
-                      : isAutoUnconfirmed
-                        ? "rgba(0,0,0,0.02)"
-                        : "rgba(0,0,0,0.01)",
-                    transition: "all 0.15s",
-                    opacity: isLocked ? 0.72 : 1,
-                  }}
-                >
-                  <Box sx={{ minWidth: 0 }}>
-                    <Box
-                      sx={{ display: "flex", alignItems: "center", gap: 0.5 }}
-                    >
-                      {restriction === "male" && (
-                        <MaleIcon
-                          sx={{ fontSize: 12, color: "#1565C0", flexShrink: 0 }}
-                        />
-                      )}
-                      {restriction === "female" && (
-                        <FemaleIcon
-                          sx={{ fontSize: 12, color: "#c2185b", flexShrink: 0 }}
-                        />
-                      )}
-                      <Typography
-                        sx={{
-                          fontSize: "0.73rem",
-                          fontWeight: 800,
-                          color: isActive ? "#1a1a1a" : "#444",
-                          fontFamily: T.poppins,
-                          lineHeight: 1,
-                        }}
-                      >
-                        {lt.leave_code}
-                      </Typography>
-                      {status === "approved" && (
-                        <Chip
-                          size="small"
-                          label="Approved"
-                          sx={{
-                            height: 16,
-                            fontSize: "0.56rem",
-                            fontWeight: 800,
-                            bgcolor: "rgba(109,35,35,0.06)",
-                            color: T.accent,
-                            border: `1px solid ${T.accentBorder}`,
-                          }}
-                        />
-                      )}
-                      {status === "pending" && (
-                        <Chip
-                          size="small"
-                          label="Pending"
-                          sx={{
-                            height: 16,
-                            fontSize: "0.56rem",
-                            fontWeight: 800,
-                            bgcolor: "rgba(0,0,0,0.04)",
-                            color: "#7a4a00",
-                            border: "1px solid rgba(0,0,0,0.12)",
-                          }}
-                        />
-                      )}
-                      {isAuto && (
-                        <Tooltip
-                          title={
-                            isTouched
-                              ? "Value confirmed — will appear in Step 3"
-                              : "Pre-filled with 1.25d default. Edit or press confirm to include in Step 3."
-                          }
-                        >
-                          <Typography
-                            component="span"
-                            sx={{
-                              fontSize: "0.52rem",
-                              color: isTouched ? "#2a6a2a" : "#888",
-                              fontFamily: T.poppins,
-                              fontWeight: 700,
-                              cursor: "help",
-                            }}
-                          >
-                            {isTouched
-                              ? "★ confirmed"
-                              : "★ auto — not in Step 3"}
-                          </Typography>
-                        </Tooltip>
-                      )}
-                    </Box>
-                    {lt.leave_description && (
-                      <Typography
-                        sx={{
-                          fontSize: "0.57rem",
-                          color: T.faint,
-                          fontFamily: T.poppins,
-                          lineHeight: 1.2,
-                        }}
-                        noWrap
-                      >
-                        {lt.leave_description?.substring(0, 28)}
-                      </Typography>
-                    )}
-                    {total > 0 ? (
-                      <Typography
-                        sx={{
-                          fontSize: "0.6rem",
-                          fontWeight: 700,
-                          color: remaining > 0 ? "#1e4d20" : "#6b1a1a",
-                          fontFamily: T.poppins,
-                          lineHeight: 1.3,
-                        }}
-                      >
-                        {unit === "days"
-                          ? `${(remaining / 8).toFixed(3)}d`
-                          : `${remaining.toFixed(3)}h`}
-                        <span
-                          style={{
-                            color: T.faint,
-                            fontWeight: 400,
-                            fontSize: "0.56rem",
-                          }}
-                        >
-                          {" "}
-                          remaining
-                        </span>
-                      </Typography>
-                    ) : (
-                      <Typography
-                        sx={{
-                          fontSize: "0.56rem",
-                          color: T.faint,
-                          fontFamily: T.poppins,
-                          fontStyle: "italic",
-                          lineHeight: 1.3,
-                        }}
-                      >
-                        No balance
-                      </Typography>
-                    )}
-                  </Box>
-                  <Box
-                    sx={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 0.5,
-                      flexShrink: 0,
-                    }}
-                  >
-                    <Box sx={{ position: "relative", width: 78 }}>
-                      <Tooltip
-                        title={isLocked ? "Approved/Pending entries are locked." : ""}
-                        arrow
-                        disableHoverListener={!isLocked}
-                      >
-                        <span style={{ display: "block" }}>
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            placeholder={isAuto ? "1.250" : "0.000"}
-                            value={displayVal}
-                            disabled={isLocked}
-                            onChange={(e) => {
-                              setEarnedDraft((p) => ({
-                                ...p,
-                                [lt.leave_code]: e.target.value,
-                              }));
-                              const n = parseFloat(e.target.value);
-                              setEarnedHours((p) => ({
-                                ...p,
-                                [lt.leave_code]: isNaN(n) ? 0 : toHours(n, unit),
-                              }));
-                              setUserTouched((p) => ({
-                                ...p,
-                                [lt.leave_code]: true,
-                              }));
-                            }}
-                            onFocus={() =>
-                              setEarnedDraft((p) => ({
-                                ...p,
-                                [lt.leave_code]: displayVal,
-                              }))
-                            }
-                            onBlur={() => {
-                              const raw = earnedDraft[lt.leave_code] ?? displayVal;
-                              const n = parseFloat(raw);
-                              setEarnedHours((p) => ({
-                                ...p,
-                                [lt.leave_code]: isNaN(n) ? 0 : toHours(n, unit),
-                              }));
-                              setEarnedDraft((p) => {
-                                const { [lt.leave_code]: _, ...rest } = p;
-                                return rest;
-                              });
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") e.currentTarget.blur();
-                            }}
-                            style={{
-                              width: "100%",
-                              padding: "5px 22px 5px 7px",
-                              borderRadius: 6,
-                              border: `1.5px solid ${isLocked ? "rgba(0,0,0,0.12)" : isActive ? "rgba(0,0,0,0.25)" : "rgba(0,0,0,0.14)"}`,
-                              fontSize: "0.82rem",
-                              fontWeight: 700,
-                              outline: "none",
-                              fontFamily: T.poppins,
-                              boxSizing: "border-box",
-                              background: isLocked ? "rgba(0,0,0,0.02)" : "#fff",
-                              color: isLocked ? "rgba(0,0,0,0.55)" : "#1a1a1a",
-                            }}
-                          />
-                        </span>
-                      </Tooltip>
-                      <span
-                        style={{
-                          position: "absolute",
-                          right: 6,
-                          top: "50%",
-                          transform: "translateY(-50%)",
-                          fontSize: "0.58rem",
-                          color: T.faint,
-                          pointerEvents: "none",
-                          fontFamily: T.poppins,
-                        }}
-                      >
-                        {unit === "days" ? "d" : "h"}
-                      </span>
-                    </Box>
-                    {isAuto && !isTouched ? (
-                      <Tooltip title="Confirm this value — adds to Step 3">
-                        <IconButton
-                          size="small"
-                          disabled={isLocked}
-                          onClick={() =>
-                            setUserTouched((p) => ({
-                              ...p,
-                              [lt.leave_code]: true,
-                            }))
-                          }
-                          sx={{
-                            width: 20,
-                            height: 20,
-                            flexShrink: 0,
-                            color: "#2a6a2a",
-                            border: "1px solid rgba(0,0,0,0.15)",
-                            bgcolor: "rgba(0,0,0,0.03)",
-                            "&:hover": { bgcolor: "rgba(0,0,0,0.07)" },
-                          }}
-                        >
-                          <CheckIcon sx={{ fontSize: 11 }} />
-                        </IconButton>
-                      </Tooltip>
-                    ) : (
-                      <Tooltip
-                        title={
-                          isAuto
-                            ? "Reset to default (removes from Step 3)"
-                            : "Clear"
-                        }
-                      >
-                        <IconButton
-                          size="small"
-                          disabled={isLocked}
-                          onClick={() => {
-                            const resetVal = isAuto ? SL_VL_DEFAULT_HOURS : 0;
-                            setEarnedHours((p) => ({
-                              ...p,
-                              [lt.leave_code]: resetVal,
-                            }));
-                            setEarnedDraft((p) => {
-                              const { [lt.leave_code]: _, ...rest } = p;
-                              return rest;
-                            });
-                            if (isAuto)
-                              setUserTouched((p) => {
-                                const { [lt.leave_code]: _, ...rest } = p;
-                                return rest;
-                              });
-                          }}
-                          sx={{
-                            width: 20,
-                            height: 20,
-                            flexShrink: 0,
-                            color: isActive ? "#6b1a1a" : T.faint,
-                            border: `1px solid ${isActive ? "rgba(0,0,0,0.15)" : "rgba(0,0,0,0.1)"}`,
-                            bgcolor: isActive
-                              ? "rgba(0,0,0,0.03)"
-                              : "transparent",
-                            "&:hover": {
-                              color: "#6b1a1a",
-                              border: "1px solid rgba(0,0,0,0.2)",
-                              bgcolor: "rgba(0,0,0,0.05)",
-                            },
-                          }}
-                        >
-                          <Close sx={{ fontSize: 10 }} />
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                  </Box>
-                </Box>
-              );
-            })}
-        </Box>
-      </Box>
 
-      {/* ── Footer: Step 3 summary + save ── */}
-      <Box
-        sx={{
-          flexShrink: 0,
-          px: 1.5,
-          pb: 1.5,
-          pt: 0.75,
-          borderTop: `1px solid ${T.divider}`,
-        }}
-      >
-        {activeLeaves.length > 0 && (
-          <Box
-            sx={{
-              mb: 0.75,
-              px: 1,
-              py: 0.6,
-              borderRadius: 1.5,
-              bgcolor: "rgba(0,0,0,0.03)",
-              border: "1px solid rgba(0,0,0,0.08)",
-            }}
-          >
-            <Typography
+          {periodClosed?.suggestedMonth && (
+            <Box
               sx={{
-                fontSize: "0.6rem",
-                fontWeight: 800,
-                color: T.faint,
-                fontFamily: T.poppins,
-                textTransform: "uppercase",
-                letterSpacing: "0.07em",
-                mb: 0.4,
+                borderRadius: 2,
+                border: "1px solid rgba(0,0,0,0.10)",
+                bgcolor: "rgba(0,0,0,0.015)",
+                overflow: "hidden",
+                mb: 0.5,
               }}
             >
-              Step 3 — Confirm &amp; Save
-            </Typography>
-            {activeLeaves.map((lt) => (
               <Box
-                key={lt.leave_code}
                 sx={{
+                  px: 1.75,
+                  py: 1.05,
                   display: "flex",
+                  alignItems: "center",
                   justifyContent: "space-between",
-                  mb: 0.2,
+                  gap: 1.25,
                 }}
               >
                 <Typography
                   sx={{
-                    fontSize: "0.68rem",
-                    color: "#333",
+                    fontSize: "0.7rem",
+                    fontWeight: 800,
+                    color: T.muted,
                     fontFamily: T.poppins,
-                    fontWeight: 600,
                   }}
                 >
-                  {lt.leave_code}
+                  Suggested period
                 </Typography>
                 <Typography
                   sx={{
-                    fontSize: "0.68rem",
-                    fontWeight: 700,
-                    color: "#1a1a1a",
+                    fontSize: "0.78rem",
+                    fontWeight: 900,
+                    color: T.accent,
                     fontFamily: T.poppins,
                   }}
                 >
-                  {unit === "days"
-                    ? `${(toNum(earnedHours[lt.leave_code]) / 8).toFixed(3)}d`
-                    : `${toNum(earnedHours[lt.leave_code]).toFixed(3)}h`}
+                  {monthName(periodClosed.suggestedMonth)} {year}
                 </Typography>
               </Box>
-            ))}
-            <Box sx={{ height: 1, bgcolor: T.divider, my: 0.5 }} />
-            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
-              <Typography
+              <Box
                 sx={{
-                  fontSize: "0.68rem",
-                  fontWeight: 700,
-                  color: "#333",
-                  fontFamily: T.poppins,
+                  px: 1.75,
+                  py: 1,
+                  borderTop: "1px solid rgba(0,0,0,0.06)",
+                  bgcolor: "#fff",
                 }}
               >
-                Total to earn
-              </Typography>
-              <Typography
-                sx={{
-                  fontSize: "0.68rem",
-                  fontWeight: 800,
-                  color: "#1a1a1a",
-                  fontFamily: T.poppins,
-                }}
-              >
-                {unit === "days"
-                  ? `${(activeLeaves.reduce((s, lt) => s + toNum(earnedHours[lt.leave_code]), 0) / 8).toFixed(3)}d`
-                  : `${activeLeaves.reduce((s, lt) => s + toNum(earnedHours[lt.leave_code]), 0).toFixed(3)}h`}
-              </Typography>
+                <Typography
+                  sx={{
+                    fontSize: "0.72rem",
+                    color: T.muted,
+                    fontFamily: T.poppins,
+                  }}
+                >
+                  This will be saved as <strong>ADJUSTMENT</strong>.
+                </Typography>
+              </Box>
             </Box>
-          </Box>
-        )}
-        {activeLeaves.length === 0 && (
-          <Box
+          )}
+        </DialogContent>
+        <DialogActions
+          sx={{
+            px: 2.5,
+            pb: 2.25,
+            pt: 1.75,
+            gap: 1,
+            bgcolor: "#fff",
+          }}
+        >
+          <Button
+            onClick={() => setPeriodClosed(null)}
             sx={{
-              mb: 0.75,
-              px: 1,
-              py: 0.5,
-              borderRadius: 1.5,
-              bgcolor: "rgba(0,0,0,0.02)",
-              border: "1px dashed rgba(0,0,0,0.1)",
+              textTransform: "none",
+              color: T.muted,
+              fontFamily: T.poppins,
+              fontWeight: 700,
             }}
           >
-            <Typography
-              sx={{
-                fontSize: "0.62rem",
-                color: T.faint,
-                fontFamily: T.poppins,
-                fontStyle: "italic",
-                textAlign: "center",
-              }}
-            >
-              Step 3 — No leaves confirmed yet. Type a value or check on SL/VL
-              to add.
-            </Typography>
-          </Box>
-        )}
-        <FieldInput
-          size="small"
-          fullWidth
-          value={remarks}
-          onChange={(e) => setRemarks(e.target.value)}
-          placeholder="Remarks (optional)"
-          sx={{ mb: 0.75 }}
-        />
-        <Box sx={{ display: "flex", gap: 0.75 }}>
+            Cancel
+          </Button>
           <Button
-            size="small"
-            onClick={() => {
-              const defaults = {};
-              visibleLeaveTypes.forEach((lt) => {
-                if (SL_VL_AUTO_CODES.includes(lt.leave_code))
-                  defaults[lt.leave_code] = SL_VL_DEFAULT_HOURS;
-              });
-              setEarnedHours(defaults);
-              setEarnedDraft({});
-              setUserTouched({});
-            }}
+            onClick={applyAsAdjustment}
+            variant="contained"
+            disabled={!periodClosed?.suggestedMonth}
             sx={{
-              fontSize: "0.68rem",
-              color: T.muted,
+              bgcolor: T.accent,
               textTransform: "none",
               fontFamily: T.poppins,
-              border: `1px solid ${T.divider}`,
-              borderRadius: 1.5,
-              px: 1.25,
-              whiteSpace: "nowrap",
-              flexShrink: 0,
-              minWidth: "fit-content",
+              fontWeight: 700,
+              borderRadius: 2,
+              px: 2,
+              "&:hover": { bgcolor: T.accentDark },
             }}
           >
-            Clear all
+            Add as Adjustment to {periodClosed?.suggestedMonth ? `${monthName(periodClosed.suggestedMonth)} ${year}` : "current period"}
           </Button>
-          <AccentButton
-            variant="contained"
-            fullWidth
-            onClick={handleSave}
-            disabled={loading || activeLeaves.length === 0}
-            startIcon={
-              loading ? (
-                <CircularProgress size={14} sx={{ color: "#fff" }} />
-              ) : (
-                <AddIcon sx={{ fontSize: "15px !important" }} />
-              )
-            }
-            sx={{
-              height: 36,
-              bgcolor: activeLeaves.length > 0 ? T.accent : "#c0c0c0",
-              color: "#fff",
-              fontFamily: T.poppins,
-              fontSize: "0.78rem",
-              "&:hover": {
-                bgcolor: activeLeaves.length > 0 ? T.accentDark : "#c0c0c0",
-              },
-              "&:disabled": {
-                bgcolor: "#c0c0c0 !important",
-                color: "#888 !important",
-              },
-            }}
-          >
-            {loading
-              ? "Saving…"
-              : activeLeaves.length > 0
-                ? "Save earnings →"
-                : "Confirm a leave above"}
-          </AccentButton>
+        </DialogActions>
+      </Dialog>
+      {!employeeGender && (
+        <Box sx={{ display: "flex", alignItems: "center", gap: 0.4, mb: 0.75 }}>
+          <WarningIcon sx={{ fontSize: 12, color: "#e65100" }} />
+          <Typography sx={{ fontSize: "0.64rem", color: "#e65100", fontWeight: 700, fontFamily: T.poppins }}>
+            No gender on file — gender-restricted leave types are hidden.
+          </Typography>
         </Box>
+      )}
+      {error && <Alert severity="error" sx={{ borderRadius: 2, mb: 0.75, fontSize: "0.75rem", py: 0 }}>{error}</Alert>}
+      {success && <Alert severity="success" sx={{ borderRadius: 2, mb: 0.75, fontSize: "0.75rem", py: 0 }}>{success}</Alert>}
+      {leaveTypes.length > 0 && visibleLeaveTypes.length === 0 && (
+        <Alert severity="warning" sx={{ borderRadius: 2, mb: 0.75, fontSize: "0.75rem", py: 0 }}>
+          No leave types available for this employee — gender missing or none match. Update Leave Table or personnel gender.
+        </Alert>
+      )}
+
+      <Typography sx={{ fontSize: "0.72rem", color: T.muted, fontFamily: T.poppins, mb: 1 }}>
+        SL and VL are computed from this month&apos;s attendance (1.25 d a month, less leave without pay). Tap a leave to add it or skip it.
+      </Typography>
+      {baseLeaves.length > 0 && (
+        <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: "9px" }}>
+          {baseLeaves.map((lt) => renderCard(lt, true))}
+        </Box>
+      )}
+      {otherLeaves.length > 0 && (
+        <>
+          <Typography sx={{ fontSize: "0.72rem", color: T.muted, fontFamily: T.poppins, mt: 1.75, mb: 1 }}>
+            Other leaves
+            {hiddenLeaveTypesForPrompt.length > 0 && (
+              <Tooltip title={hiddenLeaveTypesForPrompt.map((r) => `${r.code} (${r.who})`).join(" · ")} arrow>
+                <Box component="span" sx={{ ml: 0.75, fontSize: "0.62rem", color: T.faint, cursor: "help" }}>
+                  · {hiddenLeaveTypesForPrompt.length} hidden by gender
+                </Box>
+              </Tooltip>
+            )}
+          </Typography>
+          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(118px, 1fr))", gap: "7px" }}>
+            {otherLeaves.map((lt) => renderCard(lt, false))}
+          </Box>
+        </>
+      )}
+
+      {proposal && (
+        <Box sx={{ mt: 1.5, p: 1.1, borderRadius: "10px", bgcolor: "rgba(0,0,0,0.025)", border: `1px solid ${T.divider}` }}>
+          <Typography sx={{ fontSize: "0.68rem", color: T.muted, fontFamily: T.poppins, lineHeight: 1.5 }}>
+            <b>{proposal.category?.label || proposal.typeLabel || "Category not mapped"}</b>
+            {" · "}Leave without pay this month: <b>{proposal.lwop.days.toFixed(3)} d</b> ({proposal.lwop.hours.toFixed(3)} h unpaid
+            {proposal.lwop.tardinessHours > 0 ? `, incl. ${proposal.lwop.tardinessHours.toFixed(3)} h tardiness charged to salary` : ""})
+            {" · "}{proposal.codes?.VL?.formula || proposal.codes?.SL?.formula || proposal.codes?.VL?.reason}
+          </Typography>
+          {(proposal.warnings || []).map((w) => (
+            <Typography key={w} sx={{ fontSize: "0.66rem", color: "#8a5d06", fontFamily: T.poppins, mt: 0.4 }}>{w}</Typography>
+          ))}
+        </Box>
+      )}
+
+      {overrideCodes.length > 0 && (
+        <Box sx={{ mt: 1.25, p: 1.25, borderRadius: "10px", bgcolor: "#fff8e6", border: "1px solid #f3d38a" }}>
+          <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: "#8a5d06", fontFamily: T.poppins, mb: 0.75 }}>
+            Override: {overrideCodes.join(", ")} differ{overrideCodes.length === 1 ? "s" : ""} from the CSC computation
+          </Typography>
+          <FieldInput
+            size="small"
+            fullWidth
+            required
+            value={overrideReason}
+            onChange={(e) => setOverrideReason(e.target.value)}
+            placeholder="Reason for the override (required, saved with the earning)"
+            error={overrideMissing}
+          />
+        </Box>
+      )}
+
+      <FieldInput
+        size="small"
+        fullWidth
+        value={remarks}
+        onChange={(e) => setRemarks(e.target.value)}
+        placeholder="Remarks (optional)"
+        sx={{ mt: 1.5 }}
+      />
+
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1.25, mt: 1.5, pt: 1.25, borderTop: `1px solid ${T.divider}`, flexWrap: "wrap" }}>
+        <Box sx={{ flex: 1 }}>
+          <Typography component="small" sx={{ display: "block", color: T.muted, fontSize: "0.72rem", fontFamily: T.poppins }}>You will add</Typography>
+          <Typography component="b" sx={{ fontSize: "1.15rem", fontWeight: 800, color: "#2e7d32", fontFamily: T.poppins, fontVariantNumeric: "tabular-nums" }}>
+            {toUnit(totalToAddHrs).toFixed(2)} {unitWord}
+          </Typography>
+        </Box>
+        <Button
+          size="small"
+          onClick={() => {
+            setEarnedHours({});
+            setEarnedDraft({});
+            setUserTouched({});
+          }}
+          sx={{ textTransform: "none", fontFamily: T.poppins, fontWeight: 600, fontSize: "0.74rem", color: T.accent, border: `1.5px solid ${T.accent}`, borderRadius: "9px", px: 1.75, "&:hover": { bgcolor: T.accent, color: "#fff" } }}
+        >
+          Clear all
+        </Button>
+        <Button
+          size="small"
+          variant="contained"
+          onClick={handleSave}
+          disabled={loading || postable.length === 0 || overrideMissing}
+          startIcon={loading ? <CircularProgress size={13} sx={{ color: "#fff" }} /> : null}
+          sx={{ textTransform: "none", fontFamily: T.poppins, fontWeight: 600, fontSize: "0.74rem", bgcolor: T.accent, borderRadius: "9px", px: 1.75, boxShadow: "none", "&:hover": { bgcolor: T.accentDark, boxShadow: "none" } }}
+        >
+          {loading ? "Posting…" : "Post earnings"}
+        </Button>
       </Box>
     </Box>
   );
+};
+
+const stepBtnSx = {
+  all: "unset",
+  boxSizing: "border-box",
+  flex: "none",
+  width: 26,
+  height: 26,
+  borderRadius: "9px",
+  border: `1.5px solid ${T.divider}`,
+  bgcolor: "#fff",
+  color: T.text,
+  textAlign: "center",
+  lineHeight: "22px",
+  font: `600 14px ${T.poppins}`,
+  cursor: "pointer",
+  "&:hover": { bgcolor: T.accent, color: "#fff" },
+  "&:focus-visible": { outline: `2px solid ${T.accent}` },
 };
 
 export { LeaveInputColumn };

@@ -13,6 +13,8 @@ export function useOfficialAttendanceMetrics({
   employeeNumber,
   startDate,
   endDate,
+  /** Change to reload (e.g. when leave requests are approved/cancelled in real time). */
+  refreshKey = null,
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -76,7 +78,7 @@ export function useOfficialAttendanceMetrics({
     return () => {
       cancelled = true;
     };
-  }, [employeeNumber, startDate, endDate]);
+  }, [employeeNumber, startDate, endDate, refreshKey]);
 
   const metrics = useMemo(() => {
     const list = Array.isArray(rows) ? rows : [];

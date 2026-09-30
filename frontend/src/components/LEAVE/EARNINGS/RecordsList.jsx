@@ -1725,6 +1725,7 @@ const RecordsList = ({
   standalone,
   onStatusChange,
   approverNameLookup = {},
+  onCountChange,
 }) => {
   const [data, setData] = useState({ earnings: [], balances: [] });
   const [loading, setLoading] = useState(false);
@@ -1857,6 +1858,10 @@ const RecordsList = ({
     [data.earnings],
   );
  
+  useEffect(() => {
+    onCountChange?.(sortedEarnings.length);
+  }, [sortedEarnings.length, onCountChange]);
+
   // ── counts for the type filter bar ───────────────────────────────────────
   const typeCounts = useMemo(() => {
     const counts = {

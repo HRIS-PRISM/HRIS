@@ -8,6 +8,7 @@ import {
   TablePagination, LinearProgress, Tooltip, Fade, CircularProgress,
   ToggleButton, ToggleButtonGroup, Paper, Tabs, Tab,
   Table, TableBody, TableCell, TableHead, TableRow,
+  Checkbox, FormControlLabel,
 } from "@mui/material";
 import { alpha, styled } from "@mui/material/styles";
 import {
@@ -1413,7 +1414,7 @@ const LeavePeriodTableRow = ({
   onEditPeriod,
   onDeletePeriod,
   commuteLoadingId, voidLoadingId, earningsList,
-  expanded = false, onToggleExpand, periodHistory = null, historyLoading = false, payrollLocked = false,
+  expanded = false, onToggleExpand, periodHistory = null, historyLoading = false, payrollLocked = false, voidPayrollLocked = false,
 }) => {
   const isLocked = isCommutedLocked(period);
   const isVoided = isPeriodVoided(period);
@@ -1573,15 +1574,15 @@ const LeavePeriodTableRow = ({
               {isCurrent && !isLocked && !isVoided && (onVoidPeriod || (remHrs > 0 && onTransferPeriod)) && (
                 <Box sx={{ display: "grid", gap: 0.5 }}>
                   {onVoidPeriod && (
-                    <Tooltip title={payrollLocked ? PAYROLL_LOCK_TOOLTIP : "Void current period (assignment, earnings, and usage)"}>
+                    <Tooltip title={voidPayrollLocked ? VOID_PAYROLL_TOOLTIP : "Roll back this year's absence, tardiness and half-day deductions and earnings. The assignment and approved leave requests stay."}>
                       <span>
                         <Button
                           size="small"
                           variant="outlined"
-                          disabled={voidLoadingId === period.id || payrollLocked}
+                          disabled={voidLoadingId === period.id || voidPayrollLocked}
                           onClick={() => onVoidPeriod(period)}
                           startIcon={
-                            payrollLocked
+                            voidPayrollLocked
                               ? <CheckIcon sx={{ fontSize: "14px !important", color: "#1565c0" }} />
                               : voidLoadingId === period.id
                                 ? <CircularProgress size={12} sx={{ color: "#c62828" }} />
@@ -1590,18 +1591,18 @@ const LeavePeriodTableRow = ({
                           sx={{
                             textTransform: "none", fontSize: "0.72rem", fontWeight: 600, fontFamily: T.poppins,
                             py: 0.4, px: 1.5, minWidth: 96, width: "100%",
-                            borderColor: payrollLocked ? "rgba(21,101,192,0.35)" : "#c62828",
-                            color: payrollLocked ? "#1565c0" : "#c62828",
-                            bgcolor: payrollLocked ? "rgba(21,101,192,0.06)" : "transparent",
-                            "&:hover": payrollLocked
+                            borderColor: voidPayrollLocked ? "rgba(21,101,192,0.35)" : "#c62828",
+                            color: voidPayrollLocked ? "#1565c0" : "#c62828",
+                            bgcolor: voidPayrollLocked ? "rgba(21,101,192,0.06)" : "transparent",
+                            "&:hover": voidPayrollLocked
                               ? { bgcolor: "rgba(21,101,192,0.06)" }
                               : { borderColor: "#b71c1c", bgcolor: "rgba(198,40,40,0.06)" },
-                            "&.Mui-disabled": payrollLocked
+                            "&.Mui-disabled": voidPayrollLocked
                               ? { borderColor: "rgba(21,101,192,0.35)", color: "#1565c0", bgcolor: "rgba(21,101,192,0.06)" }
                               : undefined,
                           }}
                         >
-                          {voidLoadingId === period.id ? "…" : payrollLocked ? "In payroll" : "Void"}
+                          {voidLoadingId === period.id ? "…" : voidPayrollLocked ? "In payroll" : "Void"}
                         </Button>
                       </span>
                     </Tooltip>
@@ -1705,13 +1706,11 @@ const pickLeaveTypeGroup = (grouped, leaveCode) => {
   return grouped[code] ?? Object.values(grouped).find((g) => String(g.leave_code).trim() === code) ?? null;
 };
 
-const patchPeriodVoided = (periods, targetPeriod, voidedAt = new Date().toISOString()) =>
-  (Array.isArray(periods) ? periods : []).map((p) =>
-    (targetPeriod?.id != null && p.id === targetPeriod.id)
-    || (targetPeriod && normalizePeriodKey(p) === normalizePeriodKey(targetPeriod))
-      ? { ...p, voided_at: voidedAt }
-      : p,
-  );
+/** Void rolls back a whole year, so it is locked when any month of that year is in Payroll Processing. */
+const isYearInPayroll = (isLocked, employeeNumber, year) =>
+  typeof isLocked === "function" && Array.from({ length: 12 }, (_, i) => i + 1).some((m) => isLocked(employeeNumber, year, m));
+const VOID_PAYROLL_TOOLTIP =
+  "A month of this year is already in Payroll Processing, so its deductions and earnings cannot be voided. Remove it there first.";
 
 const EmployeeLeavesModal = ({
   open,
@@ -1758,7 +1757,8 @@ const EmployeeLeavesModal = ({
       })
       .catch(() => { if (!cancelled) setEarningsList([]); });
     return () => { cancelled = true; };
-  }, [open, employeeLeaves?.employeeNumber, selectedLeaveType?.leave_code]);
+    // leaveTypes changes whenever assignments are reloaded (e.g. after a void), so earnings refetch too.
+  }, [open, employeeLeaves?.employeeNumber, employeeLeaves?.leaveTypes, selectedLeaveType?.leave_code]);
 
   if (!employeeLeaves) return null;
 
@@ -1813,6 +1813,7 @@ const EmployeeLeavesModal = ({
       payrollLocked: isPeriodLockedForPayroll
         ? isPeriodLockedForPayroll(employeeLeaves.employeeNumber, period.period_year, sem)
         : false,
+      voidPayrollLocked: isYearInPayroll(isPeriodLockedForPayroll, employeeLeaves.employeeNumber, period.period_year),
     };
   };
 
@@ -2573,6 +2574,111 @@ const BulkLeaveRow = ({
 };
 
 // ─── CommutationWarningModal ───────────────────────────────────────────────────
+/**
+ * Confirm dialog for Void: rolls back this leave type's attendance deductions and earnings for the
+ * year (server: DELETE /leave_assignment/:id/void-period). Requires an explicit checkbox.
+ */
+const VoidRollbackItem = ({ tone, children }) => (
+  <Box sx={{ display: "flex", gap: 1, alignItems: "flex-start", py: 0.5 }}>
+    <Box component="span" aria-hidden="true" sx={{ mt: "6px", width: 6, height: 6, borderRadius: "50%", flexShrink: 0, bgcolor: tone === "undo" ? "#c62828" : "#2e7d32" }} />
+    <Typography sx={{ fontSize: "0.8rem", color: T.text, fontFamily: T.poppins, lineHeight: 1.45 }}>{children}</Typography>
+  </Box>
+);
+
+const VoidRollbackModal = ({ open, onClose, onConfirm, period, leaveTypes = [], loading = false }) => {
+  const [agreed, setAgreed] = useState(false);
+  useEffect(() => {
+    if (open) setAgreed(false);
+  }, [open, period?.id]);
+
+  if (!period) return null;
+  const code = String(period.leave_code ?? "").trim();
+  const ltObj = leaveTypes.find((lt) => lt.leave_code === period.leave_code);
+  const leaveDesc = ltObj?.leave_description || ltObj?.leave_name || code;
+  const year = period.period_year;
+  const sectionSx = { fontSize: "0.62rem", fontWeight: 600, color: T.faint, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: T.poppins, mb: 0.5 };
+
+  return (
+    <Modal open={open} onClose={!loading ? onClose : undefined} sx={{ display: "flex", alignItems: "center", justifyContent: "center", p: 2, zIndex: 1400 }}>
+      <Fade in={open}>
+        <Paper
+          elevation={0}
+          role="alertdialog"
+          aria-labelledby="void-rollback-title"
+          sx={{ width: "100%", maxWidth: 500, display: "flex", flexDirection: "column", borderRadius: "10px", overflow: "hidden", fontFamily: T.poppins, border: "1px solid rgba(0,0,0,0.1)", boxShadow: "0 12px 40px rgba(0,0,0,0.14)" }}
+        >
+          <Box sx={{ px: 3, py: 2, display: "flex", alignItems: "center", gap: 1.5, borderBottom: `1px solid ${T.divider}`, bgcolor: "#fafbfc" }}>
+            <Box sx={{ width: 36, height: 36, borderRadius: "8px", bgcolor: "rgba(198,40,40,0.08)", border: "1px solid rgba(198,40,40,0.25)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <BlockIcon sx={{ fontSize: 18, color: "#c62828" }} />
+            </Box>
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <Typography id="void-rollback-title" sx={{ fontWeight: 600, fontSize: "0.95rem", color: T.text, fontFamily: T.poppins, lineHeight: 1.25 }}>
+                Void deductions &amp; earnings
+              </Typography>
+              <Typography sx={{ fontSize: "0.72rem", color: T.muted, fontFamily: T.poppins }}>
+                {leaveDesc} ({code}) · {year}
+              </Typography>
+            </Box>
+            <IconButton onClick={onClose} disabled={loading} size="small" aria-label="Close" sx={{ color: T.muted, border: `1px solid ${T.divider}`, borderRadius: "6px", "&:hover": { bgcolor: "#fff" } }}>
+              <Close sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Box>
+
+          <Box sx={{ px: 3, py: 2.25 }}>
+            <Typography sx={sectionSx}>Will be rolled back</Typography>
+            <VoidRollbackItem tone="undo">All absence, tardiness and half-day deductions charged to {code} in {year}</VoidRollbackItem>
+            <VoidRollbackItem tone="undo">All {code} earnings for {year} (pending and approved)</VoidRollbackItem>
+
+            <Typography sx={{ ...sectionSx, mt: 1.5 }}>Stays</Typography>
+            <VoidRollbackItem tone="keep">The assigned credits, approved leave requests and commutations</VoidRollbackItem>
+            <VoidRollbackItem tone="keep">Other leave types, Service Credits and CTO</VoidRollbackItem>
+
+            <Box sx={{ mt: 1.75, p: 1.25, borderRadius: "8px", bgcolor: T.accentFaint, border: `1px solid ${T.accentBorder}` }}>
+              <Typography sx={{ fontSize: "0.74rem", color: T.muted, fontFamily: T.poppins, lineHeight: 1.45 }}>
+                The balance returns to what was assigned, less leave actually taken. The rolled-back absences and
+                half-days can be deducted again in Earnings Management.
+              </Typography>
+            </Box>
+
+            <FormControlLabel
+              sx={{ mt: 1.5, mr: 0, alignItems: "flex-start" }}
+              control={
+                <Checkbox
+                  checked={agreed}
+                  onChange={(e) => setAgreed(e.target.checked)}
+                  disabled={loading}
+                  size="small"
+                  sx={{ pt: 0.25, color: T.muted, "&.Mui-checked": { color: "#c62828" } }}
+                />
+              }
+              label={
+                <Typography sx={{ fontSize: "0.8rem", color: T.text, fontFamily: T.poppins, lineHeight: 1.45 }}>
+                  I confirm that I want to void all deductions and earnings for {leaveDesc} ({code}) in {year}.
+                </Typography>
+              }
+            />
+          </Box>
+
+          <Box sx={{ px: 3, py: 1.5, display: "flex", justifyContent: "flex-end", gap: 1, borderTop: `1px solid ${T.divider}`, bgcolor: "#fafbfc" }}>
+            <Button onClick={onClose} disabled={loading} sx={{ textTransform: "none", fontFamily: T.poppins, fontWeight: 600, fontSize: "0.8rem", color: T.muted }}>
+              Cancel
+            </Button>
+            <Button
+              variant="contained"
+              onClick={onConfirm}
+              disabled={!agreed || loading}
+              startIcon={loading ? <CircularProgress size={13} sx={{ color: "#fff" }} /> : <BlockIcon sx={{ fontSize: "15px !important" }} />}
+              sx={{ textTransform: "none", fontFamily: T.poppins, fontWeight: 600, fontSize: "0.8rem", bgcolor: "#c62828", boxShadow: "none", borderRadius: "8px", "&:hover": { bgcolor: "#b71c1c", boxShadow: "none" } }}
+            >
+              {loading ? "Voiding…" : "Void deductions & earnings"}
+            </Button>
+          </Box>
+        </Paper>
+      </Fade>
+    </Modal>
+  );
+};
+
 const CommutationWarningModal = ({
   open, onClose, onConfirm,
   period,
@@ -3330,7 +3436,9 @@ assignments.forEach((a) => {
     await fetchPeriodHistory(enriched);
   }, [fetchPeriodHistory]);
 
-  const handleVoidPeriod = useCallback(async (period) => {
+  const [voidConfirmPeriod, setVoidConfirmPeriod] = useState(null);
+
+  const handleVoidPeriod = useCallback(async (period, { confirmed = false } = {}) => {
     if (!period?.id) return;
     const siblings = assignments.filter(
       (a) => a.employeeNumber?.toString() === period.employeeNumber?.toString() && a.leave_code === period.leave_code,
@@ -3341,15 +3449,15 @@ assignments.forEach((a) => {
       setError("Only the latest leave assignment period can be voided.");
       return;
     }
-    const sem = period.period_semester ?? period.period_month;
-    if (isPeriodLockedForPayroll(period.employeeNumber, period.period_year, sem)) {
-      setError(PAYROLL_LOCK_TOOLTIP);
+    if (isYearInPayroll(isPeriodLockedForPayroll, period.employeeNumber, period.period_year)) {
+      setError(VOID_PAYROLL_TOOLTIP);
       return;
     }
-    const label = periodLabel(period.period_year, sem);
-    if (!window.confirm(
-      `This will void the current leave period (${label}), including earnings and usage records. Balances will be recalculated. This cannot be undone.`,
-    )) return;
+    // First click opens the confirmation modal; the modal calls back with confirmed: true.
+    if (!confirmed) {
+      setVoidConfirmPeriod(period);
+      return;
+    }
 
     setVoidLoadingId(period.id);
     try {
@@ -3359,32 +3467,7 @@ assignments.forEach((a) => {
         { headers: { Authorization: `Bearer ${token}` } },
       );
 
-      const voidedAt = new Date().toISOString();
       const leaveCode = String(period.leave_code ?? "").trim();
-      const empKey = period.employeeNumber?.toString();
-
-      setAssignments((prev) =>
-        prev.map((a) => {
-          if (a.employeeNumber?.toString() !== empKey) return a;
-          if (String(a.leave_code ?? "").trim() !== leaveCode) return a;
-          if (normalizePeriodKey(a) !== normalizePeriodKey(period)) return a;
-          return { ...a, voided_at: voidedAt };
-        }),
-      );
-      setSelectedEmployeeLeaves((prev) => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          leaveTypes: prev.leaveTypes.map((lt) => {
-            if (String(lt.leave_code ?? "").trim() !== leaveCode) return lt;
-            return { ...lt, periods: patchPeriodVoided(lt.periods, period, voidedAt) };
-          }),
-        };
-      });
-      setSelectedLeaveTypeInModal((prev) => {
-        if (!prev || String(prev.leave_code ?? "").trim() !== leaveCode) return prev;
-        return { ...prev, periods: patchPeriodVoided(prev.periods, period, voidedAt) };
-      });
       periodHistoryPrefetchKeyRef.current = null;
 
       clearPeriodHistoryCache(period);
@@ -3398,6 +3481,7 @@ assignments.forEach((a) => {
       setError("Void failed: " + (err.response?.data?.error || err.message));
     } finally {
       setVoidLoadingId(null);
+      setVoidConfirmPeriod(null);
     }
   }, [
     assignments,
@@ -4255,6 +4339,16 @@ assignments.forEach((a) => {
               </Box>
             </Fade>
           </Modal>
+
+          {/* Void (roll back deductions & earnings) confirmation */}
+          <VoidRollbackModal
+            open={!!voidConfirmPeriod}
+            onClose={() => !voidLoadingId && setVoidConfirmPeriod(null)}
+            onConfirm={() => handleVoidPeriod(voidConfirmPeriod, { confirmed: true })}
+            period={voidConfirmPeriod}
+            leaveTypes={leaveTypes}
+            loading={!!voidLoadingId}
+          />
 
           {/* Commutation Warning Modal */}
           <CommutationWarningModal

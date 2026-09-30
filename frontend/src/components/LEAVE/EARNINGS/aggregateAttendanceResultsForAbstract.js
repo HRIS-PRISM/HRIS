@@ -33,8 +33,15 @@ function maxProcessedAt(rows) {
   return best;
 }
 
+/** True when the deduction/earning behind an attendance_result row was voided or no longer exists. */
+export function isAttendanceRowVoided(r) {
+  const st = String(r?.source_state || "").toLowerCase();
+  return st === "voided" || st === "missing";
+}
+
 /**
  * One merged-row-shaped summary per employee for the filter month (matches AR branch of buildMergedRows).
+ * Totals use active entries only; voided entries are counted in voidedCount and stay in abstractSourceRows.
  * Keys: ar-summary-{emp}|{year}|{month}
  */
 export function aggregateAttendanceResultsForAbstract(attendanceResults, year, month) {
@@ -51,7 +58,10 @@ export function aggregateAttendanceResultsForAbstract(attendanceResults, year, m
   }
 
   const merged = [];
-  for (const [emp, rows] of groups) {
+  for (const [emp, allRows] of groups) {
+    const rows = allRows.filter((r) => !isAttendanceRowVoided(r));
+    const voidedCount = allRows.length - rows.length;
+    const allVoided = rows.length === 0;
     let sumUnpaid = 0;
     let sumPaid = 0;
     let sumLeave = 0;
@@ -76,7 +86,7 @@ export function aggregateAttendanceResultsForAbstract(attendanceResults, year, m
     }
 
     const isDeduction = sumUnpaid > 0;
-    const first = rows[0];
+    const first = rows[0] || allRows[0];
     const key = `ar-summary-${emp}|${y}|${m}`;
     const periodLabel = `${MONTHS[m - 1]} ${y}`;
     const halfDayDate = `${y}-${String(m).padStart(2, "0")}-01`;
@@ -85,7 +95,8 @@ export function aggregateAttendanceResultsForAbstract(attendanceResults, year, m
       leaveSet.size === 0 ? "—" : leaveSet.size === 1 ? [...leaveSet][0] : [...leaveSet].sort().join(", ");
 
     let resultStatus = "—";
-    if (statusSet.size === 1) resultStatus = [...statusSet][0];
+    if (allVoided) resultStatus = "Voided";
+    else if (statusSet.size === 1) resultStatus = [...statusSet][0];
     else if (statusSet.size > 1) resultStatus = "Multiple";
 
     const abstractSourceTypes = typeSet.size ? [...typeSet].sort().join(", ") : "—";
@@ -99,7 +110,7 @@ export function aggregateAttendanceResultsForAbstract(attendanceResults, year, m
             : remarkChunks[0]
           : `${rows.length} event(s)`;
 
-    const abstractSourceRows = [...rows].sort((a, b) => {
+    const abstractSourceRows = [...allRows].sort((a, b) => {
       const d1 = a.result_date ? String(a.result_date).slice(0, 10) : "";
       const d2 = b.result_date ? String(b.result_date).slice(0, 10) : "";
       const cmp = d2.localeCompare(d1);
@@ -124,10 +135,13 @@ export function aggregateAttendanceResultsForAbstract(attendanceResults, year, m
       leaveHoursUsed: sumLeave,
       paidHoursTotal: sumPaid,
       resultStatus,
-      createdAt: maxProcessedAt(rows),
+      createdAt: maxProcessedAt(allRows),
       isDeduction,
       source: "AR",
       abstractEventCount: rows.length,
+      voidedCount,
+      activeCount: rows.length,
+      allVoided,
       abstractSourceTypes,
       abstractRemarksShort,
       abstractRemarksTooltip: remarksJoined || abstractRemarksShort,

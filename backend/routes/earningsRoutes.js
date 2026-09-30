@@ -162,6 +162,12 @@ const express = require("express");
 
   const { mirrorAttendanceSalaryShortfallToAuditTrail } = require("../services/leaveSalaryShortfallMirror");
   const { notifyEarningsChanged } = require("../socket/socketService");
+  const { computeLeaveEarningProposal, assertEarningMatchesProposal } = require("../services/leaveAccrualService");
+  const {
+    computeCtoProposal,
+    computeScProposal,
+    assertOvertimeCreditMatchesProposal,
+  } = require("../services/overtimeCreditService");
 
   /**
    * Logs leave_salary_shortfall only when shortfall_hours > 0 (Option B).
@@ -311,7 +317,11 @@ const express = require("express");
     return fallback ? String(fallback) : "unknown";
   };
 
-  /** Insert leave_credit_usage + refresh assignment; used/remaining follow ledger. */
+  /**
+   * Insert leave_credit_usage + refresh assignment; used/remaining follow ledger.
+   * Pass `conn` to join the caller's transaction (required when the caller already holds
+   * row locks the refresh needs, e.g. the earning being approved).
+   */
   const commitLeaveDeductionLedger = async ({
     req,
     rec,
@@ -319,11 +329,13 @@ const express = require("express");
     deductionHours,
     sourceType = "LEAVE_EARNING",
     sourceId = null,
+    conn: outerConn = null,
   }) => {
-    const conn = await getPromiseConnection();
+    const conn = outerConn || (await getPromiseConnection());
+    const ownsTx = !outerConn;
     const createdBy = getActorEmployeeNumber(req);
     try {
-      await conn.beginTransaction();
+      if (ownsTx) await conn.beginTransaction();
       const [fr] = await conn.execute(
         `SELECT id, remaining_hours FROM leave_assignment WHERE id = ? FOR UPDATE`,
         [assignmentId],
@@ -348,15 +360,17 @@ const express = require("express");
         created_by: createdBy,
       });
       await refreshLeaveAssignmentCacheFromLedger(conn, assignmentId);
-      await conn.commit();
+      if (ownsTx) await conn.commit();
       return { shortfallHours, negativeBalanceDays, leave_credit_usage_id };
     } catch (e) {
-      try {
-        await conn.rollback();
-      } catch (_r) {}
+      if (ownsTx) {
+        try {
+          await conn.rollback();
+        } catch (_r) {}
+      }
       throw e;
     } finally {
-      conn.release();
+      if (ownsTx) conn.release();
     }
   };
 
@@ -488,13 +502,12 @@ const express = require("express");
       used_hours: 0,
     });
 
-    const insertedId = await new Promise((resolve) => {
+    const insertedId = await new Promise((resolve, reject) => {
       db.query(
         `INSERT INTO leave_assignment
           (employeeNumber, leave_code, total_hours, remaining_hours, used_hours,
-          carried_forward_hours, allocated_hours, period_year, period_semester, earning_status,
-          total_days, remaining_days, used_days, allocated_days)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          carried_forward_hours, allocated_hours, period_year, period_semester, earning_status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           employeeNumber,
           leaveCode,
@@ -506,14 +519,8 @@ const express = require("express");
           year,
           String(month),
           fields.earning_status,
-          // [NEW] Days-equivalent shadow columns, derived from the same
-          // values written to the hours columns above.
-          toDaysVal(fields.total_hours),
-          toDaysVal(fields.remaining_hours),
-          toDaysVal(fields.used_hours),
-          toDaysVal(fields.allocated_hours),
         ],
-        (err, result) => resolve(!err ? result?.insertId : null),
+        (err, result) => (err ? reject(err) : resolve(result?.insertId)),
       );
     });
     if (!insertedId) return null;
@@ -564,18 +571,13 @@ const express = require("express");
         db.query(
           `UPDATE leave_assignment SET
             allocated_hours = ?, total_hours = ?, remaining_hours = ?,
-            carried_forward_hours = 0, earning_status = ?,
-            allocated_days = ?, total_days = ?, remaining_days = ?, carried_forward_days = 0
+            carried_forward_hours = 0, earning_status = ?
           WHERE id = ?`,
           [
             recomputed.allocated_hours,
             recomputed.total_hours,
             recomputed.remaining_hours,
             recomputed.earning_status,
-            // [NEW] Days-equivalent shadow columns.
-            toDaysVal(recomputed.allocated_hours),
-            toDaysVal(recomputed.total_hours),
-            toDaysVal(recomputed.remaining_hours),
             period.id,
           ],
           () => resolve(),
@@ -589,7 +591,7 @@ const express = require("express");
    * When leaveEarningId is set, ledger source is LEAVE_EARNING (pending row was approved).
    * When null (direct tardiness POST), source is TARDINESS_DEDUCTION — no leave_earnings row.
    */
-  const runNegativeLeaveDeductionPipeline = async (req, rec, leaveEarningId) => {
+  const runNegativeLeaveDeductionPipeline = async (req, rec, leaveEarningId, { conn = null } = {}) => {
     const earnedHrs = toNum(rec.earned_hours);
     if (earnedHrs >= 0) throw new Error("runNegativeLeaveDeductionPipeline expects negative earned_hours");
     const periodMonth = rec.period_month ? parseInt(rec.period_month, 10) : null;
@@ -648,6 +650,7 @@ const express = require("express");
           deductionHours,
           sourceType: ledgerSourceType,
           sourceId: Number.isFinite(ledgerSourceId) ? ledgerSourceId : null,
+          conn,
         });
       await attachSideEffects(shortfallHours, negativeBalanceDays, leave_credit_usage_id);
       return;
@@ -1716,6 +1719,23 @@ const stats = {
     });
   });
 
+/**
+ * GET /api/earnings/leave/proposal/:employeeNumber?year=&month=
+ * CSC-based VL/SL accrual proposal for the month (see services/leaveAccrualService).
+ */
+router.get("/leave/proposal/:employeeNumber", authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const proposal = await computeLeaveEarningProposal({
+      employeeNumber: req.params.employeeNumber,
+      year: req.query.year,
+      month: req.query.month,
+    });
+    res.json(proposal);
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message || "Failed to compute leave earning proposal" });
+  }
+});
+
 router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
   const {
     employeeNumber,
@@ -1724,8 +1744,9 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
     period_year,
     period_month,
     entry_type = "EARNED",
-    remarks,
+    override_reason,
   } = req.body;
+  let { remarks } = req.body;
 
   if (!employeeNumber || !leave_code || !period_year || !period_month) {
     return res.status(400).json({
@@ -1752,6 +1773,14 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
     return res.status(400).json({
       error: "Deduction earned_hours must be negative",
     });
+  }
+
+  if (!isDeduction) {
+    try {
+      assertEarnableLeaveCode(leave_code);
+    } catch (e) {
+      return res.status(e.status || 400).json({ error: e.message, code: e.code });
+    }
   }
 
   // Tardiness offsets: consume leave via leave_credit_usage only (no leave_earnings row).
@@ -1850,7 +1879,48 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
     return;
   }
 
-  const doInsert = () => {
+  const doInsert = async () => {
+    if (normalizedEntry === "EARNED") {
+      // Monthly VL/SL must match the CSC proposal unless HR gives an override reason; either way the
+      // computation (and any override) is written into the remarks for the audit trail.
+      try {
+        const check = await assertEarningMatchesProposal({
+          employeeNumber,
+          leaveCode: leave_code,
+          year: py,
+          month: pm,
+          earnedHours: hrs,
+          overrideReason: override_reason,
+        });
+        if (check.remarksSuffix) {
+          remarks = [remarks, check.remarksSuffix].filter((x) => String(x || "").trim()).join(" • ");
+        }
+      } catch (e) {
+        if (e.code === "OVERRIDE_REASON_REQUIRED") {
+          return res.status(400).json({ code: e.code, error: e.message, proposal: e.proposal });
+        }
+        console.error("Leave earning proposal check error:", e);
+        return res.status(500).json({ error: "Failed to check leave earning against the CSC computation" });
+      }
+      try {
+        const dup = await findDuplicateMonthlyEarning(poolQuery, {
+          employeeNumber,
+          leaveCode: leave_code,
+          periodYear: py,
+          periodMonth: pm,
+        });
+        if (dup) {
+          return res.status(409).json({
+            code: "DUPLICATE_EARNING",
+            error: `${leave_code} earnings for ${py}-${String(pm).padStart(2, "0")} already exist (earning #${dup.id}, ${dup.earn_status}).`,
+          });
+        }
+      } catch (dupErr) {
+        console.error("Leave earning duplicate check error:", dupErr);
+        return res.status(500).json({ error: "Failed to create leave earning" });
+      }
+    }
+
     const query = `
       INSERT INTO leave_earnings
         (employee_number, leave_code, earned_hours, period_year, period_month, entry_type, earn_status, remarks, created_by)
@@ -1998,169 +2068,224 @@ router.post("/leave", authenticateToken, requireAdmin, (req, res) => {
   return doInsert();
 });
 
-router.patch("/leave/:id/approve", authenticateToken, requireAdmin, (req, res) => {
-  const { id } = req.params;
+/**
+ * Leave types that accrue monthly credits (CSC: 1.25 days VL + 1.25 days SL per month of
+ * service). Interim list until leave-type rules are configurable; other leave types are
+ * allotted through Leave Assignment, not earnings.
+ */
+const EARNABLE_LEAVE_CODES = ["VL", "SL"];
+const isPositiveEarningEntry = (entryType) =>
+  ["EARNED", "ADJUSTMENT"].includes(String(entryType || "EARNED").toUpperCase());
 
-  db.query("SELECT * FROM leave_earnings WHERE id = ?", [id], (err, rows) => {
-    if (err || !rows.length) return res.status(404).json({ error: "Record not found" });
-    const rec = rows[0];
-    if (rec.earn_status === "approved") return res.status(400).json({ error: "Already approved" });
-    if (Number(rec.is_applied) === 1) return res.status(400).json({ error: "Earning already applied to assignment" });
+class EarningRuleError extends Error {
+  constructor(status, code, message) {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
+}
 
-    db.query(
-      `UPDATE leave_earnings SET earn_status = 'approved', approved_by = ?, approved_at = NOW() WHERE id = ?`,
-      [req.user?.username || null, id],
-      (err2) => {
-        if (err2) return res.status(500).json({ error: "Failed to approve" });
+const assertEarnableLeaveCode = (leaveCode) => {
+  if (!EARNABLE_LEAVE_CODES.includes(String(leaveCode || "").trim().toUpperCase())) {
+    throw new EarningRuleError(
+      400,
+      "LEAVE_TYPE_NOT_EARNABLE",
+      `${leaveCode} does not accrue monthly earnings. Only ${EARNABLE_LEAVE_CODES.join(" and ")} credits are earned; allot other leave types through Leave Assignment.`,
+    );
+  }
+};
 
-        const earnedHrs   = toNum(rec.earned_hours);
-        const periodMonth = rec.period_month ? parseInt(rec.period_month) : null;
+const poolQuery = (sql, params = []) =>
+  new Promise((resolve, reject) => db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows || []))));
+const connQuery = (conn) => async (sql, params = []) => (await conn.execute(sql, params))[0] || [];
 
-        (async () => {
-          const beforeBalHrs = await getLeaveRemainingHours(rec.employee_number, rec.leave_code);
+/**
+ * Another live (not voided) EARNED row for the same employee/type/month.
+ * `runQuery(sql, params)` resolves to rows (use connQuery(conn) inside a transaction).
+ */
+const findDuplicateMonthlyEarning = async (
+  runQuery,
+  { employeeNumber, leaveCode, periodYear, periodMonth, excludeId = null, approvedOnly = false },
+) => {
+  const rows = await runQuery(
+    `SELECT id, earn_status FROM leave_earnings
+     WHERE employee_number = ? AND TRIM(leave_code) = TRIM(?)
+       AND period_year = ? AND period_month <=> ?
+       AND UPPER(entry_type) = 'EARNED'
+       AND earn_status IN (${approvedOnly ? "'approved'" : "'pending','approved'"})
+       AND COALESCE(voided, 0) = 0 AND voided_at IS NULL
+       AND id <> ?
+     LIMIT 1`,
+    [String(employeeNumber), String(leaveCode), periodYear, periodMonth ?? null, excludeId ?? 0],
+  );
+  return rows[0] || null;
+};
 
-          let matched = await findPeriodAssignment({
-            employeeNumber: rec.employee_number,
-            leaveCode: rec.leave_code,
-            periodYear: rec.period_year,
-            periodMonth,
-          });
+router.patch("/leave/:id/approve", authenticateToken, requireAdmin, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid earning id" });
 
-          if (!matched && periodMonth) {
-            matched = await ensurePeriodAssignment({
-              employeeNumber: rec.employee_number,
-              leaveCode: rec.leave_code,
-              periodYear: rec.period_year,
-              periodMonth,
-            });
-          }
+  const conn = await getPromiseConnection();
+  let rec;
+  let beforeBalHrs = 0;
+  try {
+    await conn.beginTransaction();
+    const [rows] = await conn.execute("SELECT * FROM leave_earnings WHERE id = ? FOR UPDATE", [id]);
+    rec = rows?.[0];
+    if (!rec) throw new EarningRuleError(404, "NOT_FOUND", "Record not found");
+    if (rec.earn_status === "approved") throw new EarningRuleError(400, "ALREADY_APPROVED", "Already approved");
+    if (Number(rec.is_applied) === 1) {
+      throw new EarningRuleError(400, "ALREADY_APPLIED", "Earning already applied to assignment");
+    }
+    if (Number(rec.voided) === 1 || rec.voided_at) {
+      throw new EarningRuleError(400, "VOIDED", "This earning was voided and cannot be approved");
+    }
 
-          const afterUpdate = async () => {
-            await new Promise((resolve, reject) => {
-              db.query(
-                "UPDATE leave_earnings SET is_applied = 1 WHERE id = ?",
-                [id],
-                (e) => (e ? reject(e) : resolve()),
-              );
-            });
+    const earnedHrs = toNum(rec.earned_hours);
+    const periodMonth = rec.period_month ? parseInt(rec.period_month, 10) : null;
+    beforeBalHrs = await getLeaveRemainingHours(rec.employee_number, rec.leave_code);
 
-            const actorEmpNum = getActorEmployeeNumber(req);
-            const [actorName, targetName] = await Promise.all([
-              getEmployeeFullName(actorEmpNum),
-              getEmployeeFullName(rec.employee_number),
-            ]);
-            const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
-            const targetDisplay = formatUserDisplayName(rec.employee_number, targetName);
-            const txMessageBase = buildEarningsTransactionMessage({
-              actionLabel: "approved",
-              actorDisplay,
-              targetDisplay,
-              earningTypeLabel: "leave earnings",
-              hoursValue: toNum(rec.earned_hours),
-              leaveCode: rec.leave_code,
-              periodYear: rec.period_year,
-              periodMonth: rec.period_month,
-            });
-            const afterBalHrs = await getLeaveRemainingHours(rec.employee_number, rec.leave_code);
-            const delta = toNum(rec.earned_hours);
-            const txMessage =
-              `${txMessageBase}. ` +
-              `Balance updated: ${beforeBalHrs.toFixed(3)} hrs → ${afterBalHrs.toFixed(3)} hrs (${delta >= 0 ? "+" : "−"}${Math.abs(delta).toFixed(3)} hrs).`;
+    if (earnedHrs >= 0) {
+      if (isPositiveEarningEntry(rec.entry_type)) assertEarnableLeaveCode(rec.leave_code);
+      if (String(rec.entry_type || "EARNED").toUpperCase() === "EARNED") {
+        const dup = await findDuplicateMonthlyEarning(connQuery(conn), {
+          employeeNumber: rec.employee_number,
+          leaveCode: rec.leave_code,
+          periodYear: rec.period_year,
+          periodMonth,
+          excludeId: id,
+          approvedOnly: true,
+        });
+        if (dup) {
+          throw new EarningRuleError(
+            409,
+            "DUPLICATE_EARNING",
+            `${rec.leave_code} earnings for ${rec.period_year}-${String(periodMonth || "").padStart(2, "0")} are already approved (earning #${dup.id}).`,
+          );
+        }
+      }
 
-            auditEarning(
-              req,
-              "approved leave earnings",
-              "leave",
-              parseInt(id),
-              rec.earn_status,
-              "approved",
-              rec,
-              { transaction_message: txMessage },
-            );
-            await insertTransactionLog(rec.employee_number, txMessage, actorEmpNum);
-
-            try {
-              const io = getIo(req);
-              if (io) {
-                io.emit("leaveAssignmentChanged", {
-                  scope: "leave_assignment",
-                  action: "updated-from-earnings-approval",
-                  employeeNumber: rec.employee_number,
-                  leave_code: rec.leave_code,
-                  period_year: rec.period_year,
-                  period_month: rec.period_month,
-                  earning_id: parseInt(id, 10),
-                });
-              }
-            } catch (emitErr) {
-              // non-fatal
-            }
-
-            emitEarningsChanged("approved", {
-              module: "leave",
-              employeeNumber: String(rec.employee_number),
-              period_year: rec.period_year,
-              period_month: rec.period_month,
-              earning_id: parseInt(id, 10),
-            });
-
-            db.query("SELECT * FROM leave_earnings WHERE id = ?", [id], (e, r) => res.json(r ? r[0] : { id }));
-          };
-
-          if (earnedHrs >= 0) {
-            if (!matched) {
-              matched = await ensurePeriodAssignment({
-                employeeNumber: rec.employee_number,
-                leaveCode: rec.leave_code,
-                periodYear: rec.period_year,
-                periodMonth: periodMonth || 0,
-              });
-            }
-            if (!matched) throw new Error("Could not find or create assignment for earning period");
-
-            const repaired = await repairPeriodCarryForwardIfEmpty(db, matched);
-            const recomputed = await recomputeAssignmentLedgerFields(db, repaired);
-            await new Promise((resolve, reject) => {
-              db.query(
-                `UPDATE leave_assignment SET
-                   allocated_hours = ?, total_hours = ?, remaining_hours = ?,
-                   carried_forward_hours = ?, earning_status = ?,
-                   allocated_days = ?, total_days = ?, remaining_days = ?, carried_forward_days = ?
-                 WHERE id = ?`,
-                [
-                  recomputed.allocated_hours,
-                  recomputed.total_hours,
-                  recomputed.remaining_hours,
-                  recomputed.carried_forward_hours,
-                  recomputed.earning_status,
-                  // [NEW] Days-equivalent shadow columns — this is the fix for the
-                  // "earning_status turns to 1 but total/remaining/allocated_days reset to 0" bug.
-                  toDaysVal(recomputed.allocated_hours),
-                  toDaysVal(recomputed.total_hours),
-                  toDaysVal(recomputed.remaining_hours),
-                  toDaysVal(recomputed.carried_forward_hours),
-                  matched.id,
-                ],
-                (e) => (e ? reject(e) : resolve()),
-              );
-            });
-            await afterUpdate();
-          } else {
-            try {
-              await runNegativeLeaveDeductionPipeline(req, rec, parseInt(id, 10));
-              await afterUpdate();
-            } catch (e) {
-              console.error("[earnings] leave deduction pipeline:", e.message);
-              throw e;
-            }
-          }
-        })().catch((e) => {
-          console.error("[earnings] approve error:", e.message);
-          res.status(500).json({ error: "Failed to approve earning", detail: e.message });
+      let matched = await findPeriodAssignment({
+        employeeNumber: rec.employee_number,
+        leaveCode: rec.leave_code,
+        periodYear: rec.period_year,
+        periodMonth,
+      });
+      if (!matched) {
+        matched = await ensurePeriodAssignment({
+          employeeNumber: rec.employee_number,
+          leaveCode: rec.leave_code,
+          periodYear: rec.period_year,
+          periodMonth: periodMonth || 0,
         });
       }
-    );
-  });
+      if (!matched) throw new Error("Could not find or create assignment for earning period");
+
+      const repaired = await repairPeriodCarryForwardIfEmpty(db, matched);
+      if (repaired !== matched) {
+        await conn.execute(
+          "UPDATE leave_assignment SET allocated_hours = ?, carried_forward_hours = ? WHERE id = ?",
+          [repaired.allocated_hours, repaired.carried_forward_hours, matched.id],
+        );
+      }
+      await conn.execute(
+        `UPDATE leave_earnings SET earn_status = 'approved', approved_by = ?, approved_at = NOW(), is_applied = 1
+         WHERE id = ?`,
+        [req.user?.username || null, id],
+      );
+      // remaining = (allocated - ledger usage) + applied earnings, read inside this transaction.
+      await refreshLeaveAssignmentCacheFromLedger(conn, matched.id);
+    } else {
+      // Deduction entry: post it to the ledger once. A retry after a partial failure finds
+      // the existing ledger line and only marks the earning approved.
+      const [posted] = await conn.execute(
+        `SELECT COUNT(*) AS c FROM leave_credit_usage
+         WHERE source_type = 'LEAVE_EARNING' AND source_id = ? AND voided_at IS NULL`,
+        [id],
+      );
+      if (!(parseInt(posted?.[0]?.c, 10) > 0)) {
+        await runNegativeLeaveDeductionPipeline(req, rec, id, { conn });
+      }
+      await conn.execute(
+        `UPDATE leave_earnings SET earn_status = 'approved', approved_by = ?, approved_at = NOW(), is_applied = 1
+         WHERE id = ?`,
+        [req.user?.username || null, id],
+      );
+    }
+
+    await conn.commit();
+  } catch (e) {
+    try {
+      await conn.rollback();
+    } catch (_r) {}
+    conn.release();
+    const status = Number(e?.status) || 500;
+    if (status >= 500) console.error("[earnings] approve error:", e?.message);
+    return res.status(status).json({
+      error: status >= 500 ? "Failed to approve earning" : e.message,
+      code: e?.code || null,
+      detail: status >= 500 ? e?.message : undefined,
+    });
+  }
+  conn.release();
+
+  try {
+    const actorEmpNum = getActorEmployeeNumber(req);
+    const [actorName, targetName] = await Promise.all([
+      getEmployeeFullName(actorEmpNum),
+      getEmployeeFullName(rec.employee_number),
+    ]);
+    const actorDisplay = formatUserDisplayName(actorEmpNum, actorName);
+    const targetDisplay = formatUserDisplayName(rec.employee_number, targetName);
+    const txMessageBase = buildEarningsTransactionMessage({
+      actionLabel: "approved",
+      actorDisplay,
+      targetDisplay,
+      earningTypeLabel: "leave earnings",
+      hoursValue: toNum(rec.earned_hours),
+      leaveCode: rec.leave_code,
+      periodYear: rec.period_year,
+      periodMonth: rec.period_month,
+    });
+    const afterBalHrs = await getLeaveRemainingHours(rec.employee_number, rec.leave_code);
+    const delta = toNum(rec.earned_hours);
+    const txMessage =
+      `${txMessageBase}. ` +
+      `Balance updated: ${beforeBalHrs.toFixed(3)} hrs → ${afterBalHrs.toFixed(3)} hrs (${delta >= 0 ? "+" : "−"}${Math.abs(delta).toFixed(3)} hrs).`;
+
+    auditEarning(req, "approved leave earnings", "leave", id, rec.earn_status, "approved", rec, {
+      transaction_message: txMessage,
+    });
+    await insertTransactionLog(rec.employee_number, txMessage, actorEmpNum);
+
+    try {
+      const io = getIo(req);
+      if (io) {
+        io.emit("leaveAssignmentChanged", {
+          scope: "leave_assignment",
+          action: "updated-from-earnings-approval",
+          employeeNumber: rec.employee_number,
+          leave_code: rec.leave_code,
+          period_year: rec.period_year,
+          period_month: rec.period_month,
+          earning_id: id,
+        });
+      }
+    } catch (emitErr) {
+      // non-fatal
+    }
+    emitEarningsChanged("approved", {
+      module: "leave",
+      employeeNumber: String(rec.employee_number),
+      period_year: rec.period_year,
+      period_month: rec.period_month,
+      earning_id: id,
+    });
+  } catch (logErr) {
+    console.error("[earnings] approve post-commit log:", logErr.message);
+  }
+
+  db.query("SELECT * FROM leave_earnings WHERE id = ?", [id], (e, r) => res.json(r ? r[0] : { id }));
 });
 
   router.patch("/leave/:id/reject", authenticateToken, requireAdmin, (req, res) => {
@@ -2253,153 +2378,83 @@ router.patch("/leave/:id/approve", authenticateToken, requireAdmin, (req, res) =
       };
 
       if (rec.earn_status === "approved") {
-        const earnedHrs   = toNum(rec.earned_hours);
-        const periodMonth = rec.period_month ? parseInt(rec.period_month) : null;
-        const findQuery   = periodMonth
-          ? `SELECT * FROM leave_assignment WHERE employeeNumber = ? AND leave_code = ? AND period_year = ? AND (period_semester = ? OR period_semester = ?) ORDER BY id DESC LIMIT 1`
-          : `SELECT * FROM leave_assignment WHERE employeeNumber = ? AND leave_code = ? AND period_year = ? ORDER BY id DESC LIMIT 1`;
-        const findParams  = periodMonth
-          ? [rec.employee_number, rec.leave_code, rec.period_year, String(periodMonth), String(periodMonth).padStart(2, "0")]
-          : [rec.employee_number, rec.leave_code, rec.period_year];
-
-        db.query(findQuery, findParams, (err2, laRows) => {
-          const matched = (!err2 && laRows && laRows[0]) ? laRows[0] : null;
-          if (matched) {
-            if (earnedHrs >= 0) {
-              const prev = matched;
-              const th = Math.max(0, toNum(prev.total_hours) - earnedHrs);
-              const rh = Math.max(0, toNum(prev.remaining_hours) - earnedHrs);
-              const ah = Math.max(0, toNum(prev.allocated_hours) - earnedHrs);
-              const uh = Math.max(0, toNum(prev.used_hours));
-              const cf = Math.max(0, toNum(prev.carried_forward_hours));
-              const sem =
-                prev.period_semester != null && prev.period_semester !== ""
-                  ? String(prev.period_semester)
-                  : periodMonth
-                    ? String(periodMonth)
-                    : null;
-              db.query(
-                `INSERT INTO leave_assignment
-                  (employeeNumber, leave_code, total_hours, remaining_hours, used_hours, carried_forward_hours, allocated_hours, period_year, period_semester)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [
-                  rec.employee_number,
-                  rec.leave_code,
-                  th,
-                  rh,
-                  uh,
-                  cf,
-                  ah,
-                  rec.period_year,
-                  sem,
-                ],
-                doDelete,
-              );
-            } else {
-              (async () => {
-                const conn = await getPromiseConnection();
-                let assignmentIds = [];
-                try {
-                  await conn.beginTransaction();
-                  assignmentIds = await voidCreditUsageBySource(
-                    conn,
-                    "LEAVE_EARNING",
-                    parseInt(id, 10),
-                  );
-                  for (const aid of assignmentIds) {
-                    await refreshLeaveAssignmentCacheFromLedger(conn, aid);
-                  }
-                  await conn.commit();
-                } catch (e) {
-                  try {
-                    await conn.rollback();
-                  } catch (_r) {}
-                  conn.release();
-                  console.error("[earnings] void leave credit usage:", e.message);
-                  return res.status(500).json({
-                    error: "Failed to reverse deduction",
-                    detail: e.message,
-                  });
-                }
-                conn.release();
-
-                if (assignmentIds.length > 0) {
-                  return doDelete();
-                }
-
-                const deductionHours = Math.abs(earnedHrs);
-                db.query(
-                  `UPDATE leave_assignment SET
-                    remaining_hours  = GREATEST(0, remaining_hours + ?),
-                    used_hours       = GREATEST(0, used_hours - ?)
-                  WHERE id = ?`,
-                  [deductionHours, deductionHours, matched.id],
-                  doDelete,
-                );
-              })();
+        // Approved earnings are part of the balance history: void them (and any ledger
+        // lines they posted) instead of deleting, then rebuild the affected period caches.
+        (async () => {
+          const conn = await getPromiseConnection();
+          try {
+            await conn.beginTransaction();
+            await conn.execute(
+              "UPDATE leave_earnings SET voided = 1, voided_at = NOW(), is_applied = 0 WHERE id = ?",
+              [parseInt(id, 10)],
+            );
+            const assignmentIds = new Set(
+              await voidCreditUsageBySource(conn, "LEAVE_EARNING", parseInt(id, 10)),
+            );
+            if (toNum(rec.earned_hours) >= 0) {
+              const periodRow = await findPeriodAssignment({
+                employeeNumber: rec.employee_number,
+                leaveCode: rec.leave_code,
+                periodYear: rec.period_year,
+                periodMonth: rec.period_month ? parseInt(rec.period_month, 10) : null,
+              });
+              if (periodRow) assignmentIds.add(periodRow.id);
             }
-          } else {
-            if (earnedHrs < 0) {
-              (async () => {
-                const conn = await getPromiseConnection();
-                let assignmentIds = [];
-                try {
-                  await conn.beginTransaction();
-                  assignmentIds = await voidCreditUsageBySource(
-                    conn,
-                    "LEAVE_EARNING",
-                    parseInt(id, 10),
-                  );
-                  for (const aid of assignmentIds) {
-                    await refreshLeaveAssignmentCacheFromLedger(conn, aid);
-                  }
-                  await conn.commit();
-                } catch (e) {
-                  try {
-                    await conn.rollback();
-                  } catch (_r) {}
-                  conn.release();
-                  console.error("[earnings] void leave credit usage:", e.message);
-                  return res.status(500).json({
-                    error: "Failed to reverse deduction",
-                    detail: e.message,
-                  });
-                }
-                conn.release();
-
-                if (assignmentIds.length > 0) {
-                  return doDelete();
-                }
-
-                const deductionHours = Math.abs(earnedHrs);
-                db.query(
-                  `SELECT id
-                   FROM leave_assignment
-                   WHERE employeeNumber = ?
-                     AND TRIM(leave_code) = TRIM(?)
-                     AND CAST(used_hours AS DECIMAL(12,4)) >= ?
-                   ORDER BY period_year DESC, id DESC
-                   LIMIT 1`,
-                  [rec.employee_number, rec.leave_code, deductionHours],
-                  (err3, donorRows) => {
-                    const donor = !err3 && donorRows && donorRows[0] ? donorRows[0] : null;
-                    if (!donor) return doDelete();
-                    db.query(
-                      `UPDATE leave_assignment SET
-                        remaining_hours = GREATEST(0, remaining_hours + ?),
-                        used_hours       = GREATEST(0, used_hours - ?)
-                      WHERE id = ?`,
-                      [deductionHours, deductionHours, donor.id],
-                      doDelete,
-                    );
-                  },
-                );
-              })();
-            } else {
-              doDelete();
+            for (const aid of assignmentIds) {
+              await refreshLeaveAssignmentCacheFromLedger(conn, aid);
             }
+            await conn.commit();
+          } catch (e) {
+            try {
+              await conn.rollback();
+            } catch (_r) {}
+            conn.release();
+            console.error("[earnings] void approved leave earning:", e.message);
+            return res.status(500).json({ error: "Failed to void earning", detail: e.message });
           }
-        });
+          conn.release();
+
+          auditEarning(req, "voided leave earnings", "leave", parseInt(id, 10), rec.earn_status, "voided", rec);
+          emitEarningsChanged("deleted", {
+            module: "leave",
+            employeeNumber: String(rec.employee_number),
+            period_year: rec.period_year,
+            period_month: rec.period_month,
+            earning_id: parseInt(id, 10),
+          });
+          try {
+            const io = getIo(req);
+            if (io) {
+              io.emit("leaveAssignmentChanged", {
+                scope: "leave_assignment",
+                action: "updated-from-earning-void",
+                employeeNumber: rec.employee_number,
+                leave_code: rec.leave_code,
+              });
+            }
+          } catch (_emitErr) {}
+          try {
+            const actorEmpNum = getActorEmployeeNumber(req);
+            const [actorName, targetName] = await Promise.all([
+              getEmployeeFullName(actorEmpNum),
+              getEmployeeFullName(rec.employee_number),
+            ]);
+            const txMessage = buildEarningsTransactionMessage({
+              actionLabel: "voided",
+              actorDisplay: formatUserDisplayName(actorEmpNum, actorName),
+              targetDisplay: formatUserDisplayName(rec.employee_number, targetName),
+              earningTypeLabel: "leave earnings",
+              hoursValue: toNum(rec.earned_hours),
+              leaveCode: rec.leave_code,
+              periodYear: rec.period_year,
+              periodMonth: rec.period_month,
+            });
+            await insertTransactionLog(rec.employee_number, txMessage, actorEmpNum);
+          } catch (logErr) {
+            console.error("[earnings] void log:", logErr.message);
+          }
+          res.json({ deleted: true, voided: true, id: parseInt(id, 10) });
+        })();
       } else {
         doDelete();
       }
@@ -2575,6 +2630,25 @@ router.patch("/leave/:id/approve", authenticateToken, requireAdmin, (req, res) =
     });
   };
 
+  /**
+   * GET /api/earnings/cto/proposal/:employeeNumber?year=&month=  (CSC-DBM JC 2 s.2004)
+   * GET /api/earnings/sc/proposal/:employeeNumber?year=&month=   (1 day per 8 h rendered)
+   */
+  router.get("/cto/proposal/:employeeNumber", authenticateToken, requireAdmin, async (req, res) => {
+    try {
+      res.json(await computeCtoProposal({ employeeNumber: req.params.employeeNumber, year: req.query.year, month: req.query.month }));
+    } catch (e) {
+      res.status(e.status || 500).json({ error: e.message || "Failed to compute CTO proposal" });
+    }
+  });
+  router.get("/sc/proposal/:employeeNumber", authenticateToken, requireAdmin, async (req, res) => {
+    try {
+      res.json(await computeScProposal({ employeeNumber: req.params.employeeNumber, year: req.query.year, month: req.query.month }));
+    } catch (e) {
+      res.status(e.status || 500).json({ error: e.message || "Failed to compute service credit proposal" });
+    }
+  });
+
   router.get("/sc/all", authenticateToken, requireAdmin, (req, res) => {
     db.query(
       `SELECT * FROM sc_earnings ORDER BY period_year DESC, period_month DESC, created_at DESC`,
@@ -2651,7 +2725,8 @@ router.patch("/leave/:id/approve", authenticateToken, requireAdmin, (req, res) =
   });
 
   router.post("/sc", authenticateToken, requireAdmin, async (req, res) => {
-    const { employeeNumber, sc_type = "non_commutative", ot_hours_regular = 0, ot_hours_holiday = 0, ot_hours_night_diff = 0, total_ot_hours, earned_hours, period_year, period_month, remarks, emp_category_snapshot } = req.body;
+    const { employeeNumber, sc_type = "non_commutative", ot_hours_regular = 0, ot_hours_holiday = 0, ot_hours_night_diff = 0, total_ot_hours, earned_hours, period_year, period_month, remarks: remarksIn, emp_category_snapshot, override_reason, authority_ref } = req.body;
+    let remarks = remarksIn;
 
     if (!employeeNumber || !period_year || !period_month)
       return res.status(400).json({ error: "employeeNumber, period_year, and period_month are required" });
@@ -2677,6 +2752,22 @@ router.patch("/leave/:id/approve", authenticateToken, requireAdmin, (req, res) =
         }
       } catch (e) {
         return res.status(500).json({ error: e.message });
+      }
+      // Monthly service credit must match the computation unless HR gives an override reason.
+      try {
+        const check = await assertOvertimeCreditMatchesProposal({
+          kind: "sc",
+          employeeNumber,
+          year: period_year,
+          month: period_month,
+          earnedHours: earnedHrs,
+          overrideReason: override_reason,
+          authorityRef: authority_ref,
+        });
+        remarks = [remarks, check.remarksSuffix].filter((x) => String(x || "").trim()).join(" • ");
+      } catch (e) {
+        if (e.code) return res.status(e.status || 400).json({ code: e.code, error: e.message, proposal: e.proposal });
+        return res.status(500).json({ error: e.message || "Failed to check the service credit computation" });
       }
     }
 
@@ -3426,7 +3517,8 @@ router.patch("/leave/:id/approve", authenticateToken, requireAdmin, (req, res) =
   });
 
   router.post("/cto", authenticateToken, requireAdmin, async (req, res) => {
-    const { employeeNumber, ot_hours, earned_hours, period_year, period_month, expiry_date, remarks, emp_category_snapshot } = req.body;
+    const { employeeNumber, ot_hours, earned_hours, period_year, period_month, expiry_date, remarks: remarksIn, emp_category_snapshot, override_reason, authority_ref } = req.body;
+    let remarks = remarksIn;
 
     if (!employeeNumber || !period_year || !period_month)
       return res.status(400).json({ error: "employeeNumber, period_year, and period_month are required" });
@@ -3452,6 +3544,23 @@ const earnedHrs = toNum(earned_hours || ot_hours);
         }
       } catch (e) {
         return res.status(500).json({ error: e.message });
+      }
+      // CTO must match the CSC computation (rates + caps) unless HR gives an override reason,
+      // and needs the office order / Certificate of COC Earned reference.
+      try {
+        const check = await assertOvertimeCreditMatchesProposal({
+          kind: "cto",
+          employeeNumber,
+          year: period_year,
+          month: period_month,
+          earnedHours: earnedHrs,
+          overrideReason: override_reason,
+          authorityRef: authority_ref,
+        });
+        remarks = [remarks, check.remarksSuffix].filter((x) => String(x || "").trim()).join(" • ");
+      } catch (e) {
+        if (e.code) return res.status(e.status || 400).json({ code: e.code, error: e.message, proposal: e.proposal });
+        return res.status(500).json({ error: e.message || "Failed to check the CTO computation" });
       }
     }
 

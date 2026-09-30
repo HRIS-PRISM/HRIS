@@ -32,6 +32,17 @@ import {
 } from "@mui/material";
 import { alpha, styled } from "@mui/material/styles";
 import {
+  useOvertimeProposal,
+  differsFromOvertimeProposal,
+  OvertimeProposalCard,
+  OvertimeAuthorityAndOverride,
+} from "./OvertimeCreditProposal";
+
+/** Manual entry first: HR types the approved COC; the automatic computation is off for now. */
+const MANUAL_ENTRY_FIRST = true;
+/** CSC-DBM JC 2 s.2004: COC is usable until the end of the year after it is earned. */
+const cocExpiryFor = (year) => `${(parseInt(year, 10) || new Date().getFullYear()) + 1}-12-31`;
+import {
   EventNote as LeaveIcon,
   WorkHistory as SCIcon,
   AccessTime as CTOIcon,
@@ -339,6 +350,11 @@ const CTOInputColumn = ({
   const [success, setSuccess] = useState("");
   const calDays = getCalendarDays(year, month);
   const empCat = employee ? empCatMap[String(employee.employeeNumber)] : null;
+  const [authorityRef, setAuthorityRef] = useState("");
+  const [overrideReason, setOverrideReason] = useState("");
+  const [proposalKey, setProposalKey] = useState(0);
+  // CSC-DBM JC 2 s.2004 computation (rates, 40 h / 120 h caps, expiry) from the server.
+  const { proposal, loading: proposalLoading, error: proposalError } = useOvertimeProposal("cto", MANUAL_ENTRY_FIRST ? null : employee, year, month, proposalKey);
 
   useEffect(() => {
     setOtHours(0);
@@ -346,7 +362,18 @@ const CTOInputColumn = ({
     setRemarks("");
     setExpiryDate("");
     setError("");
+    setAuthorityRef("");
+    setOverrideReason("");
+    if (employee) setExpiryDate(cocExpiryFor(year));
   }, [employee, year, month]);
+
+  // Pre-fill with the computed COC and the CSC expiry (end of the following year).
+  useEffect(() => {
+    if (!proposal) return;
+    setOtHours(proposal.eligible ? Number(proposal.hours) || 0 : 0);
+    setOtDraft(null);
+    if (proposal.expiryDate) setExpiryDate(proposal.expiryDate);
+  }, [proposal]);
 
   // When inputUnit toggles, reset draft so display recalculates cleanly
   useEffect(() => {
@@ -354,6 +381,9 @@ const CTOInputColumn = ({
   }, [inputUnit]);
 
   const earned = toNum(otHours);
+  const overrideNeeded = differsFromOvertimeProposal(proposal, earned) && (earned > 0 || proposal?.eligible);
+  const missingAuthority = !authorityRef.trim();
+  const missingOverride = overrideNeeded && !overrideReason.trim();
 
   // Display value is always in terms of the LOCAL inputUnit
   const otDisplay =
@@ -374,6 +404,14 @@ const CTOInputColumn = ({
       setError("OT hours must be > 0");
       return;
     }
+    if (missingAuthority) {
+      setError("Enter the office order / Certificate of COC Earned reference.");
+      return;
+    }
+    if (missingOverride) {
+      setError("Enter an override reason — the amount differs from the CSC computation.");
+      return;
+    }
     setLoading(true);
     setError("");
     const token = localStorage.getItem("token");
@@ -388,6 +426,8 @@ const CTOInputColumn = ({
           period_month: parseInt(month, 10),
           expiry_date: expiryDate || null,
           remarks: remarks || null,
+          authority_ref: authorityRef.trim(),
+          override_reason: overrideNeeded ? overrideReason.trim() : undefined,
           emp_category_snapshot: {
             label: empCat?.label || "",
             colorHex: empCat?.colorHex,
@@ -403,10 +443,14 @@ const CTOInputColumn = ({
       setOtDraft(null);
       setRemarks("");
       setExpiryDate("");
+      setAuthorityRef("");
+      setOverrideReason("");
+      setProposalKey((k) => k + 1);
+      setExpiryDate(cocExpiryFor(year));
       if (onRecordsRefresh) onRecordsRefresh();
       setTimeout(() => setSuccess(""), 3500);
     } catch (err) {
-      setError("Failed: " + (err.response?.data?.error || err.message));
+      setError(err.response?.data?.error || "Failed: " + err.message);
     } finally {
       setLoading(false);
     }
@@ -548,6 +592,13 @@ const CTOInputColumn = ({
             CTO — OT hours for this period
           </Typography>
         </Box>
+        {!MANUAL_ENTRY_FIRST && <OvertimeProposalCard
+          kind="cto"
+          proposal={proposal}
+          loading={proposalLoading}
+          error={proposalError}
+          onUse={proposal?.eligible ? () => { setOtHours(Number(proposal.hours) || 0); setOtDraft(null); } : null}
+        />}
         <Typography
           sx={{
             fontSize: "0.6rem",
@@ -605,7 +656,7 @@ const CTOInputColumn = ({
                   fontFamily: T.poppins,
                 }}
               >
-                1:1 ratio → CTO
+                Approved COC (weekend/holiday OT counts × 1.5)
               </Typography>
             </Box>
             <Box sx={{ px: 0.65, py: 0.4 }}>
@@ -748,6 +799,15 @@ const CTOInputColumn = ({
           borderTop: `1px solid ${T.divider}`,
         }}
       >
+        <OvertimeAuthorityAndOverride
+          kind="cto"
+          authorityRef={authorityRef}
+          onAuthorityRef={setAuthorityRef}
+          overrideNeeded={overrideNeeded}
+          overrideReason={overrideReason}
+          onOverrideReason={setOverrideReason}
+          proposal={proposal}
+        />
         <FieldInput
           size="small"
           fullWidth
@@ -760,7 +820,7 @@ const CTOInputColumn = ({
           variant="contained"
           fullWidth
           onClick={handleSave}
-          disabled={loading || earned <= 0}
+          disabled={loading || earned <= 0 || missingAuthority || missingOverride}
           startIcon={
             loading ? (
               <CircularProgress size={14} sx={{ color: "#fff" }} />

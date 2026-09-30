@@ -218,7 +218,9 @@ const VLDeductionReceipt = ({
         (e) =>
           e.entry_type === "TARDINESS_DEDUCTION" &&
           e.leave_code === "VL" &&
-          e.earn_status === "pending",
+          e.earn_status === "pending" &&
+          !e.voided_at &&
+          Number(e.voided) !== 1,
       );
       const syntheticApproved =
         postedHours > 1e-9

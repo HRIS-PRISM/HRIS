@@ -110,6 +110,32 @@ import {
 import { sortEmployeesByLastName } from "../../utils/sortEmployeesByLastName";
 import { fetchOverallAttendanceRow } from "./EARNINGS/SalaryShortfallRegistry";
 import { aggregateAttendanceResultsForAbstract } from "./EARNINGS/aggregateAttendanceResultsForAbstract";
+import { StepRow, StepProgress, StepPill } from "./EARNINGS/EarningsStepper";
+import { LeaveCreditsPanel } from "./EARNINGS/LeaveCreditsPanel";
+import { BalanceOverviewPanel } from "./EARNINGS/BalanceOverviewPanel";
+import { CategoryRulesPanel } from "./EARNINGS/CategoryRulesPanel";
+import { SidePanelTabs } from "./EARNINGS/SidePanelTabs";
+import {
+  D,
+  DeductionDialog,
+  DSection,
+  EmployeeStrip,
+  Tag,
+  DayTimeline,
+  StatRow,
+  AmountLine,
+  BalanceAfter,
+  NoteToggle,
+  ConfirmBlock,
+  DialogFooter,
+} from "./EARNINGS/DeductionDialogKit";
+import { useLeavePeriodData } from "./EARNINGS/useLeavePeriodData";
+import {
+  resolveCscCategory,
+  applyCategoryToDeductionOptions,
+  ruleFor,
+  RULE,
+} from "../../utils/cscLeaveRules";
 
 /**
  * Align with ATTENDANCE/AttendanceSummary: keep saved overall tardiness as-is;
@@ -2048,14 +2074,8 @@ const fetchAttendanceForEmployee = async (
 // ─── Leave Input Column ────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: "leave", label: "Leaves", shortLabel: "Leave", icon: LeaveIcon },
-  { id: "sc", label: "Service Credit", shortLabel: "SC", icon: SCIcon },
-  {
-    id: "cto",
-    label: "Compensatory Time Off",
-    shortLabel: "CTO",
-    icon: CTOIcon,
-  },
+  { id: "deductions", label: "Deductions", shortLabel: "Deduct", icon: DeductIcon },
+  { id: "earnings", label: "Earnings", shortLabel: "Earn", icon: EarnIcon },
   {
     id: "salary_shortfall",
     label: "Salary Shortfall",
@@ -2070,86 +2090,15 @@ const TABS = [
   },
 ];
 
-const TabBar = ({ activeTab, onTabChange }) => (
-  <Box
-    sx={{
-      background: T.headerGrad,
-      px: { xs: 0, sm: 1 },
-      pt: 0.75,
-      pb: 0,
-      display: "flex",
-      alignItems: "flex-end",
-      flexShrink: 0,
-    }}
-  >
-    {TABS.map((t, idx) => {
-      const Icon = t.icon;
-      const isActive = idx === activeTab;
-      return (
-        <Box
-          key={t.id}
-          onClick={() => onTabChange(idx)}
-          sx={{
-            display: "flex",
-            alignItems: "center",
-            gap: 0.6,
-            px: { xs: 1.5, sm: 2.5 },
-            py: 0.85,
-            cursor: "pointer",
-            position: "relative",
-            borderRadius: "8px 8px 0 0",
-            transition: "background 0.15s",
-            bgcolor: isActive ? "rgba(255,255,255,0.97)" : "transparent",
-            "&:hover": isActive ? {} : { bgcolor: "rgba(255,255,255,0.1)" },
-            "&::after": isActive
-              ? {
-                  content: '""',
-                  position: "absolute",
-                  bottom: -1,
-                  left: 0,
-                  right: 0,
-                  height: 2,
-                  bgcolor: "rgba(255,255,255,0.97)",
-                }
-              : {},
-          }}
-        >
-          <Icon
-            sx={{
-              fontSize: 13,
-              color: isActive ? T.accent : "rgba(255,255,255,0.6)",
-              flexShrink: 0,
-            }}
-          />
-          <Typography
-            sx={{
-              fontSize: "0.73rem",
-              fontWeight: isActive ? 700 : 500,
-              color: isActive ? T.accent : "rgba(255,255,255,0.7)",
-              fontFamily: T.poppins,
-              whiteSpace: "nowrap",
-              display: { xs: "none", sm: "block" },
-            }}
-          >
-            {t.label}
-          </Typography>
-          <Typography
-            sx={{
-              fontSize: "0.73rem",
-              fontWeight: isActive ? 700 : 500,
-              color: isActive ? T.accent : "rgba(255,255,255,0.7)",
-              fontFamily: T.poppins,
-              whiteSpace: "nowrap",
-              display: { xs: "block", sm: "none" },
-            }}
-          >
-            {t.shortLabel}
-          </Typography>
-        </Box>
-      );
-    })}
-  </Box>
-);
+/** Tab index → view. The first two share the workspace layout (left column + side panel). */
+const TAB_VIEWS = ["deductions", "earnings", "shortfall", "abstract"];
+
+/** Pools shown on the Earnings tab; hidden when the employee's category does not earn them. */
+const EARN_POOLS = [
+  { id: "leave", label: "Leave (VL / SL)", codes: ["VL", "SL"], icon: LeaveIcon },
+  { id: "sc", label: "Service Credit", codes: ["SC"], icon: SCIcon },
+  { id: "cto", label: "Compensatory Time Off", codes: ["CTO"], icon: CTOIcon },
+];
 
 const inferAttendanceModuleType = (empCat) => {
   const s = String(
@@ -2384,1139 +2333,157 @@ const DeductHalfDayVLModal = ({
   const empNum = employee?.employeeNumber || employee?.employee_number || "—";
   const empCat = employee?.category || employee?.empCat || "";
 
+  const clock = (v) => {
+    const s = String(v || "").trim();
+    if (!s) return "—";
+    const m = s.match(/^(\d{1,3}):(\d{2})/);
+    return m ? `${parseInt(m[1], 10)}:${m[2]}` : s;
+  };
+  const systemHours = toNum(attendanceContext?.suggestedDeductionHours);
+  const hoursNum = toNum(deductHoursRaw);
+  const poolName = chargeU === "SALARY_DEDUCTION" ? "salary" : chargeLabel;
+
   return (
-    <Dialog
+    <DeductionDialog
       open={open}
       onClose={handleClose}
-      maxWidth="xs"
-      fullWidth
-      PaperProps={{
-        sx: {
-          borderRadius: 2.5,
-          overflow: "hidden",
-          fontFamily: MODAL_T.poppins,
-          boxShadow: "0 8px 40px rgba(0,0,0,0.18)",
-        },
-      }}
+      busy={saving}
+      title="Half-day deduction"
+      subtitle={`Charged to ${chargeLabel}`}
+      footer={
+        <DialogFooter
+          onCancel={handleClose}
+          onConfirm={handleConfirm}
+          busy={saving}
+          disabled={creditsLoading || !confirmDeduction || (!selectedSufficient && chargeU !== "SALARY_DEDUCTION")}
+        />
+      }
     >
-      {/* ── Header ── */}
-      <Box
-        sx={{
-          background: MODAL_T.accent,
-          px: 2,
-          py: 1.5,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
-          <Box
-            sx={{
-              width: 30,
-              height: 30,
-              borderRadius: "50%",
-              bgcolor: "rgba(255,255,255,0.15)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              flexShrink: 0,
-            }}
-          >
-            <DeductIcon sx={{ fontSize: 15, color: "#fff" }} />
-          </Box>
-          <Box>
-            <Typography
-              sx={{
-                fontSize: "0.82rem",
-                fontWeight: 700,
-                color: "#fff",
-                fontFamily: MODAL_T.poppins,
-                lineHeight: 1.2,
-              }}
-            >
-              Half-day attendance deduction
-            </Typography>
-            <Typography
-              sx={{
-                fontSize: "0.62rem",
-                color: "rgba(255,255,255,0.65)",
-                fontFamily: MODAL_T.poppins,
-              }}
-            >
-              {chargeLabel}
-            </Typography>
-          </Box>
-        </Box>
-        <IconButton
-          size="small"
-          onClick={handleClose}
-          disabled={saving}
-          sx={{
-            color: "#fff",
-            bgcolor: "rgba(255,255,255,0.12)",
-            borderRadius: 1,
-            p: 0.5,
-            "&:hover": { bgcolor: "rgba(255,255,255,0.22)" },
-          }}
-        >
-          <Close sx={{ fontSize: 14 }} />
-        </IconButton>
-      </Box>
+      <DSection>
+        <EmployeeStrip
+          name={empName}
+          meta={`${empNum}${empCat ? ` · ${empCat}` : ""}`}
+          balanceLabel={showCreditLedgerPreview ? `${chargeU} balance` : null}
+          balanceText={creditsLoading ? "…" : showCreditLedgerPreview ? `${balanceBefore.toFixed(3)} d` : ""}
+          balanceColor={selectedBalancePositive ? D.vl : D.bad}
+        />
+      </DSection>
 
-      <DialogContent sx={{ p: 0 }}>
-        <Box
-          sx={{
-            px: 2,
-            py: 1.75,
-            display: "flex",
-            flexDirection: "column",
-            gap: 1.25,
-          }}
-        >
-          {/* ── Employee strip ── */}
-          <Box
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              gap: 1.25,
-              bgcolor: "rgba(0,0,0,0.03)",
-              borderRadius: 1.75,
-              border: "0.5px solid rgba(0,0,0,0.09)",
-              px: 1.5,
-              py: 1,
-            }}
-          >
-            <Avatar
-              sx={{
-                width: 36,
-                height: 36,
-                bgcolor: MODAL_T.accent,
-                fontSize: "0.75rem",
-                fontWeight: 700,
-                fontFamily: MODAL_T.poppins,
-                flexShrink: 0,
-              }}
-            >
-              {getInitials(empName)}
-            </Avatar>
-            <Box sx={{ flex: 1, minWidth: 0 }}>
-              <Typography
-                sx={{
-                  fontSize: "0.8rem",
-                  fontWeight: 700,
-                  color: MODAL_T.text,
-                  fontFamily: MODAL_T.poppins,
-                  lineHeight: 1.2,
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                }}
-              >
-                {empName}
-              </Typography>
-              <Typography
-                sx={{
-                  fontSize: "0.62rem",
-                  color: MODAL_T.faint,
-                  fontFamily: MODAL_T.poppins,
-                }}
-              >
-                {empNum}
-                {empCat ? ` · ${empCat}` : ""}
-              </Typography>
-            </Box>
-            {showCreditLedgerPreview && (
-              <Box sx={{ textAlign: "right", flexShrink: 0 }}>
-                <Typography
-                  sx={{
-                    fontSize: "0.58rem",
-                    color: MODAL_T.faint,
-                    fontFamily: MODAL_T.poppins,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.06em",
-                  }}
-                >
-                  {chargeU} balance
-                </Typography>
-                <Typography
-                  sx={{
-                    fontSize: "0.95rem",
-                    fontWeight: 800,
-                    color: creditsLoading
-                      ? MODAL_T.muted
-                      : selectedBalancePositive
-                        ? MODAL_T.balOk
-                        : MODAL_T.balBad,
-                    fontFamily: MODAL_T.poppins,
-                    lineHeight: 1.1,
-                  }}
-                >
-                  {creditsLoading ? "…" : `${balanceBefore.toFixed(3)} d`}
-                </Typography>
-              </Box>
-            )}
-          </Box>
-
-          {/* ── Deduction source ── */}
-          {deductionOptions.length > 0 && (
-            <Box>
-              <FormControl
-                fullWidth
-                size="small"
-                disabled={deductionOptions.length <= 1}
-              >
-                <InputLabel id="halfday-deduction-source-label">
-                  Deduction Source for Half-Day
-                </InputLabel>
-                <Select
-                  labelId="halfday-deduction-source-label"
-                  label="Deduction Source for Half-Day"
-                  value={chargeTo}
-                  onChange={(e) => onChargeToChange?.(e.target.value)}
-                  disabled={saving || deductionOptions.length <= 1}
-                  sx={{
-                    borderRadius: 1.25,
-                    fontFamily: MODAL_T.poppins,
-                    fontSize: "0.8rem",
-                  }}
-                >
-                  {deductionOptions.map((o) => {
-                    const oCode = String(o.value || "").toUpperCase();
-                    const bal = getDeductionSourceBalanceDays(
-                      o.value,
-                      creditCtx,
-                    );
-                    const rowOk = isDeductionSourceSufficient(
-                      bal,
-                      deductDaysNum,
-                      o.value,
-                    );
-                    const hasBalance =
-                      oCode !== "SALARY_DEDUCTION" && (bal ?? 0) > 1e-6;
-                    const balColor =
-                      oCode === "SALARY_DEDUCTION"
-                        ? MODAL_T.balOk
-                        : creditsLoading
-                          ? MODAL_T.muted
-                          : rowOk || hasBalance
-                            ? MODAL_T.balOk
-                            : MODAL_T.balBad;
-                    return (
-                      <MenuItem key={o.value} value={o.value}>
-                        <Box
-                          sx={{
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "space-between",
-                            gap: 1,
-                            width: "100%",
-                            pr: 0.5,
-                          }}
-                        >
-                          <Typography
-                            sx={{
-                              fontSize: "0.78rem",
-                              fontFamily: MODAL_T.poppins,
-                              flex: 1,
-                              minWidth: 0,
-                            }}
-                          >
-                            {o.label}
-                          </Typography>
-                          <Typography
-                            sx={{
-                              fontSize: "0.65rem",
-                              fontWeight: 700,
-                              color: balColor,
-                              fontFamily: MODAL_T.poppins,
-                              flexShrink: 0,
-                            }}
-                          >
-                            {oCode === "SALARY_DEDUCTION"
-                              ? "—"
-                              : creditsLoading
-                                ? "…"
-                                : `${(bal ?? 0).toFixed(3)} d`}
-                          </Typography>
-                        </Box>
-                      </MenuItem>
-                    );
-                  })}
-                </Select>
-              </FormControl>
-            </Box>
-          )}
-
-          {/* ── Date being deducted ── */}
-          <Box>
-            <Typography
-              sx={{
-                fontSize: "0.58rem",
-                fontWeight: 700,
-                color: MODAL_T.muted,
-                fontFamily: MODAL_T.poppins,
-                textTransform: "uppercase",
-                letterSpacing: "0.07em",
-                mb: 0.5,
-              }}
-            >
-              Half day date to deduct
-            </Typography>
-            <Box
-              sx={{
-                display: "flex",
-                alignItems: "center",
-                gap: 1,
-                bgcolor: "rgba(0,0,0,0.03)",
-                borderRadius: 1.5,
-                border: "0.5px solid rgba(0,0,0,0.12)",
-                px: 1.25,
-                py: 0.85,
-              }}
-            >
-              <CalIcon
-                sx={{ fontSize: 14, color: MODAL_T.accent, flexShrink: 0 }}
-              />
-              <Typography
-                sx={{
-                  fontSize: "0.8rem",
-                  fontWeight: 700,
-                  color: MODAL_T.text,
-                  fontFamily: MODAL_T.poppins,
-                  flex: 1,
-                }}
-              >
-                {fmtDate(date)}
-              </Typography>
-              <Box
-                sx={{
-                  bgcolor: "rgba(139,94,0,0.1)",
-                  color: "#8B5E00",
-                  border: "0.5px solid rgba(139,94,0,0.25)",
-                  borderRadius: 1,
-                  px: 0.75,
-                  py: 0.2,
-                }}
-              >
-                <Typography
-                  sx={{
-                    fontSize: "0.58rem",
-                    fontWeight: 700,
-                    fontFamily: MODAL_T.poppins,
-                  }}
-                >
-                  Half day detected
-                </Typography>
-              </Box>
-            </Box>
-          </Box>
-
-          {/* ── Official schedule + system tardiness ── */}
-          {attendanceContext && (
-            <Box
-              sx={{
-                borderRadius: 1.5,
-                border: "0.5px solid rgba(0,0,0,0.09)",
-                overflow: "hidden",
-              }}
-            >
-              <Box
-                sx={{
-                  px: 1.25,
-                  py: 0.6,
-                  bgcolor: "rgba(0,0,0,0.03)",
-                  borderBottom: "0.5px solid rgba(0,0,0,0.08)",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 0.5,
-                }}
-              >
-                <HourIcon sx={{ fontSize: 10, color: MODAL_T.muted }} />
-                <Typography
-                  sx={{
-                    fontSize: "0.58rem",
-                    fontWeight: 800,
-                    color: MODAL_T.muted,
-                    fontFamily: MODAL_T.poppins,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.07em",
-                  }}
-                >
-                  Official time · {fmtDate(date)}
-                </Typography>
-              </Box>
-              <Box
-                sx={{
-                  px: 1.25,
-                  py: 1,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 0.85,
-                }}
-              >
-                {showOfficialSchedule ? (
-                  <Box
-                    sx={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 1fr",
-                      gap: 0.5,
-                    }}
-                  >
-                    {[
-                      ["Official IN", sched.officialTimeIN],
-                      ["Break IN", sched.officialBreaktimeIN],
-                      ["Break OUT", sched.officialBreaktimeOUT],
-                      ["Official OUT", sched.officialTimeOUT],
-                    ].map(([label, val]) => (
-                      <Box key={label}>
-                        <Typography
-                          sx={{
-                            fontSize: "0.55rem",
-                            fontWeight: 700,
-                            color: MODAL_T.faint,
-                            fontFamily: MODAL_T.poppins,
-                            textTransform: "uppercase",
-                            letterSpacing: "0.05em",
-                          }}
-                        >
-                          {label}
-                        </Typography>
-                        <Typography
-                          sx={{
-                            fontSize: "0.72rem",
-                            fontWeight: 600,
-                            color: MODAL_T.text,
-                            fontFamily: "monospace",
-                          }}
-                        >
-                          {formatOfficialClockDisplay(val) || "—"}
-                        </Typography>
-                      </Box>
-                    ))}
-                  </Box>
-                ) : (
-                  <Typography
-                    sx={{
-                      fontSize: "0.68rem",
-                      color: MODAL_T.faint,
-                      fontFamily: MODAL_T.poppins,
-                    }}
-                  >
-                    No official schedule on file for this date.
-                  </Typography>
-                )}
-                <Box sx={{ height: "1px", bgcolor: "rgba(0,0,0,0.07)" }} />
-                <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1.25 }}>
-                  <Box>
-                    <Typography
-                      sx={{
-                        fontSize: "0.55rem",
-                        color: MODAL_T.faint,
-                        fontFamily: MODAL_T.poppins,
-                        textTransform: "uppercase",
-                      }}
-                    >
-                      Max official
-                    </Typography>
-                    <Typography
-                      sx={{
-                        fontSize: "0.75rem",
-                        fontWeight: 700,
-                        fontFamily: "monospace",
-                        color: MODAL_T.text,
-                      }}
-                    >
-                      {attendanceContext.maxOfficialTotal || "—"}
-                    </Typography>
-                  </Box>
-                  <Box>
-                    <Typography
-                      sx={{
-                        fontSize: "0.55rem",
-                        color: MODAL_T.faint,
-                        fontFamily: MODAL_T.poppins,
-                        textTransform: "uppercase",
-                      }}
-                    >
-                      HR rendered
-                    </Typography>
-                    <Typography
-                      sx={{
-                        fontSize: "0.75rem",
-                        fontWeight: 700,
-                        fontFamily: "monospace",
-                        color: MODAL_T.text,
-                      }}
-                    >
-                      {attendanceContext.renderedTotal || "—"}
-                    </Typography>
-                  </Box>
-                  <Box>
-                    <Typography
-                      sx={{
-                        fontSize: "0.55rem",
-                        color: MODAL_T.faint,
-                        fontFamily: MODAL_T.poppins,
-                        textTransform: "uppercase",
-                      }}
-                    >
-                      Total tardiness (system)
-                    </Typography>
-                    <Typography
-                      sx={{
-                        fontSize: "0.82rem",
-                        fontWeight: 800,
-                        fontFamily: "monospace",
-                        color: "#c62828",
-                      }}
-                    >
-                      {attendanceContext.totalTardiness || "00:00:00"}
-                    </Typography>
-                  </Box>
-                </Box>
-              </Box>
-            </Box>
-          )}
-
-          {/* ── Deduction breakdown ── */}
-          <Box
-            sx={{
-              borderRadius: 1.5,
-              border: "0.5px solid rgba(0,0,0,0.09)",
-              overflow: "hidden",
-            }}
-          >
-            {/* Section header */}
-            <Box
-              sx={{
-                px: 1.25,
-                py: 0.6,
-                bgcolor: "rgba(0,0,0,0.03)",
-                borderBottom: "0.5px solid rgba(0,0,0,0.08)",
-                display: "flex",
-                alignItems: "center",
-                gap: 0.5,
-              }}
-            >
-              <LeaveIcon sx={{ fontSize: 10, color: MODAL_T.muted }} />
-              <Typography
-                sx={{
-                  fontSize: "0.58rem",
-                  fontWeight: 800,
-                  color: MODAL_T.muted,
-                  fontFamily: MODAL_T.poppins,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.07em",
-                }}
-              >
-                Deduction breakdown
-              </Typography>
-            </Box>
-
-            <Box
-              sx={{
-                px: 1.25,
-                py: 0.85,
-                display: "flex",
-                flexDirection: "column",
-                gap: 0.6,
-              }}
-            >
-              {/* Balance before */}
-              {showCreditLedgerPreview && (
-                <Box
-                  sx={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                  }}
-                >
-                  <Typography
-                    sx={{
-                      fontSize: "0.7rem",
-                      color: MODAL_T.muted,
-                      fontFamily: MODAL_T.poppins,
-                    }}
-                  >
-                    {chargeU} balance before
-                  </Typography>
-                  <Typography
-                    sx={{
-                      fontSize: "0.72rem",
-                      fontWeight: 700,
-                      color: creditsLoading
-                        ? MODAL_T.muted
-                        : selectedBalancePositive
-                          ? MODAL_T.balOk
-                          : MODAL_T.balBad,
-                      fontFamily: MODAL_T.poppins,
-                    }}
-                  >
-                    {creditsLoading ? "…" : `${balanceBefore.toFixed(3)} d`}
-                  </Typography>
-                </Box>
-              )}
-
-              {/* ── Deduction amount input (redesigned) ── */}
-              <Box>
-                <Box
-                  sx={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 1,
-                    mb: 0.75,
-                  }}
-                >
-                  <Typography
-                    sx={{
-                      fontSize: "0.62rem",
-                      fontWeight: 700,
-                      color: MODAL_T.muted,
-                      fontFamily: MODAL_T.poppins,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.07em",
-                    }}
-                  >
-                    Deduction amount
-                  </Typography>
-                  {attendanceContext?.suggestedDeductionHours > 0 && (
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      onClick={applySystemDeductionAmount}
-                      disabled={saving}
-                      sx={{
-                        fontSize: "0.62rem",
-                        fontWeight: 700,
-                        textTransform: "none",
-                        fontFamily: MODAL_T.poppins,
-                        py: 0.15,
-                        px: 1,
-                        borderRadius: 1,
-                        borderColor: MODAL_T.accentBorder,
-                        color: MODAL_T.accent,
-                        minWidth: 0,
-                        lineHeight: 1.3,
-                      }}
-                    >
-                      Use system ({attendanceContext.totalTardiness})
-                    </Button>
-                  )}
-                </Box>
-                <Box
-                  sx={{
-                    display: "flex",
-                    alignItems: "stretch",
-                    border: `1px solid rgba(109,35,35,0.22)`,
-                    borderRadius: "10px",
-                    overflow: "hidden",
-                    bgcolor: saving ? "rgba(0,0,0,0.03)" : "#fff",
-                    transition: "border-color 0.15s, box-shadow 0.15s",
-                    "&:focus-within": {
-                      borderColor: MODAL_T.accent,
-                      boxShadow: `0 0 0 3px rgba(109,35,35,0.1)`,
-                    },
-                    opacity: saving ? 0.6 : 1,
-                  }}
-                >
-                  {/* Hours half */}
-                  <Box
-                    sx={{
-                      flex: 1,
-                      display: "flex",
-                      flexDirection: "column",
-                      position: "relative",
-                    }}
-                  >
-                    <Box
-                      sx={{
-                        px: 1.25,
-                        py: 0.4,
-                        bgcolor: "rgba(109,35,35,0.05)",
-                        borderBottom: "0.5px solid rgba(109,35,35,0.1)",
-                      }}
-                    >
-                      <Typography
-                        sx={{
-                          fontSize: "0.58rem",
-                          fontWeight: 700,
-                          textTransform: "uppercase",
-                          letterSpacing: "0.07em",
-                          color: "rgba(109,35,35,0.5)",
-                          fontFamily: MODAL_T.poppins,
-                        }}
-                      >
-                        Hours
-                      </Typography>
-                    </Box>
-                    <Box sx={{ position: "relative" }}>
-                      <input
-                        type="number"
-                        min={0}
-                        step={0.25}
-                        placeholder="0"
-                        value={deductHoursRaw}
-                        onChange={(e) =>
-                          handleDeductHoursChange(e.target.value)
-                        }
-                        disabled={saving}
-                        style={{
-                          border: "none",
-                          outline: "none",
-                          background: "transparent",
-                          fontSize: "0.88rem",
-                          fontWeight: 600,
-                          color: "#1a1a1a",
-                          padding: "6px 28px 6px 10px",
-                          width: "100%",
-                          fontFamily: "'Poppins', sans-serif",
-                          MozAppearance: "textfield",
-                        }}
-                      />
-                      <Typography
-                        sx={{
-                          position: "absolute",
-                          bottom: 7,
-                          right: 8,
-                          fontSize: "0.58rem",
-                          fontWeight: 700,
-                          color: "rgba(109,35,35,0.4)",
-                          fontFamily: MODAL_T.poppins,
-                          pointerEvents: "none",
-                        }}
-                      >
-                        hrs
-                      </Typography>
-                    </Box>
-                  </Box>
-
-                  {/* Divider */}
-                  <Box
-                    sx={{
-                      width: "1px",
-                      bgcolor: "rgba(109,35,35,0.12)",
-                      flexShrink: 0,
-                      alignSelf: "stretch",
-                    }}
-                  />
-
-                  {/* Days half */}
-                  <Box
-                    sx={{
-                      flex: 1,
-                      display: "flex",
-                      flexDirection: "column",
-                      position: "relative",
-                    }}
-                  >
-                    <Box
-                      sx={{
-                        px: 1.25,
-                        py: 0.4,
-                        bgcolor: "rgba(109,35,35,0.05)",
-                        borderBottom: "0.5px solid rgba(109,35,35,0.1)",
-                      }}
-                    >
-                      <Typography
-                        sx={{
-                          fontSize: "0.58rem",
-                          fontWeight: 700,
-                          textTransform: "uppercase",
-                          letterSpacing: "0.07em",
-                          color: "rgba(109,35,35,0.5)",
-                          fontFamily: MODAL_T.poppins,
-                        }}
-                      >
-                        Days
-                      </Typography>
-                    </Box>
-                    <Box sx={{ position: "relative" }}>
-                      <input
-                        type="number"
-                        min={0}
-                        max={1}
-                        step={0.0625}
-                        placeholder="0"
-                        value={deductDaysRaw}
-                        onChange={(e) => handleDeductDaysChange(e.target.value)}
-                        disabled={saving}
-                        style={{
-                          border: "none",
-                          outline: "none",
-                          background: "transparent",
-                          fontSize: "0.88rem",
-                          fontWeight: 600,
-                          color: "#1a1a1a",
-                          padding: "6px 20px 6px 10px",
-                          width: "100%",
-                          fontFamily: "'Poppins', sans-serif",
-                          MozAppearance: "textfield",
-                        }}
-                      />
-                      <Typography
-                        sx={{
-                          position: "absolute",
-                          bottom: 7,
-                          right: 8,
-                          fontSize: "0.58rem",
-                          fontWeight: 700,
-                          color: "rgba(109,35,35,0.4)",
-                          fontFamily: MODAL_T.poppins,
-                          pointerEvents: "none",
-                        }}
-                      >
-                        d
-                      </Typography>
-                    </Box>
-                  </Box>
-                </Box>
-
-                {/* Sync summary pill */}
-                <Box
-                  sx={{
-                    mt: 0.75,
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 0.35,
-                    px: 1.25,
-                    py: 0.6,
-                    bgcolor: "rgba(109,35,35,0.04)",
-                    border: "0.5px solid rgba(109,35,35,0.1)",
-                    borderRadius: "8px",
-                  }}
-                >
-                  <Box
-                    sx={{ display: "flex", alignItems: "center", gap: 0.75 }}
-                  >
-                    <Box
-                      sx={{
-                        width: 6,
-                        height: 6,
-                        borderRadius: "50%",
-                        bgcolor: MODAL_T.accent,
-                        opacity: 0.5,
-                        flexShrink: 0,
-                      }}
-                    />
-                    <Typography
-                      sx={{
-                        fontSize: "0.65rem",
-                        color: MODAL_T.accent,
-                        fontFamily: MODAL_T.poppins,
-                      }}
-                    >
-                      Deducting{" "}
-                      <strong>
-                        {(toNum(deductHoursRaw) || 0).toFixed(3)} hrs
-                      </strong>{" "}
-                      ={" "}
-                      <strong>
-                        {(toNum(deductDaysRaw) || 0).toFixed(3)} days
-                      </strong>{" "}
-                      from <strong>{chargeLabel}</strong>
-                    </Typography>
-                  </Box>
-                  {attendanceContext?.totalTardiness && (
-                    <Typography
-                      sx={{
-                        fontSize: "0.62rem",
-                        color: MODAL_T.faint,
-                        fontFamily: MODAL_T.poppins,
-                        pl: 1.5,
-                      }}
-                    >
-                      Defaults from system total tardiness (
-                      {attendanceContext.totalTardiness}). You may override
-                      hours or days above.
-                    </Typography>
-                  )}
-                </Box>
-              </Box>
-
-              {/* Deduction row */}
-              {showCreditLedgerPreview && (
-                <Box
-                  sx={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                  }}
-                >
-                  <Typography
-                    sx={{
-                      fontSize: "0.7rem",
-                      color: MODAL_T.muted,
-                      fontFamily: MODAL_T.poppins,
-                    }}
-                  >
-                    Deduction
-                  </Typography>
-                  <Typography
-                    sx={{
-                      fontSize: "0.72rem",
-                      fontWeight: 700,
-                      color: MODAL_T.balBad,
-                      fontFamily: MODAL_T.poppins,
-                    }}
-                  >
-                    {creditsLoading ? "…" : `− ${deductDaysNum.toFixed(3)} d`}
-                  </Typography>
-                </Box>
-              )}
-
-              {/* Divider */}
-              <Box
-                sx={{ height: "1px", bgcolor: "rgba(0,0,0,0.07)", my: 0.5 }}
-              />
-
-              {/* Balance after */}
-              {showCreditLedgerPreview && (
-                <Box
-                  sx={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                  }}
-                >
-                  <Typography
-                    sx={{
-                      fontSize: "0.7rem",
-                      color: MODAL_T.muted,
-                      fontFamily: MODAL_T.poppins,
-                    }}
-                  >
-                    {chargeU} balance after
-                  </Typography>
-                  <Typography
-                    sx={{
-                      fontSize: "0.82rem",
-                      fontWeight: 800,
-                      color: creditsLoading
-                        ? MODAL_T.muted
-                        : balanceAfter < 0
-                          ? MODAL_T.balBad
-                          : MODAL_T.balOk,
-                      fontFamily: MODAL_T.poppins,
-                    }}
-                  >
-                    {creditsLoading ? "…" : `${balanceAfter.toFixed(3)} d`}
-                  </Typography>
-                </Box>
-              )}
-            </Box>
-          </Box>
-
-          {/* ── Remark ── */}
-          <Box>
-            <Typography
-              sx={{
-                fontSize: "0.58rem",
-                fontWeight: 700,
-                color: MODAL_T.muted,
-                fontFamily: MODAL_T.poppins,
-                textTransform: "uppercase",
-                letterSpacing: "0.07em",
-                mb: 0.5,
-              }}
-            >
-              Remark{" "}
-              <span
-                style={{
-                  fontWeight: 400,
-                  textTransform: "none",
-                  letterSpacing: 0,
-                }}
-              >
-                (optional)
-              </span>
-            </Typography>
-            <TextField
-              multiline
-              rows={2}
-              fullWidth
-              placeholder="Add a note for this deduction…"
-              value={remark}
-              onChange={(e) => setRemark(e.target.value)}
-              disabled={saving}
-              sx={{
-                "& .MuiOutlinedInput-root": {
-                  borderRadius: 1.5,
-                  fontSize: "0.78rem",
-                  fontFamily: MODAL_T.poppins,
-                  bgcolor: "#fff",
-                  "& fieldset": { borderColor: "rgba(0,0,0,0.12)" },
-                  "&:hover fieldset": { borderColor: MODAL_T.accent },
-                  "&.Mui-focused fieldset": {
-                    borderColor: MODAL_T.accent,
-                    borderWidth: 1.5,
-                  },
-                },
-              }}
-            />
-          </Box>
-
-          {/* ── Warning ── */}
-          <Box
-            sx={{
-              bgcolor: "rgba(198,40,40,0.05)",
-              border: "0.5px solid rgba(198,40,40,0.2)",
-              borderRadius: 1.5,
-              px: 1.25,
-              py: 0.85,
-              display: "flex",
-              gap: 0.75,
-              alignItems: "flex-start",
-            }}
-          >
-            <WarnIcon
-              sx={{ fontSize: 13, color: "#c62828", flexShrink: 0, mt: 0.15 }}
-            />
-            <Typography
-              sx={{
-                fontSize: "0.65rem",
-                color: "#7b1a1a",
-                fontFamily: MODAL_T.poppins,
-                lineHeight: 1.55,
-              }}
-            >
-              {String(chargeTo).toUpperCase() === "SALARY_DEDUCTION" ? (
-                <>
-                  This records a <strong>salary deduction</strong> for this
-                  half-day (policy equivalent{" "}
-                  <strong>
-                    {(deductDaysNum > 0 ? deductDaysNum : 0).toFixed(3)}
-                  </strong>{" "}
-                  display days). No leave credits are posted from this action.
-                </>
-              ) : String(chargeTo).toUpperCase() === "VL" ? (
-                <>
-                  This will permanently deduct{" "}
-                  <strong>
-                    {(deductDaysNum > 0 ? deductDaysNum : 0).toFixed(3)} days
-                  </strong>{" "}
-                  from the employee's VL balance. This action cannot be undone
-                  without manual adjustment.
-                </>
-              ) : (
-                <>
-                  This will post{" "}
-                  <strong>
-                    {(deductDaysNum > 0 ? deductDaysNum : 0).toFixed(3)}
-                  </strong>{" "}
-                  display days against <strong>{chargeLabel}</strong> (hours
-                  computed from policy). Verify balances in records after apply.
-                </>
-              )}
-            </Typography>
-          </Box>
-
-          {/* ── Error ── */}
-          {error && (
-            <Alert
-              severity="error"
-              sx={{ py: 0.25, px: 1, fontSize: "0.65rem", borderRadius: 1.25 }}
-            >
-              {error}
-            </Alert>
-          )}
-
-          {/* ── Confirm checkbox ── */}
-          <FormControlLabel
-            control={
-              <Checkbox
-                size="small"
-                checked={confirmDeduction}
-                onChange={(e) => setConfirmDeduction(e.target.checked)}
-                disabled={saving || creditsLoading}
-                sx={{ py: 0 }}
-              />
-            }
-            label={
-              <Typography
-                sx={{
-                  fontSize: "0.68rem",
-                  color: MODAL_T.text,
-                  fontFamily: MODAL_T.poppins,
-                  lineHeight: 1.35,
-                }}
-              >
-                I confirm the deduction source, amount, and balances shown above
-                are correct before applying.
-              </Typography>
-            }
-            sx={{ alignItems: "flex-start", ml: 0, mr: 0 }}
-          />
-        </Box>
-
-        {/* ── Footer ── */}
-        <Box
-          sx={{
-            display: "flex",
-            justifyContent: "flex-end",
-            gap: 1,
-            px: 2,
-            py: 1.25,
-            borderTop: `1px solid ${MODAL_T.divider}`,
-            bgcolor: "rgba(0,0,0,0.02)",
-          }}
-        >
-          <Button
+      {deductionOptions.length > 1 && (
+        <DSection title="Charge to">
+          <Select
+            fullWidth
             size="small"
-            onClick={handleClose}
+            value={chargeTo}
+            onChange={(e) => onChargeToChange?.(e.target.value)}
             disabled={saving}
-            sx={{
-              fontSize: "0.72rem",
-              fontWeight: 600,
-              textTransform: "none",
-              fontFamily: MODAL_T.poppins,
-              color: MODAL_T.muted,
-              borderRadius: 1.25,
-              px: 1.5,
-              border: "0.5px solid rgba(0,0,0,0.15)",
-            }}
+            sx={{ borderRadius: "10px", fontFamily: D.font, fontSize: "0.85rem" }}
           >
-            Cancel
-          </Button>
-          <Button
-            size="small"
-            variant="contained"
-            onClick={handleConfirm}
-            disabled={
-              saving ||
-              creditsLoading ||
-              !confirmDeduction ||
-              (!selectedSufficient && chargeU !== "SALARY_DEDUCTION")
-            }
-            startIcon={
-              saving ? (
-                <CircularProgress size={11} sx={{ color: "#fff" }} />
-              ) : (
-                <SaveIcon sx={{ fontSize: "13px !important" }} />
-              )
-            }
-            sx={{
-              fontSize: "0.72rem",
-              fontWeight: 700,
-              textTransform: "none",
-              fontFamily: MODAL_T.poppins,
-              bgcolor: MODAL_T.accent,
-              borderRadius: 1.25,
-              px: 1.75,
-              boxShadow: "none",
-              "&:hover": { bgcolor: MODAL_T.accentDark, boxShadow: "none" },
-              "&.Mui-disabled": {
-                bgcolor: "rgba(109,35,35,0.4)",
-                color: "#fff",
-              },
-            }}
-          >
-            {saving ? "Saving…" : "Confirm deduction"}
-          </Button>
+            {deductionOptions.map((o) => {
+              const oCode = String(o.value || "").toUpperCase();
+              const bal = getDeductionSourceBalanceDays(o.value, creditCtx);
+              const ok = oCode === "SALARY_DEDUCTION" || isDeductionSourceSufficient(bal, deductDaysNum, o.value) || (bal ?? 0) > 1e-6;
+              return (
+                <MenuItem key={o.value} value={o.value}>
+                  <Box sx={{ width: "100%" }}>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", gap: 1, width: "100%" }}>
+                      <span>{o.label}</span>
+                      <Box component="span" sx={{ fontSize: "0.72rem", fontWeight: 700, color: ok ? D.ok : D.bad }}>
+                        {oCode === "SALARY_DEDUCTION" ? "—" : creditsLoading ? "…" : `${(bal ?? 0).toFixed(3)} d`}
+                      </Box>
+                    </Box>
+                    {o.existingBalanceOnly && (
+                      <Box sx={{ fontSize: "0.66rem", color: "#8a5d06" }}>Existing balance only · not earned by this category</Box>
+                    )}
+                  </Box>
+                </MenuItem>
+              );
+            })}
+          </Select>
+          {deductionOptions.find((o) => o.value === chargeTo)?.existingBalanceOnly && (
+            <Typography sx={{ mt: 0.75, fontSize: "0.72rem", color: "#8a5d06", fontFamily: D.font }}>
+              {deductionOptions.find((o) => o.value === chargeTo)?.categoryNote}
+            </Typography>
+          )}
+        </DSection>
+      )}
+
+      <DSection title="What happened">
+        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 1, flexWrap: "wrap" }}>
+          <Typography sx={{ fontSize: "1.05rem", fontWeight: 700, fontFamily: D.font }}>{fmtDate(date)}</Typography>
+          <Tag>Half day detected</Tag>
         </Box>
-      </DialogContent>
-    </Dialog>
+        {showOfficialSchedule ? (
+          <DayTimeline
+            timeIn={sched.officialTimeIN}
+            breakIn={sched.officialBreaktimeIN}
+            breakOut={sched.officialBreaktimeOUT}
+            timeOut={sched.officialTimeOUT}
+          />
+        ) : (
+          <Typography sx={{ fontSize: "0.74rem", color: D.mute, fontFamily: D.font, my: 1.25 }}>No official schedule on file for this date.</Typography>
+        )}
+        {attendanceContext && (
+          <StatRow
+            items={[
+              { label: "Scheduled", value: clock(attendanceContext.maxOfficialTotal) },
+              { label: "Worked", value: clock(attendanceContext.renderedTotal), tone: "ok" },
+              { label: "Short", value: clock(attendanceContext.totalTardiness), tone: "bad" },
+            ]}
+          />
+        )}
+      </DSection>
+
+      <DSection title="What will be deducted">
+        <AmountLine
+          hours={deductHoursRaw}
+          days={deductDaysNum}
+          onHoursChange={handleDeductHoursChange}
+          disabled={saving}
+          onReset={systemHours > 0 ? applySystemDeductionAmount : null}
+          resetLabel={`Reset to ${clock(attendanceContext?.totalTardiness)}`}
+        />
+        {systemHours > 0 && Math.abs(hoursNum - systemHours) > 1e-6 && (
+          <Typography sx={{ fontSize: "0.72rem", color: "#8a5d06", fontFamily: D.font, mt: 1 }}>
+            Changed from the system value ({clock(attendanceContext?.totalTardiness)} short time).
+          </Typography>
+        )}
+      </DSection>
+
+      <DSection title="Balance after">
+        <BalanceAfter
+          before={showCreditLedgerPreview && !creditsLoading ? balanceBefore : null}
+          after={showCreditLedgerPreview && !creditsLoading ? balanceAfter : null}
+          poolLabel={chargeLabel}
+          salaryText={
+            chargeU === "SALARY_DEDUCTION"
+              ? `Recorded as a salary deduction (${deductDaysNum.toFixed(3)} day). No leave credits are used.`
+              : creditsLoading
+                ? "Loading balance…"
+                : undefined
+          }
+        />
+        <NoteToggle value={remark} onChange={setRemark} disabled={saving} />
+      </DSection>
+
+      <DSection last>
+        <ConfirmBlock
+          warning={
+            chargeU === "SALARY_DEDUCTION" ? (
+              <>This records <b>{deductDaysNum.toFixed(3)} day</b> of salary deduction for this half day. No leave credits are posted.</>
+            ) : (
+              <>This deducts <b>{deductDaysNum.toFixed(3)} days</b>{" "}from the employee&apos;s {poolName} balance. It can only be undone by a manual adjustment.</>
+            )
+          }
+          checked={confirmDeduction}
+          onChange={setConfirmDeduction}
+          disabled={saving || creditsLoading}
+        />
+        {error && (
+          <Alert severity="error" sx={{ mt: 1.25, py: 0.25, fontSize: "0.72rem", borderRadius: "10px" }}>{error}</Alert>
+        )}
+      </DSection>
+    </DeductionDialog>
   );
 };
 
@@ -3552,7 +2519,51 @@ const EarningsManagement = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const now = new Date();
-  const [activeTab, setActiveTab] = useState(0);
+  /** "deductions" | "earnings" (shared workspace) | "shortfall" | "abstract" */
+  const [view, setView] = useState("deductions");
+  /** Earn step pool: index into TABS (0 Leave, 1 SC, 2 CTO). */
+  const [earnPool, setEarnPool] = useState(0);
+  const [recordsCount, setRecordsCount] = useState(0);
+
+  /**
+   * Content area fills the space between its top edge and the page footer, so the bottom of the
+   * panels (e.g. "Ready for payroll") is never hidden behind the footer. The header above it varies
+   * in height (employee row, wrapping), so a fixed calc() is not reliable.
+   */
+  const contentNodeRef = useRef(null);
+  const headerObserverRef = useRef(null);
+  const [contentHeight, setContentHeight] = useState(0);
+  const measureContentArea = useCallback(() => {
+    const el = contentNodeRef.current;
+    if (!el) return;
+    const FOOTER_AND_GAP = 76; // app footer (~52px) + breathing room
+    const top = el.getBoundingClientRect().top + window.scrollY;
+    setContentHeight(Math.max(480, Math.round(window.innerHeight - top - FOOTER_AND_GAP)));
+  }, []);
+  // Callback ref: the area mounts only after the loading placeholder, so measure on attach and
+  // re-measure whenever the header block above it changes height.
+  const contentAreaRef = useCallback(
+    (node) => {
+      headerObserverRef.current?.disconnect();
+      headerObserverRef.current = null;
+      contentNodeRef.current = node;
+      if (!node) return;
+      measureContentArea();
+      const header = node.parentElement?.parentElement?.previousElementSibling;
+      if (header && typeof ResizeObserver !== "undefined") {
+        headerObserverRef.current = new ResizeObserver(measureContentArea);
+        headerObserverRef.current.observe(header);
+      }
+    },
+    [measureContentArea],
+  );
+  useEffect(() => {
+    window.addEventListener("resize", measureContentArea);
+    return () => {
+      window.removeEventListener("resize", measureContentArea);
+      headerObserverRef.current?.disconnect();
+    };
+  }, [measureContentArea]);
   const [employees, setEmployees] = useState([]);
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [showEmployeeAutocomplete, setShowEmployeeAutocomplete] =
@@ -3560,7 +2571,6 @@ const EarningsManagement = () => {
   const [employeePickerOpen, setEmployeePickerOpen] = useState(false);
   const employeePickerInputRef = useRef(null);
   const [deptMap, setDeptMap] = useState({});
-  const [deptNameMap, setDeptNameMap] = useState({});
   const [empCatMap, setEmpCatMap] = useState({});
   const [typeConfigs, setTypeConfigs] = useState([]);
   const [catFilter, setCatFilter] = useState("");
@@ -3589,6 +2599,8 @@ const EarningsManagement = () => {
   // ── Add to Abstract — lifted up so it persists across tab switches and can
   // render below the Earnings Records card on the Leave/SC/CTO tabs ─────────
   const [manualAbstractRows, setManualAbstractRows] = useState([]);
+  /** attendance_result rows on file for the selected employee/month — the Abstract lists these on its own. */
+  const [abstractPersisted, setAbstractPersisted] = useState({ key: "", count: 0, loading: false });
   const [addingManualAbstract, setAddingManualAbstract] = useState(false);
   const [manualAbstractSnackbar, setManualAbstractSnackbar] = useState({
     open: false,
@@ -3617,6 +2629,16 @@ const EarningsManagement = () => {
   const [vlHalfCreditSnapshots, setVlHalfCreditSnapshots] = useState(null);
   const [vlHalfAttendanceContext, setVlHalfAttendanceContext] = useState(null);
   const [filedLeaveByDate, setFiledLeaveByDate] = useState({});
+
+  // ── Stepper workflow (Leave assignment → Attendance → Deduct → Earn) ─────────
+  /** Open step key (one at a time): "att" | "ded" | "earn" | null */
+  const [openStep, setOpenStep] = useState(null);
+  const [balancePool, setBalancePool] = useState("VL");
+  const [deductStatus, setDeductStatus] = useState(null);
+  const [attendanceLoadedAt, setAttendanceLoadedAt] = useState(null);
+  /** "employee|year|month" the current attendanceData was loaded for. */
+  const [attendanceLoadedFor, setAttendanceLoadedFor] = useState("");
+  const autoOpenRef = useRef({ key: "", next: null });
 
   const handleMonthChange = useCallback((y, m) => {
     setPeriodYear(y);
@@ -3648,7 +2670,11 @@ const EarningsManagement = () => {
           token,
         );
         setAttendanceData(data);
+        setAttendanceLoadedAt(new Date());
       } finally {
+        setAttendanceLoadedFor(
+          `${selectedEmployee.employeeNumber}|${periodYear}|${periodMonth}`,
+        );
         if (!silent) setAttLoading(false);
       }
     },
@@ -3874,8 +2900,9 @@ const EarningsManagement = () => {
         ? data.attendanceResults
         : [];
       const merged = aggregateAttendanceResultsForAbstract(ar, y, m);
+      // Only rows with active (not voided) entries; a fully voided month is staged like an empty one.
       const empMergedRows = merged.filter(
-        (r) => String(r.employeeNumber).trim() === emp,
+        (r) => String(r.employeeNumber).trim() === emp && r.activeCount !== 0,
       );
 
       let rowsToAdd = [];
@@ -4090,8 +3117,32 @@ const EarningsManagement = () => {
         const recRaw = String(r0.data?.recommended_charge_to || "").trim();
         const recOpt = recRaw ? findOpt(recRaw) : null;
         const vlOpt = findOpt("VL");
+        // Prefer a pool this employee's category earns (e.g. SC for 30-hour faculty); pools it
+        // does not earn stay selectable in the dialog while they have a balance.
+        const catOpts = applyCategoryToDeductionOptions(
+          opts,
+          resolveCscCategory(empCatMap[String(selectedEmployee.employeeNumber)] || null),
+          "half_day",
+          (v) =>
+            getDeductionSourceBalanceDays(v, {
+              assignmentMap: snapshots?.assignmentMap ?? {},
+              scRemainingHours: snapshots?.scRemainingHours ?? 0,
+              ctoRemainingHours: snapshots?.ctoRemainingHours ?? 0,
+              salaryFallbackDays: null,
+            }),
+        );
+        const isEarnedPool = (o) =>
+          o && !o.existingBalanceOnly && String(o.value || "").toUpperCase() !== "SALARY_DEDUCTION";
+        const recCat = recOpt ? catOpts.find((o) => o.value === recOpt.value) : null;
+        const vlCat = vlOpt ? catOpts.find((o) => o.value === vlOpt.value) : null;
         const pick =
-          recOpt?.value ?? vlOpt?.value ?? opts[0]?.value ?? "SALARY_DEDUCTION";
+          (isEarnedPool(recCat) && recCat.value) ||
+          (isEarnedPool(vlCat) && vlCat.value) ||
+          catOpts.find(isEarnedPool)?.value ||
+          recOpt?.value ||
+          vlOpt?.value ||
+          opts[0]?.value ||
+          "SALARY_DEDUCTION";
         setVlHalfChargeTo(pick);
 
         const r = await axios.post(
@@ -4179,14 +3230,8 @@ const EarningsManagement = () => {
         throw new Error(msg);
       }
 
-      const rawHoursPerDayForPolicy =
-        toNum(vlHalfSuggestion?.hours_per_day) || 8;
-      // Some leave_table.leave_hours values come back as "policy hours" (e.g. weekly totals).
-      // Normalize into clock-hours-per-day so deduction_hours matches how VL balances are stored (hours).
-      const clockHoursPerDay =
-        rawHoursPerDayForPolicy > 12
-          ? rawHoursPerDayForPolicy / 4
-          : rawHoursPerDayForPolicy;
+      // Server-resolved clock hours per day (hoursPerDayService).
+      const clockHoursPerDay = toNum(vlHalfSuggestion?.hours_per_day) || 8;
       const deductHours = rateDecimalNum * clockHoursPerDay;
 
       if (deductedVlHalfDates.includes(vlHalfSelectedDate)) {
@@ -4360,18 +3405,14 @@ const EarningsManagement = () => {
         );
         if (deptRes.status === "fulfilled") {
           const map = {};
-          const names = {};
           (Array.isArray(deptRes.value.data) ? deptRes.value.data : []).forEach(
             (item) => {
               if (!item.employeeNumber) return;
               const num = String(item.employeeNumber);
               if (item.code) map[num] = item.code;
-              const title = String(item.name || item.code || "").trim();
-              if (title) names[num] = title;
             },
           );
           setDeptMap(map);
-          setDeptNameMap(names);
         }
         if (empCatRes.status === "fulfilled") {
           const map = {};
@@ -4583,10 +3624,115 @@ const EarningsManagement = () => {
     return list;
   }, [employees, empCatMap, catFilter]);
 
+  // ── Stepper workflow state (hooks must stay above the early return) ─────────
+  const selectedEmpCat = selectedEmployee
+    ? empCatMap[String(selectedEmployee.employeeNumber)] || null
+    : null;
+  const cscCategory = useMemo(
+    () => resolveCscCategory(selectedEmpCat),
+    [selectedEmpCat],
+  );
+  const periodData = useLeavePeriodData(
+    selectedEmployee?.employeeNumber,
+    balanceKey + recordsRefreshKey,
+  );
+  const attendanceSaved = Boolean(attendanceData?.summary);
+
+  useEffect(() => {
+    setDeductStatus(null);
+  }, [selectedEmployee?.employeeNumber, periodYear, periodMonth]);
+
+  /** Every attendance gap is charged (approvals of posted entries happen in Earn, so they do not block). */
+  const deductDone = Boolean(
+    deductStatus &&
+      !deductStatus.loading &&
+      deductStatus.remainingAbsenceDays <= 1e-5 &&
+      deductStatus.remainingTardinessDays <= 1e-5 &&
+      deductStatus.halfDayPending === 0,
+  );
+
+  /** Deductions tab steps: attendance → deduct. status: done | current | todo | locked. */
+  const stepStatuses = useMemo(() => {
+    const statuses = {
+      att: attendanceSaved ? "done" : "todo",
+      ded: !attendanceSaved ? "locked" : deductDone ? "done" : "todo",
+    };
+    const next = ["att", "ded"].find((k) => statuses[k] === "todo") || null;
+    if (next) statuses[next] = "current";
+    return { statuses, next };
+  }, [attendanceSaved, deductDone]);
+
+  // Open the next step on its own: when a different employee/month finishes loading, and
+  // whenever finishing a step moves "next" forward.
+  useEffect(() => {
+    if (!selectedEmployee?.employeeNumber || periodData.loading || attendanceLoading) return;
+    const key = `${selectedEmployee.employeeNumber}|${periodYear}|${periodMonth}`;
+    // Wait until both data sets belong to this employee/month, not the previous selection.
+    if (periodData.loadedFor !== String(selectedEmployee.employeeNumber)) return;
+    if (attendanceLoadedFor !== key) return;
+    if (autoOpenRef.current.key === key && autoOpenRef.current.next === stepStatuses.next) return;
+    autoOpenRef.current = { key, next: stepStatuses.next };
+    if (stepStatuses.next) setOpenStep(stepStatuses.next);
+  }, [selectedEmployee?.employeeNumber, periodYear, periodMonth, periodData.loading, periodData.loadedFor, attendanceLoading, attendanceLoadedFor, stepStatuses.next]);
+
+  // Earnings tab pools: a pool is off when every code in it is "not earned" for this category.
+  const earnPoolLocked = useCallback(
+    (idx) => EARN_POOLS[idx].codes.every((c) => ruleFor(cscCategory, c, "earns")?.value === RULE.NO),
+    [cscCategory],
+  );
+  useEffect(() => {
+    if (!earnPoolLocked(earnPool)) return;
+    const firstOpen = [0, 1, 2].find((i) => !earnPoolLocked(i));
+    if (firstOpen != null) setEarnPool(firstOpen);
+  }, [earnPool, earnPoolLocked]);
+
+  // Is this employee/month already in the Abstract? Either staged this session, or it has
+  // attendance_result rows (the Abstract loads those by itself).
+  useEffect(() => {
+    const emp = String(selectedEmployee?.employeeNumber || "").trim();
+    const y = parseInt(periodYear, 10);
+    const m = parseInt(periodMonth, 10);
+    if (!emp || !Number.isFinite(y) || !Number.isFinite(m)) {
+      setAbstractPersisted({ key: "", count: 0, loading: false });
+      return undefined;
+    }
+    const key = `${emp}|${y}|${m}`;
+    let cancelled = false;
+    setAbstractPersisted((p) => ({ ...p, key, loading: true }));
+    axios
+      .get(`${API_BASE_URL}/api/leave-salary-shortfall`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+        params: { year: y, month: m, employeeNumber: emp },
+      })
+      .then(({ data }) => {
+        if (cancelled) return;
+        const ar = Array.isArray(data?.attendanceResults) ? data.attendanceResults : [];
+        const rows = aggregateAttendanceResultsForAbstract(ar, y, m).filter(
+          (r) => String(r.employeeNumber).trim() === emp && r.activeCount !== 0,
+        );
+        setAbstractPersisted({ key, count: rows.length, loading: false });
+      })
+      .catch(() => !cancelled && setAbstractPersisted({ key, count: 0, loading: false }));
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedEmployee?.employeeNumber, periodYear, periodMonth, recordsRefreshKey, balanceKey]);
+
+  // Half-day charge choices by category: earned pools first; pools the category does not earn only
+  // while the employee still has a balance there (flagged in the dialog).
+  const halfDayOptionsUi = applyCategoryToDeductionOptions(vlHalfDeductionOptions, cscCategory, "half_day", (v) =>
+    getDeductionSourceBalanceDays(v, {
+      assignmentMap: vlHalfCreditSnapshots?.assignmentMap ?? {},
+      scRemainingHours: vlHalfCreditSnapshots?.scRemainingHours ?? 0,
+      ctoRemainingHours: vlHalfCreditSnapshots?.ctoRemainingHours ?? 0,
+      salaryFallbackDays: null,
+    }),
+  );
+
   if (pageLoading) return <EarningsWireframe />;
 
-  const rawHoursPerDay = toNum(vlHalfSuggestion?.hours_per_day) || 8;
-  const hoursPerDay = rawHoursPerDay > 12 ? rawHoursPerDay / 4 : rawHoursPerDay;
+  // Server-resolved clock hours per day (hoursPerDayService); no client-side rescaling.
+  const hoursPerDay = toNum(vlHalfSuggestion?.hours_per_day) || 8;
 
   const deptCode = selectedEmployee
     ? deptMap[String(selectedEmployee.employeeNumber)]
@@ -4607,7 +3753,155 @@ const EarningsManagement = () => {
     },
   };
 
-  const isAbstractTab = activeTab === 4;
+  const toggleStep = (k) => setOpenStep((p) => (p === k ? null : k));
+  /** Tabs: 0 Deductions, 1 Earnings (shared workspace), 2 Salary Shortfall, 3 Abstract. */
+  const activeTabIndex = Math.max(0, TAB_VIEWS.indexOf(view));
+  const handleTabChange = (idx) => setView(TAB_VIEWS[idx]);
+  const isWorkspace = view === "deductions" || view === "earnings";
+  const earningsTabLocked = selectedEmployee ? [0, 1, 2].every((i) => earnPoolLocked(i)) : false;
+  const earningsLockedByDeductions = Boolean(selectedEmployee) && !deductDone;
+  const attSummary = attendanceData?.summary;
+  const attendanceStepSubtitle = attSummary
+    ? `${attendanceLoadedAt ? `Loaded ${attendanceLoadedAt.toLocaleString()} · ` : ""}late ${String(attSummary.lateTotalTime || attSummary._lateTotal || "00:00").slice(0, 5)}, absent ${toNum(attSummary.absentDays)} d, OT ${parseHHMM(attSummary.totalRenderedOvertime).toFixed(3)} h`
+    : attendanceLoading
+      ? "Loading attendance…"
+      : `No saved attendance summary for ${monthName(periodMonth)} ${periodYear}`;
+
+  const abstractKeyNow = selectedEmployee ? `${String(selectedEmployee.employeeNumber).trim()}|${parseInt(periodYear, 10)}|${parseInt(periodMonth, 10)}` : "";
+  const stagedInAbstract = Boolean(selectedEmployee) && manualAbstractRows.some(
+    (r) =>
+      String(r.employeeNumber).trim() === String(selectedEmployee.employeeNumber).trim() &&
+      Number(r.periodYear) === parseInt(periodYear, 10) &&
+      Number(r.periodMonth) === parseInt(periodMonth, 10),
+  );
+  const persistedInAbstract = abstractPersisted.key === abstractKeyNow && abstractPersisted.count > 0;
+  const inAbstract = stagedInAbstract || persistedInAbstract;
+  const checkingAbstract = abstractPersisted.loading && abstractPersisted.key === abstractKeyNow;
+
+  const addToAbstractBar = (
+    <Box
+      sx={{
+        flexShrink: 0,
+        borderTop: `1px solid ${T.divider}`,
+        bgcolor: T.accentFaint,
+        px: 1.5,
+        py: 1.1,
+        display: "flex",
+        flexDirection: "column", // stacked: the bar sits in the narrow side panel
+        alignItems: "stretch",
+        gap: 0.9,
+      }}
+    >
+      <Box sx={{ minWidth: 0 }}>
+        <Typography
+          sx={{
+            fontSize: "0.68rem",
+            fontWeight: 700,
+            color: T.accent,
+            fontFamily: T.poppins,
+            lineHeight: 1.3,
+          }}
+        >
+          Ready for payroll?
+        </Typography>
+        <Typography
+          sx={{
+            fontSize: "0.62rem",
+            color: approvedEarningsInfo.checking
+              ? T.faint
+              : approvedEarningsInfo.hasApproved
+                ? T.muted
+                : "#7a4a00",
+            fontFamily: T.poppins,
+            lineHeight: 1.3,
+          }}
+        >
+          {inAbstract
+            ? `Already in the Abstract for ${monthName(periodMonth)} ${periodYear}${persistedInAbstract && !stagedInAbstract ? " (from this month's attendance records)" : ""}.`
+            : approvedEarningsInfo.checking
+              ? "Checking earnings approval status…"
+              : approvedEarningsInfo.hasApproved
+                ? "Stage this employee/period in the Abstract — required even if they have deductions."
+                : "Needs at least one approved Leave/SC/CTO earning before this can be staged."}
+        </Typography>
+      </Box>
+      <Tooltip
+        title={
+          !selectedEmployee?.employeeNumber
+            ? ""
+            : inAbstract
+              ? "This employee/period is already listed in the Abstract tab."
+              : approvedEarningsInfo.checking
+              ? "Checking approval status…"
+              : !approvedEarningsInfo.hasApproved
+                ? "Approve at least one Leave/SC/CTO earning for this employee/period first — Add to Abstract stays locked until then."
+                : ""
+        }
+      >
+        <span style={{ display: "block" }}>
+          <Button
+            size="small"
+            variant="contained"
+            fullWidth
+            startIcon={
+              addingManualAbstract ||
+              approvedEarningsInfo.checking ||
+              checkingAbstract ? (
+                <CircularProgress
+                  size={11}
+                  sx={{ color: "#fff" }}
+                />
+              ) : inAbstract ? (
+                <CheckIcon sx={{ fontSize: 15 }} />
+              ) : (
+                <PlaylistAddIcon sx={{ fontSize: 15 }} />
+              )
+            }
+            onClick={handleAddToAbstract}
+            disabled={
+              inAbstract ||
+              checkingAbstract ||
+              addingManualAbstract ||
+              !selectedEmployee?.employeeNumber ||
+              approvedEarningsInfo.checking ||
+              !approvedEarningsInfo.hasApproved
+            }
+            sx={{
+              fontSize: "0.72rem",
+              fontWeight: 700,
+              textTransform: "none",
+              fontFamily: T.poppins,
+              color: "#fff",
+              borderRadius: "8px",
+              px: 1.75,
+              py: 0.75,
+              bgcolor: T.accent,
+              boxShadow: `0 2px 8px ${alpha(T.accent, 0.35)}`,
+              whiteSpace: "nowrap",
+              flexShrink: 0,
+              "&:hover": {
+                bgcolor: T.accentDark,
+                boxShadow: `0 3px 10px ${alpha(T.accent, 0.45)}`,
+              },
+              "&.Mui-disabled": inAbstract
+                ? { color: "#1b5e20", bgcolor: "rgba(46,125,50,0.14)", boxShadow: "none" }
+                : {
+                    color: "rgba(255,255,255,0.7)",
+                    bgcolor: alpha(T.accent, 0.35),
+                    boxShadow: "none",
+                  },
+            }}
+          >
+            {addingManualAbstract
+              ? "Adding…"
+              : inAbstract
+                ? "Already in Abstract"
+                : "Add to Abstract"}
+          </Button>
+        </span>
+      </Tooltip>
+    </Box>
+  );
 
   return (
     <Box sx={{ fontFamily: T.poppins }}>
@@ -5163,10 +4457,57 @@ const EarningsManagement = () => {
               </Typography>
             )}
           </Box>
+
+          {/* Tab row — same style as Assignment Management */}
+          <Box sx={{ background: T.headerGrad, px: { xs: 0, sm: 1 }, pt: 0.75, pb: 0, display: "flex", alignItems: "flex-end" }}>
+            {TABS.map((t, idx) => {
+              const Icon = t.icon;
+              const isActive = idx === activeTabIndex;
+              const locked = t.id === "earnings" && earningsTabLocked;
+              return (
+                <Tooltip key={t.id} title={locked ? "This employee's category does not earn leave, service credits or CTO." : ""}>
+                  <Box
+                    role="tab"
+                    aria-selected={isActive}
+                    aria-disabled={locked}
+                    tabIndex={locked ? -1 : 0}
+                    onClick={() => !locked && handleTabChange(idx)}
+                    onKeyDown={(e) => {
+                      if (!locked && (e.key === "Enter" || e.key === " ")) handleTabChange(idx);
+                    }}
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 0.6,
+                      px: { xs: 1.5, sm: 2.5 },
+                      py: 0.85,
+                      cursor: locked ? "not-allowed" : "pointer",
+                      opacity: locked ? 0.45 : 1,
+                      position: "relative",
+                      borderRadius: "8px 8px 0 0",
+                      transition: "background 0.15s",
+                      bgcolor: isActive ? "rgba(255,255,255,0.97)" : "transparent",
+                      "&:hover": isActive || locked ? {} : { bgcolor: "rgba(255,255,255,0.1)" },
+                      "&::after": isActive ? { content: '""', position: "absolute", bottom: -1, left: 0, right: 0, height: 2, bgcolor: "rgba(255,255,255,0.97)" } : {},
+                    }}
+                  >
+                    <Icon sx={{ fontSize: 13, color: isActive ? T.accent : "rgba(255,255,255,0.6)", flexShrink: 0 }} />
+                    <Typography sx={{ fontSize: "0.73rem", fontWeight: isActive ? 700 : 500, color: isActive ? T.accent : "rgba(255,255,255,0.7)", fontFamily: T.poppins, whiteSpace: "nowrap", display: { xs: "none", sm: "block" } }}>
+                      {t.label}
+                    </Typography>
+                    <Typography sx={{ fontSize: "0.73rem", fontWeight: isActive ? 700 : 500, color: isActive ? T.accent : "rgba(255,255,255,0.7)", fontFamily: T.poppins, whiteSpace: "nowrap", display: { xs: "block", sm: "none" } }}>
+                      {t.shortLabel}
+                    </Typography>
+                  </Box>
+                </Tooltip>
+              );
+            })}
+          </Box>
         </SectionCard>
       </Box>
 
-      {/* ── Content area (attendance + tabs); Abstract uses full-width overlay ── */}
+      {/* ── Content area: stepper (left) + balances & category rules (right).
+             Salary Shortfall and Abstract open as full-width views. ── */}
       <Box
         sx={{
           width: "100vw",
@@ -5187,257 +4528,332 @@ const EarningsManagement = () => {
           }}
         >
           <Box
+            ref={contentAreaRef}
             sx={{
               display: "grid",
-              gridTemplateColumns: { xs: "1fr", md: "1fr 2fr" },
-              height: { xs: "auto", md: "calc(100vh - 290px)" },
+              gridTemplateColumns: { xs: "1fr", lg: "minmax(0,1fr) 390px" },
+              gap: { xs: 0, lg: 2.5 },
+              height: { xs: "auto", md: contentHeight ? `${contentHeight}px` : "calc(100vh - 360px)" },
               minHeight: { xs: "unset", md: 480 },
               overflow: { xs: "visible", md: "hidden" },
-              visibility: isAbstractTab ? "hidden" : "visible",
+              visibility: isWorkspace ? "visible" : "hidden",
+              bgcolor: "#faf8f8",
             }}
           >
+            {/* ── Left: workflow stepper ── */}
             <Box
               sx={{
                 overflowY: "auto",
                 overflowX: "hidden",
-                display: "flex",
-                flexDirection: "column",
-                borderRight: { xs: "none", md: `1px solid ${T.divider}` },
+                px: { xs: 1.5, md: 2.5 },
+                py: 2,
               }}
             >
-              <AttendanceSummary
-                employee={selectedEmployee}
-                year={periodYear}
-                month={periodMonth}
-                attendanceData={attendanceData}
-                attendanceLoading={attendanceLoading}
-                onRefresh={fetchAttendance}
-                onRecordsRefresh={handleRecordsRefresh}
-                onBalancesInvalidate={handleBalanceChanged}
-                empCat={empCat}
-                vlReceiptRefreshKey={vlReceiptRefreshKey}
-                balanceRefreshKey={balanceKey}
-                deductedVlHalfDates={deductedVlHalfDates}
-                filedLeaveByDate={filedLeaveByDate}
-                onDeductHalfDayVLRequested={openVlHalfModalForDate}
-              />
-            </Box>
-            <Box
-              sx={{
-                display: "flex",
-                flexDirection: "column",
-                overflow: "hidden",
-              }}
-            >
-              <TabBar activeTab={activeTab} onTabChange={setActiveTab} />
-              <Fade
-                in
-                key={`${activeTab}-${periodYear}-${periodMonth}`}
-                timeout={250}
-              >
-                <Box
-                  sx={{
-                    flex: 1,
-                    overflow: "hidden",
-                    display: "grid",
-                    gridTemplateColumns:
-                      activeTab <= 2 ? { xs: "1fr", md: "1fr 1fr" } : "1fr",
-                    minHeight: 0,
-                  }}
-                >
-                  {activeTab <= 2 && (
-                    <>
-                      <Box
-                        sx={{
-                          overflowY: "auto",
-                          overflowX: "hidden",
-                          display: "flex",
-                          flexDirection: "column",
-                          borderRight: {
-                            xs: "none",
-                            md: `1px solid ${T.divider}`,
-                          },
-                        }}
-                      >
-                        {activeTab === 0 && (
-                          <LeaveInputColumn
-                            {...sharedTabProps}
-                            onBalanceChanged={handleBalanceChanged}
-                            refreshKey={balanceKey}
-                            onRecordsRefresh={handleRecordsRefresh}
-                          />
-                        )}
-                        {activeTab === 1 && (
-                          <SCInputColumn
-                            {...sharedTabProps}
-                            onRecordsRefresh={handleRecordsRefresh}
-                          />
-                        )}
-                        {activeTab === 2 && (
-                          <CTOInputColumn
-                            {...sharedTabProps}
-                            onRecordsRefresh={handleRecordsRefresh}
-                          />
-                        )}
-                      </Box>
-                      <Box
-                        sx={{
-                          display: "flex",
-                          flexDirection: "column",
-                          overflow: "hidden",
-                        }}
-                      >
-                        <Box sx={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
-                          <RecordsList
-                            employeeNumber={selectedEmployee?.employeeNumber}
-                            type={TABS[activeTab].id}
-                            unit={unit}
-                            refreshKey={recordsRefreshKey}
-                            year={periodYear}
-                            month={periodMonth}
-                            onApproved={handleBalanceChanged}
-                            standalone
-                            onStatusChange={() =>
-                              setVlReceiptRefreshKey((k) => k + 1)
-                            }
-                            approverNameLookup={approverNameLookup}
-                          />
-                        </Box>
+              {!selectedEmployee ? (
+                <Box sx={{ py: 6, textAlign: "center" }}>
+                  <Typography sx={{ fontSize: "0.8rem", color: T.muted, fontFamily: T.poppins }}>
+                    Select an employee to start this month&apos;s leave workflow.
+                  </Typography>
+                </Box>
+              ) : (
+                <Box sx={{ bgcolor: "#fff", border: `1px solid ${T.divider}`, borderRadius: "14px", p: { xs: 2, md: "22px 22px 24px" } }}>
+                  <LeaveCreditsPanel
+                    employee={selectedEmployee}
+                    year={periodYear}
+                    month={periodMonth}
+                    unit={unit}
+                    hoursPerDay={hoursPerDay}
+                    category={cscCategory}
+                    periods={periodData.periods}
+                    currentTotals={periodData.currentTotals}
+                    leaveTypes={periodData.leaveTypes}
+                    sc={periodData.sc}
+                    cto={periodData.cto}
+                    loading={periodData.loading}
+                  />
 
-                        {/* ── Add to Abstract — unlocks once this employee/period has at least
-                               one approved Leave/SC/CTO earning; stages with or without deductions ── */}
-                        <Box
-                          sx={{
-                            flexShrink: 0,
-                            borderTop: `1px solid ${T.divider}`,
-                            bgcolor: T.accentFaint,
-                            px: 1.5,
-                            py: 1,
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "space-between",
-                            gap: 1,
-                          }}
-                        >
-                          <Box sx={{ minWidth: 0 }}>
-                            <Typography
-                              sx={{
-                                fontSize: "0.68rem",
-                                fontWeight: 700,
-                                color: T.accent,
-                                fontFamily: T.poppins,
-                                lineHeight: 1.3,
-                              }}
-                            >
-                              Ready for payroll?
-                            </Typography>
-                            <Typography
-                              sx={{
-                                fontSize: "0.62rem",
-                                color: approvedEarningsInfo.checking
-                                  ? T.faint
-                                  : approvedEarningsInfo.hasApproved
-                                    ? T.muted
-                                    : "#7a4a00",
-                                fontFamily: T.poppins,
-                                lineHeight: 1.3,
-                              }}
-                            >
-                              {approvedEarningsInfo.checking
-                                ? "Checking earnings approval status…"
-                                : approvedEarningsInfo.hasApproved
-                                  ? "Stage this employee/period in the Abstract — required even if they have deductions."
-                                  : "Needs at least one approved Leave/SC/CTO earning before this can be staged."}
-                            </Typography>
-                          </Box>
-                          <Tooltip
-                            title={
-                              !selectedEmployee?.employeeNumber
-                                ? ""
-                                : approvedEarningsInfo.checking
-                                  ? "Checking approval status…"
-                                  : !approvedEarningsInfo.hasApproved
-                                    ? "Approve at least one Leave/SC/CTO earning for this employee/period first — Add to Abstract stays locked until then."
-                                    : ""
-                            }
-                          >
-                            <span>
-                              <Button
-                                size="small"
-                                variant="contained"
-                                startIcon={
-                                  addingManualAbstract ||
-                                  approvedEarningsInfo.checking ? (
-                                    <CircularProgress
-                                      size={11}
-                                      sx={{ color: "#fff" }}
-                                    />
-                                  ) : (
-                                    <PlaylistAddIcon sx={{ fontSize: 15 }} />
-                                  )
-                                }
-                                onClick={handleAddToAbstract}
-                                disabled={
-                                  addingManualAbstract ||
-                                  !selectedEmployee?.employeeNumber ||
-                                  approvedEarningsInfo.checking ||
-                                  !approvedEarningsInfo.hasApproved
-                                }
-                                sx={{
-                                  fontSize: "0.72rem",
-                                  fontWeight: 700,
-                                  textTransform: "none",
-                                  fontFamily: T.poppins,
-                                  color: "#fff",
-                                  borderRadius: "8px",
-                                  px: 1.75,
-                                  py: 0.75,
-                                  bgcolor: T.accent,
-                                  boxShadow: `0 2px 8px ${alpha(T.accent, 0.35)}`,
-                                  whiteSpace: "nowrap",
-                                  flexShrink: 0,
-                                  "&:hover": {
-                                    bgcolor: T.accentDark,
-                                    boxShadow: `0 3px 10px ${alpha(T.accent, 0.45)}`,
-                                  },
-                                  "&.Mui-disabled": {
-                                    color: "rgba(255,255,255,0.7)",
-                                    bgcolor: alpha(T.accent, 0.35),
-                                    boxShadow: "none",
-                                  },
-                                }}
-                              >
-                                {addingManualAbstract
-                                  ? "Adding…"
-                                  : "Add to Abstract"}
-                              </Button>
-                            </span>
-                          </Tooltip>
-                        </Box>
-                      </Box>
-                    </>
-                  )}
-                  {activeTab === 3 && (
-                    <Box
-                      sx={{
-                        overflowY: "auto",
-                        overflowX: "hidden",
-                        display: "flex",
-                        flexDirection: "column",
-                      }}
+                  {/* Deductions stay mounted (hidden) on the Earnings tab so their status keeps updating. */}
+                  <Box sx={{ display: view === "deductions" ? "block" : "none" }}>
+                  <StepProgress
+                    steps={[
+                      { key: "att", short: "Attendance", title: "Attendance & overtime", status: stepStatuses.statuses.att },
+                      { key: "ded", short: "Deduct", title: "Deduct", status: stepStatuses.statuses.ded },
+                    ]}
+                    onSelect={setOpenStep}
+                    allDoneText={`Deductions for ${monthName(periodMonth)} ${periodYear} are done.`}
+                  />
+
+                  <StepRow
+                    index={1}
+                    stepKey="att"
+                    title="Attendance & overtime"
+                    subtitle={attendanceStepSubtitle}
+                    status={stepStatuses.statuses.att}
+                    open={openStep === "att"}
+                    onToggle={toggleStep}
+                    pills={
+                      attSummary ? (
+                        <>
+                          <StepPill tone="ok" icon="✓">Saved</StepPill>
+                          <StepPill tone="late" icon="◔">Late {String(attSummary.lateTotalTime || attSummary._lateTotal || "00:00").slice(0, 5)}</StepPill>
+                          <StepPill tone="abs" icon="✕">Absent {toNum(attSummary.absentDays)} d</StepPill>
+                          <StepPill tone="ot" icon="⚡">OT {parseHHMM(attSummary.totalRenderedOvertime).toFixed(3)} h</StepPill>
+                        </>
+                      ) : null
+                    }
+                  >
+                    <AttendanceSummary
+                      section="metrics"
+                      hideBalances
+                      employee={selectedEmployee}
+                      year={periodYear}
+                      month={periodMonth}
+                      attendanceData={attendanceData}
+                      attendanceLoading={attendanceLoading}
+                      onRefresh={fetchAttendance}
+                      onRecordsRefresh={handleRecordsRefresh}
+                      onBalancesInvalidate={handleBalanceChanged}
+                      empCat={empCat}
+                      vlReceiptRefreshKey={vlReceiptRefreshKey}
+                      balanceRefreshKey={balanceKey}
+                      deductedVlHalfDates={deductedVlHalfDates}
+                      filedLeaveByDate={filedLeaveByDate}
+                      onDeductHalfDayVLRequested={openVlHalfModalForDate}
+                    />
+                  </StepRow>
+
+                  <StepRow
+                    index={2}
+                    stepKey="ded"
+                    title="Deduct"
+                    subtitle="Charge the gaps to the right balance"
+                    status={stepStatuses.statuses.ded}
+                    lockedReason="Save the attendance summary for this month first"
+                    open={openStep === "ded"}
+                    onToggle={toggleStep}
+                    isLast
+                    pills={
+                      <>
+                        <StepPill tone="ok" icon="✓">Applied</StepPill>
+                        {deductStatus?.awaitingApproval && <StepPill tone="warn" icon="!">Awaiting approval in Records</StepPill>}
+                      </>
+                    }
+                  >
+                    <AttendanceSummary
+                      section="deduct"
+                      employee={selectedEmployee}
+                      year={periodYear}
+                      month={periodMonth}
+                      attendanceData={attendanceData}
+                      attendanceLoading={attendanceLoading}
+                      onRefresh={fetchAttendance}
+                      onRecordsRefresh={handleRecordsRefresh}
+                      onBalancesInvalidate={handleBalanceChanged}
+                      empCat={empCat}
+                      vlReceiptRefreshKey={vlReceiptRefreshKey}
+                      balanceRefreshKey={balanceKey}
+                      deductedVlHalfDates={deductedVlHalfDates}
+                      filedLeaveByDate={filedLeaveByDate}
+                      onDeductHalfDayVLRequested={openVlHalfModalForDate}
+                      cscCategory={cscCategory}
+                      onDeductStatusChange={setDeductStatus}
+                    />
+                  </StepRow>
+
+                  {/* End of the Deductions steps: go straight to the Earnings tab. */}
+                  <Box
+                    sx={{
+                      mt: 2,
+                      p: "12px 14px",
+                      borderRadius: "12px",
+                      border: `1px solid ${deductDone ? "rgba(46,125,50,0.35)" : T.divider}`,
+                      bgcolor: deductDone ? "rgba(46,125,50,0.06)" : "rgba(0,0,0,0.02)",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 1.5,
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <Box sx={{ flex: 1, minWidth: 200 }}>
+                      <Typography sx={{ fontSize: "0.8rem", fontWeight: 700, fontFamily: T.poppins, color: T.text }}>
+                        {earningsTabLocked
+                          ? "No earnings for this category"
+                          : deductDone
+                            ? "Deductions are done"
+                            : "Next: Earnings"}
+                      </Typography>
+                      <Typography sx={{ fontSize: "0.7rem", color: T.muted, fontFamily: T.poppins }}>
+                        {earningsTabLocked
+                          ? "This employee's category does not earn leave, service credits or CTO."
+                          : deductDone
+                            ? `Post the ${monthName(periodMonth)} ${periodYear} earnings next.`
+                            : "Finish the attendance and deductions above to unlock Earnings."}
+                      </Typography>
+                    </Box>
+                    <Button
+                      variant="contained"
+                      disableElevation
+                      onClick={() => setView("earnings")}
+                      disabled={!deductDone || earningsTabLocked}
+                      sx={{ textTransform: "none", fontFamily: T.poppins, fontWeight: 700, fontSize: "0.78rem", borderRadius: "9px", px: 2, bgcolor: T.accent, "&:hover": { bgcolor: T.accentDark } }}
                     >
-                      <SalaryShortfallRegistry
-                        employee={selectedEmployee}
-                        year={periodYear}
-                        month={periodMonth}
-                      />
+                      Continue to Earnings →
+                    </Button>
+                  </Box>
+                  </Box>
+
+                  {view === "earnings" && (
+                    <Box>
+                      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1, flexWrap: "wrap", mb: 1.5 }}>
+                        <Box>
+                          <Typography component="h2" sx={{ m: 0, fontSize: "1rem", fontWeight: 700, fontFamily: T.poppins, color: T.text }}>
+                            Earnings · {monthName(periodMonth)} {periodYear}
+                          </Typography>
+                          <Typography sx={{ fontSize: "0.72rem", color: T.muted, fontFamily: T.poppins }}>
+                            Only the credits this employee&apos;s category earns are shown.
+                          </Typography>
+                        </Box>
+                        {approvedEarningsInfo.hasApproved && <StepPill tone="ok" icon="✓">Posted</StepPill>}
+                      </Box>
+
+                      {earningsTabLocked ? (
+                        <Box sx={{ p: 2, borderRadius: "12px", border: `1px dashed ${T.divider}`, textAlign: "center" }}>
+                          <Typography sx={{ fontSize: "0.8rem", color: T.muted, fontFamily: T.poppins }}>
+                            This employee&apos;s category does not earn leave, service credits or CTO.
+                          </Typography>
+                        </Box>
+                      ) : earningsLockedByDeductions ? (
+                        <Box sx={{ p: 2, borderRadius: "12px", border: `1px dashed ${T.divider}`, bgcolor: "rgba(0,0,0,0.02)", display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
+                          <Typography sx={{ flex: 1, minWidth: 200, fontSize: "0.8rem", color: T.muted, fontFamily: T.poppins }}>
+                            Apply this month&apos;s deductions first. Earnings unlock once every absence, tardiness and half day is charged.
+                          </Typography>
+                          <Button
+                            variant="outlined"
+                            onClick={() => setView("deductions")}
+                            sx={{ textTransform: "none", fontFamily: T.poppins, fontWeight: 700, fontSize: "0.76rem", borderRadius: "9px", color: T.accent, borderColor: T.accentBorder }}
+                          >
+                            ← Back to Deductions
+                          </Button>
+                        </Box>
+                      ) : (
+                        <>
+                          <Box role="tablist" aria-label="Credit to earn" sx={{ display: "flex", gap: 0.75, flexWrap: "wrap", mb: 1.5 }}>
+                            {EARN_POOLS.map((pool, idx) => {
+                              if (earnPoolLocked(idx)) return null;
+                              const Icon = pool.icon;
+                              const on = earnPool === idx;
+                              return (
+                                <Box
+                                  key={pool.id}
+                                  component="button"
+                                  type="button"
+                                  role="tab"
+                                  aria-selected={on}
+                                  onClick={() => setEarnPool(idx)}
+                                  sx={{
+                                    all: "unset",
+                                    cursor: "pointer",
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: 0.75,
+                                    px: 1.5,
+                                    py: 0.75,
+                                    borderRadius: "10px",
+                                    fontSize: "0.76rem",
+                                    fontWeight: 600,
+                                    fontFamily: T.poppins,
+                                    border: `1.5px solid ${on ? T.accent : T.divider}`,
+                                    bgcolor: on ? T.accent : "#fff",
+                                    color: on ? "#fff" : T.text,
+                                    "&:focus-visible": { outline: `2px solid ${T.accent}`, outlineOffset: 2 },
+                                  }}
+                                >
+                                  <Icon sx={{ fontSize: 15 }} />
+                                  {pool.label}
+                                </Box>
+                              );
+                            })}
+                          </Box>
+                          {EARN_POOLS.some((_, idx) => earnPoolLocked(idx)) && (
+                            <Typography sx={{ fontSize: "0.7rem", color: T.muted, fontFamily: T.poppins, mb: 1.25 }}>
+                              Not earned by this category:{" "}
+                              {EARN_POOLS.filter((_, idx) => earnPoolLocked(idx)).map((pl) => pl.label).join(", ")}.
+                            </Typography>
+                          )}
+                          <Box sx={earnPool === 0 ? {} : { border: `1px solid ${T.divider}`, borderRadius: 1.5, overflow: "hidden" }}>
+                            {earnPool === 0 && (
+                              <LeaveInputColumn
+                                {...sharedTabProps}
+                                onBalanceChanged={handleBalanceChanged}
+                                refreshKey={balanceKey}
+                                onRecordsRefresh={handleRecordsRefresh}
+                              />
+                            )}
+                            {earnPool === 1 && <SCInputColumn {...sharedTabProps} onRecordsRefresh={handleRecordsRefresh} />}
+                            {earnPool === 2 && <CTOInputColumn {...sharedTabProps} onRecordsRefresh={handleRecordsRefresh} />}
+                          </Box>
+                        </>
+                      )}
                     </Box>
                   )}
                 </Box>
-              </Fade>
+              )}
+            </Box>
+
+            {/* ── Right: Records | Logs | Monthly | Policy ── */}
+            <Box sx={{ boxSizing: "border-box", minHeight: 0, px: { xs: 1.5, lg: 0 }, pr: { lg: 2 }, py: 2, height: { xs: 640, lg: "100%" } }}>
+              <SidePanelTabs
+                employeeNumber={selectedEmployee?.employeeNumber}
+                year={periodYear}
+                month={periodMonth}
+                hoursPerDay={hoursPerDay}
+                refreshKey={recordsRefreshKey + balanceKey}
+                recordsCount={selectedEmployee ? recordsCount : null}
+                records={
+                  <>
+                    <Box sx={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+                      <RecordsList
+                        employeeNumber={selectedEmployee?.employeeNumber}
+                        type={EARN_POOLS[earnPool].id}
+                        unit={unit}
+                        refreshKey={recordsRefreshKey}
+                        year={periodYear}
+                        month={periodMonth}
+                        onApproved={handleBalanceChanged}
+                        standalone
+                        onStatusChange={() => setVlReceiptRefreshKey((k) => k + 1)}
+                        approverNameLookup={approverNameLookup}
+                        onCountChange={setRecordsCount}
+                      />
+                    </Box>
+                    {selectedEmployee && addToAbstractBar}
+                  </>
+                }
+                monthly={
+                  selectedEmployee ? (
+                    <BalanceOverviewPanel
+                      periods={periodData.periods}
+                      loading={periodData.loading}
+                      year={periodYear}
+                      month={periodMonth}
+                      unit={unit}
+                      hoursPerDay={hoursPerDay}
+                      selectedPool={balancePool}
+                      onSelectPool={setBalancePool}
+                      onSelectMonth={handleMonthChange}
+                    />
+                  ) : (
+                    <Typography sx={{ textAlign: "center", color: T.muted, py: 3, fontSize: "0.74rem", fontFamily: T.poppins }}>
+                      Select an employee to see the monthly balance.
+                    </Typography>
+                  )
+                }
+                policy={<CategoryRulesPanel category={selectedEmployee ? cscCategory : null} empCatLabel={selectedEmployee ? empCat?.label : ""} />}
+              />
             </Box>
           </Box>
-          {isAbstractTab && (
+
+          {!isWorkspace && (
             <Box
               sx={{
                 position: "absolute",
@@ -5449,27 +4865,21 @@ const EarningsManagement = () => {
                 overflow: "hidden",
               }}
             >
-              <Box sx={{ flexShrink: 0 }}>
-                <TabBar activeTab={activeTab} onTabChange={setActiveTab} />
-              </Box>
-              <Box
-                sx={{
-                  flex: 1,
-                  overflowY: "auto",
-                  overflowX: "hidden",
-                  display: "flex",
-                  flexDirection: "column",
-                }}
-              >
-                <Abstract
-                  employee={selectedEmployee}
-                  year={periodYear}
-                  month={periodMonth}
-                  manualRows={manualAbstractRows}
-                  deptMap={deptMap}
-                  deptNameMap={deptNameMap}
-                  empCatMap={empCatMap}
-                />
+              <Box sx={{ flex: 1, overflowY: "auto", overflowX: "hidden", display: "flex", flexDirection: "column" }}>
+                {view === "abstract" ? (
+                  <Abstract
+                    employee={selectedEmployee}
+                    year={periodYear}
+                    month={periodMonth}
+                    manualRows={manualAbstractRows}
+                  />
+                ) : (
+                  <SalaryShortfallRegistry
+                    employee={selectedEmployee}
+                    year={periodYear}
+                    month={periodMonth}
+                  />
+                )}
               </Box>
             </Box>
           )}
@@ -5503,7 +4913,7 @@ const EarningsManagement = () => {
         creditsLoading={vlHalfModalLoading}
         suggestedRateDecimal={vlHalfRateDecimal}
         hoursPerDay={hoursPerDay}
-        deductionOptions={vlHalfDeductionOptions}
+        deductionOptions={halfDayOptionsUi}
         chargeTo={vlHalfChargeTo}
         onChargeToChange={handleVlHalfChargeChange}
       />

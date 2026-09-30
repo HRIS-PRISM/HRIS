@@ -2,7 +2,14 @@ const express = require("express");
 const router = express.Router();
 const db = require("../db");
 const jwt = require("jsonwebtoken");
-const { logAudit, authenticateToken, requireAdmin, requireSelfOrAdmin } = require("../middleware/auth");
+const {
+  logAudit,
+  authenticateToken,
+  requireAdmin,
+  requireSelfOrAdmin,
+  isAdminRole,
+  employeeNumbersMatch,
+} = require("../middleware/auth");
 const { notifyAttendanceChanged } = require("../socket/socketService");
 const {
   SALARY_VALUE: DEDUCTION_SALARY,
@@ -33,10 +40,13 @@ const {
   isCommutedLocked,
   isPeriodVoided,
   assertPeriodIsCurrentDisplay,
+  resolveCurrentDisplayPeriod,
   latestPeriodsByKey,
   loadLeavePeriodHistoryAsync,
 } = require("../utils/leaveAssignmentBalanceUtils");
 const { isApprovedHalfDayInReviewJson } = require("../utils/halfDayReviewUtils");
+const { resolveHoursPerDay } = require("../services/hoursPerDayService");
+const leaveRules = require("../services/leaveRequestRules");
 
 let io;
 router.setSocketIO = (socketIO) => {
@@ -96,44 +106,26 @@ const semRank = (s) => {
 };
 
 /**
- * HR modal context: employee employment type (label only) + hours/day for decimal↔hours sync.
- * Hours/day comes from leave_table.leave_hours for this leave_code (not a separate column on
- * employment types). Actual deduction is always what HR saves on leave_request
+ * HR modal context: employee employment type (label only). Hours/day comes from
+ * resolveHoursPerDay (hoursPerDayService), never from leave_table.leave_hours, which is an
+ * entitlement. Actual deduction is always what HR saves on leave_request
  * (deduction_applied_hours / hr_approval_rate).
  */
-const fetchLeaveDeductionMeta = (employeeNumber, leave_code) =>
+const fetchEmploymentTypeName = (employeeNumber) =>
   new Promise((resolve) => {
     db.query(
-      `SELECT etc.typeName AS employment_type_name,
-              lt.leave_hours AS leave_type_hours
+      `SELECT etc.typeName AS employment_type_name
        FROM users u
        LEFT JOIN employment_category ec
          ON CAST(ec.employeeNumber AS CHAR) = CAST(u.employeeNumber AS CHAR)
        LEFT JOIN employment_type_config etc
          ON etc.id = COALESCE(ec.employmentCategory, u.employmentCategory)
-       LEFT JOIN leave_table lt ON TRIM(lt.leave_code) = TRIM(?)
        WHERE CAST(u.employeeNumber AS CHAR) = CAST(? AS CHAR)
        LIMIT 1`,
-      [leave_code, employeeNumber],
-      (err, rows) => {
-        if (!err && rows?.length) return resolve(rows[0]);
-        db.query(
-          `SELECT NULL AS employment_type_name,
-                  leave_hours AS leave_type_hours
-           FROM leave_table WHERE TRIM(leave_code) = TRIM(?) LIMIT 1`,
-          [leave_code],
-          (e2, r2) => resolve(r2?.[0] || {}),
-        );
-      },
+      [employeeNumber],
+      (err, rows) => resolve((!err && rows?.[0]?.employment_type_name) || null),
     );
   });
-
-const resolveHoursPerDayFromMeta = (meta) => {
-  const lt = parseFloat(meta?.leave_type_hours);
-  if (Number.isFinite(lt) && lt > 0)
-    return { hoursPerDay: lt, rateSource: "leave_table" };
-  return { hoursPerDay: 8, rateSource: "default" };
-};
 
 const getScRemainingHours = (employeeNumber, scType = "non_commutative") =>
   new Promise((resolve, reject) => {
@@ -455,8 +447,7 @@ const buildDeductionSuggestion = async ({
       ? "VL"
       : leave_code || "VL";
 
-  const meta = await fetchLeaveDeductionMeta(employeeNumber, suggestedLeaveCode);
-  const { hoursPerDay } = resolveHoursPerDayFromMeta(meta);
+  const { hoursPerDay } = await resolveHoursPerDay(employeeNumber);
 
   const requestedRate = parseFloat(requested_rate_decimal);
   const defaultRate = isHalfDayAbsence ? 0.5 : 1;
@@ -469,10 +460,23 @@ const buildDeductionSuggestion = async ({
   const availableHours = suggestedLeaveCode
     ? await getTotalRemainingHours(employeeNumber, suggestedLeaveCode)
     : 0;
-  const hasSufficientBalance = availableHours >= recommendedHours;
-  const recommendedChargeTo = hasSufficientBalance
+  let hasSufficientBalance = availableHours >= recommendedHours;
+  let recommendedChargeTo = hasSufficientBalance
     ? suggestedLeaveCode
     : DEDUCTION_SALARY;
+  let fallbackNote = null;
+  // CSC MC 41 s.1998, Sec. 56: sick leave may be charged to VL once SL runs out.
+  if (!hasSufficientBalance && hasLeaveForm && suggestedLeaveCode) {
+    for (const alt of leaveRules.allowedChargeCodes(suggestedLeaveCode).slice(1)) {
+      const altHours = await getTotalRemainingHours(employeeNumber, alt);
+      if (altHours >= recommendedHours) {
+        recommendedChargeTo = alt;
+        hasSufficientBalance = true;
+        fallbackNote = `${String(suggestedLeaveCode).toUpperCase()} balance is short; charged to ${alt} (CSC MC 41 s.1998, Sec. 56).`;
+        break;
+      }
+    }
+  }
 
   return {
     employeeNumber: String(employeeNumber || ""),
@@ -487,7 +491,9 @@ const buildDeductionSuggestion = async ({
     hours_per_day: Number(hoursPerDay.toFixed(4)),
     available_hours: Number((availableHours || 0).toFixed(4)),
     has_sufficient_balance: hasSufficientBalance,
-    recommendation_reason: hasLeaveForm
+    recommendation_reason: fallbackNote
+      ? fallbackNote
+      : hasLeaveForm
       ? "Leave form exists; prefill based on selected leave type."
       : isHalfDayAbsence
         ? "No leave form + half-day absence; prefill VL 0.5 day."
@@ -743,10 +749,61 @@ const getHalfDayDeductionAppliedDates = ({
     );
   });
 
-// Deduct or restore hours across multiple rows (newest-first).
-// deltaHours > 0: deduct from remaining, add to used
-// deltaHours < 0: restore to remaining, subtract from used
-// Persists each slice as a row in leave_credit_usage and refreshes assignment caches from the ledger.
+/** Business-rule failure carrying the HTTP status to return (e.g. 409 insufficient credits). */
+class LeaveRuleError extends Error {
+  constructor(status, code, message) {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
+}
+
+const periodFieldsOf = (row) => {
+  let periodMonth = null;
+  if (row.period_semester != null && String(row.period_semester).trim() !== "") {
+    const n = parseInt(String(row.period_semester).replace(/\D/g, "") || "0", 10);
+    periodMonth = Number.isFinite(n) && n > 0 ? n : null;
+  }
+  const y = row.period_year != null ? parseInt(row.period_year, 10) : NaN;
+  return { period_year: Number.isFinite(y) ? y : null, period_month: periodMonth };
+};
+
+/**
+ * Periods that predate the ledger keep usage only in leave_assignment.used_hours. Before the
+ * first ledger line touches such a period, write that usage as a LEGACY_OPENING line (same
+ * convention as scripts/backfill_leave_credit_usage.js) so the ledger total stays correct.
+ */
+const ensureLegacyOpeningLine = async (conn, assignmentId, lockedRow, employeeNumber, leave_code) => {
+  const legacyUsed = parseDbHours(lockedRow.used_hours) || 0;
+  if (legacyUsed <= 0) return;
+  const [cnt] = await conn.execute(
+    `SELECT COUNT(*) AS c FROM leave_credit_usage
+     WHERE leave_assignment_id = ? AND LOWER(source_type) <> 'commutation'`,
+    [assignmentId],
+  );
+  if ((parseInt(cnt?.[0]?.c, 10) || 0) > 0) return;
+  await insertCreditUsageLine(conn, {
+    leave_assignment_id: assignmentId,
+    employee_number: employeeNumber,
+    leave_code,
+    ...periodFieldsOf(lockedRow),
+    hours_delta: -legacyUsed,
+    source_type: "LEGACY_OPENING",
+    source_id: null,
+    remarks: "Materialized from leave_assignment.used_hours before first ledger entry",
+    created_by: "system",
+  });
+};
+
+/**
+ * Deduct (deltaHours > 0) from, or restore (deltaHours < 0) to, the CURRENT active period.
+ * Prior periods are never charged: their remaining was already carried into the current
+ * period's opening balance, so charging them would consume the same credits twice.
+ * A deduction larger than the available balance is rejected (409), never truncated.
+ *
+ * Pass `conn` to join the caller's transaction; pass `afterCommit` (array) to defer the
+ * audit entry until the caller commits. Returns the hours actually applied.
+ */
 const applyHoursDeltaAcrossAssignments = async ({
   req,
   actorEmployeeNumber,
@@ -756,107 +813,81 @@ const applyHoursDeltaAcrossAssignments = async ({
   requestId = null,
   reason,
   sourceType = null,
+  conn: outerConn = null,
+  afterCommit = null,
 }) => {
   const abs = Math.abs(Number(deltaHours) || 0);
-  if (!employeeNumber || !leave_code || !abs) return;
+  if (!employeeNumber || !leave_code || !abs) return 0;
 
   const allRows = await getLeaveAssignmentsForCode(employeeNumber, leave_code);
-  const rows = sortPeriodsDesc(getActivePeriods(allRows));
-  if (!rows.length) {
+  const current = sortPeriodsDesc(getActivePeriods(allRows))[0];
+  if (!current) {
     if (Number(deltaHours) > 0) {
-      throw new Error(
+      throw new LeaveRuleError(
+        409,
+        "NO_ACTIVE_ASSIGNMENT",
         `No active leave_assignment for leave code "${leave_code}". Assign credits first or choose a different charge-to balance.`,
       );
     }
-    return;
+    return 0;
   }
 
   const resolvedSourceType =
     sourceType ||
     (requestId != null ? "LEAVE_REQUEST" : "LEAVE_BALANCE_ADJUSTMENT");
-
-  const conn = await getPromiseConnection();
   const createdBy = String(actorEmployeeNumber || getActorEmployeeNumber(req));
+
+  const conn = outerConn || (await getPromiseConnection());
+  const ownsTx = !outerConn;
   try {
-    await conn.beginTransaction();
+    if (ownsTx) await conn.beginTransaction();
 
-    let remaining = abs;
-    for (const row of rows) {
-      if (remaining <= 0) break;
+    const [freshRows] = await conn.execute(
+      `SELECT remaining_hours, used_hours, period_year, period_semester
+       FROM leave_assignment WHERE id = ? FOR UPDATE`,
+      [current.id],
+    );
+    const fr = freshRows?.[0];
+    if (!fr) {
+      throw new LeaveRuleError(409, "NO_ACTIVE_ASSIGNMENT", `Leave assignment for "${leave_code}" not found.`);
+    }
+    const curRem = parseDbHours(fr.remaining_hours) || 0;
+    const curUsed = parseDbHours(fr.used_hours) || 0;
 
-      const [freshRows] = await conn.execute(
-        `SELECT remaining_hours, used_hours, period_year, period_semester
-         FROM leave_assignment WHERE id = ? FOR UPDATE`,
-        [row.id],
-      );
-      const fr = freshRows?.[0];
-      if (!fr) continue;
-      const curRem = parseDbHours(fr.remaining_hours) || 0;
-      const curUsed = parseDbHours(fr.used_hours) || 0;
-
-      const periodMonthRaw = fr.period_semester;
-      let periodMonth = null;
-      if (periodMonthRaw != null && String(periodMonthRaw).trim() !== "") {
-        const n = parseInt(String(periodMonthRaw).replace(/\D/g, "") || "0", 10);
-        periodMonth = Number.isFinite(n) && n > 0 ? n : null;
+    let applied;
+    if (deltaHours > 0) {
+      if (curRem + 1e-6 < abs) {
+        throw new LeaveRuleError(
+          409,
+          "INSUFFICIENT_CREDITS",
+          `Insufficient ${leave_code} balance: ${Number(abs.toFixed(4))} hours requested but only ${curRem.toFixed(3)} hours available.`,
+        );
       }
-      const periodYear =
-        fr.period_year != null ? parseInt(fr.period_year, 10) : null;
-
-      if (deltaHours > 0) {
-        if (curRem <= 0) continue;
-        const take = Math.min(curRem, remaining);
-        const newRem = Math.max(0, curRem - take);
-        const newUsed = Math.max(0, curUsed + take);
-        await insertCreditUsageLine(conn, {
-          leave_assignment_id: row.id,
-          employee_number: employeeNumber,
-          leave_code,
-          period_year: Number.isFinite(periodYear) ? periodYear : null,
-          period_month: periodMonth,
-          hours_delta: -take,
-          source_type: resolvedSourceType,
-          source_id: requestId,
-          remarks: reason || null,
-          created_by: createdBy,
-        });
-        await refreshLeaveAssignmentCacheFromLedger(conn, row.id);
-        auditLeaveBalanceAdjustment({
-          req,
-          actorEmployeeNumber,
-          employeeNumber,
-          leave_code,
-          requestId,
-          reason,
-          oldRemaining: curRem,
-          newRemaining: newRem,
-          oldUsed: curUsed,
-          newUsed,
-          deltaHours: -take,
-          assignmentRowId: row.id,
-        });
-        remaining -= take;
-        continue;
+      applied = abs;
+    } else {
+      applied = Math.min(abs, curUsed);
+      if (applied <= 0) {
+        if (ownsTx) await conn.commit();
+        return 0;
       }
+    }
+    const signedDelta = deltaHours > 0 ? -applied : applied;
 
-      const canRestore = curUsed > 0;
-      if (!canRestore) continue;
-      const putBack = Math.min(curUsed, remaining);
-      const newRem = curRem + putBack;
-      const newUsed = Math.max(0, curUsed - putBack);
-      await insertCreditUsageLine(conn, {
-        leave_assignment_id: row.id,
-        employee_number: employeeNumber,
-        leave_code,
-        period_year: Number.isFinite(periodYear) ? periodYear : null,
-        period_month: periodMonth,
-        hours_delta: putBack,
-        source_type: resolvedSourceType,
-        source_id: requestId,
-        remarks: reason || null,
-        created_by: createdBy,
-      });
-      await refreshLeaveAssignmentCacheFromLedger(conn, row.id);
+    await ensureLegacyOpeningLine(conn, current.id, fr, employeeNumber, leave_code);
+    await insertCreditUsageLine(conn, {
+      leave_assignment_id: current.id,
+      employee_number: employeeNumber,
+      leave_code,
+      ...periodFieldsOf(fr),
+      hours_delta: signedDelta,
+      source_type: resolvedSourceType,
+      source_id: requestId,
+      remarks: reason || null,
+      created_by: createdBy,
+    });
+    const refreshed = await refreshLeaveAssignmentCacheFromLedger(conn, current.id);
+
+    const audit = () =>
       auditLeaveBalanceAdjustment({
         req,
         actorEmployeeNumber,
@@ -865,22 +896,103 @@ const applyHoursDeltaAcrossAssignments = async ({
         requestId,
         reason,
         oldRemaining: curRem,
-        newRemaining: newRem,
+        newRemaining: refreshed?.remaining ?? curRem + signedDelta,
         oldUsed: curUsed,
-        newUsed,
-        deltaHours: +putBack,
-        assignmentRowId: row.id,
+        newUsed: refreshed?.used ?? curUsed - signedDelta,
+        deltaHours: signedDelta,
+        assignmentRowId: current.id,
       });
-      remaining -= putBack;
-    }
 
-    await conn.commit();
+    if (ownsTx) {
+      await conn.commit();
+      audit();
+    } else if (Array.isArray(afterCommit)) {
+      afterCommit.push(audit);
+    }
+    return applied;
   } catch (e) {
-    await conn.rollback();
+    if (ownsTx) await conn.rollback();
     throw e;
   } finally {
-    conn.release();
+    if (ownsTx) conn.release();
   }
+};
+
+/**
+ * Reverse every active ledger line posted for a leave request, on the exact assignment rows
+ * it was charged to. Inserts one opposite line per assignment so the request nets to zero;
+ * running it again is a no-op. Returns total hours restored.
+ */
+const reverseLeaveRequestLedger = async ({
+  conn,
+  requestId,
+  employeeNumber,
+  actorEmployeeNumber,
+  reason,
+  afterCommit = null,
+  req = null,
+}) => {
+  const [lines] = await conn.execute(
+    `SELECT leave_assignment_id, leave_code, SUM(hours_delta) AS net
+     FROM leave_credit_usage
+     WHERE source_type = 'LEAVE_REQUEST' AND source_id = ? AND voided_at IS NULL
+     GROUP BY leave_assignment_id, leave_code`,
+    [requestId],
+  );
+  let restored = 0;
+  for (const line of lines || []) {
+    const net = parseDbHours(line.net);
+    if (net >= -1e-6) continue;
+    const [locked] = await conn.execute(
+      `SELECT remaining_hours, used_hours, period_year, period_semester
+       FROM leave_assignment WHERE id = ? FOR UPDATE`,
+      [line.leave_assignment_id],
+    );
+    const fr = locked?.[0];
+    if (!fr) continue;
+    const putBack = -net;
+    await insertCreditUsageLine(conn, {
+      leave_assignment_id: line.leave_assignment_id,
+      employee_number: employeeNumber,
+      leave_code: line.leave_code,
+      ...periodFieldsOf(fr),
+      hours_delta: putBack,
+      source_type: "LEAVE_REQUEST",
+      source_id: requestId,
+      remarks: reason || null,
+      metadata: { reversal: true },
+      created_by: String(actorEmployeeNumber || "unknown"),
+    });
+    const refreshed = await refreshLeaveAssignmentCacheFromLedger(conn, line.leave_assignment_id);
+    restored += putBack;
+    const audit = () =>
+      auditLeaveBalanceAdjustment({
+        req,
+        actorEmployeeNumber,
+        employeeNumber,
+        leave_code: line.leave_code,
+        requestId,
+        reason,
+        oldRemaining: parseDbHours(fr.remaining_hours),
+        newRemaining: refreshed?.remaining,
+        oldUsed: parseDbHours(fr.used_hours),
+        newUsed: refreshed?.used,
+        deltaHours: putBack,
+        assignmentRowId: line.leave_assignment_id,
+      });
+    if (Array.isArray(afterCommit)) afterCommit.push(audit);
+    else audit();
+  }
+  return restored;
+};
+
+/** Whether any ledger line (active or voided) was ever posted for this leave request. */
+const hasLeaveRequestLedgerHistory = async (conn, requestId) => {
+  const [rows] = await conn.execute(
+    `SELECT COUNT(*) AS c FROM leave_credit_usage WHERE source_type = 'LEAVE_REQUEST' AND source_id = ?`,
+    [requestId],
+  );
+  return (parseInt(rows?.[0]?.c, 10) || 0) > 0;
 };
 
 const insertTransactionLog = (
@@ -1619,10 +1731,26 @@ router.delete("/leave_assignment/:id", requireAdmin, (req, res) => {
   const actorEmpNum = getActorEmployeeNumber(req);
   // Fetch first so we have employee info for logging
   db.query(
-    "SELECT employeeNumber, leave_code FROM leave_assignment WHERE id = ?",
+    `SELECT la.employeeNumber, la.leave_code,
+            (SELECT COUNT(*) FROM leave_credit_usage lcu WHERE lcu.leave_assignment_id = la.id) AS ledger_lines,
+            (SELECT COUNT(*) FROM leave_earnings le
+              WHERE le.employee_number = la.employeeNumber AND TRIM(le.leave_code) = TRIM(la.leave_code)
+                AND le.period_year <=> la.period_year
+                AND (le.period_month = la.period_semester OR (le.period_month IS NULL AND la.period_semester IS NULL))
+                AND le.earn_status = 'approved' AND COALESCE(le.is_applied, 0) = 1
+                AND COALESCE(le.voided, 0) = 0) AS applied_earnings
+     FROM leave_assignment la WHERE la.id = ?`,
     [req.params.id],
     (fetchErr, rows) => {
-      const targetRecord = (!fetchErr && rows && rows[0]) ? rows[0] : null;
+      if (fetchErr) return res.status(500).json({ error: "Failed to load leave assignment" });
+      const targetRecord = rows && rows[0] ? rows[0] : null;
+      if (!targetRecord) return res.status(404).json({ error: "Leave assignment not found" });
+      if (Number(targetRecord.ledger_lines) > 0 || Number(targetRecord.applied_earnings) > 0) {
+        return res.status(409).json({
+          error: "This period has posted deductions or earnings. Void the period instead so its history is kept.",
+          code: "HAS_LEDGER_HISTORY",
+        });
+      }
       db.query(
         "DELETE FROM leave_assignment WHERE id = ?",
         [req.params.id],
@@ -1686,8 +1814,9 @@ router.get("/leave_assignment/period-history", requireAdmin, async (req, res) =>
 });
 
 // ─── DELETE /leave_assignment/:id/void-period ───────────────────────────────
-// Soft-void current period assignment + matching leave_earnings + credit usage.
-router.delete("/leave_assignment/:id/void-period", requireAdmin, async (req, res) => {
+// Roll back attendance deductions (absence / tardiness / half-day) and earnings for this leave
+// type and year; the assignment and approved leave requests / commutations are kept.
+const voidPeriodHandler = async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isFinite(id) || id <= 0) {
     return res.status(400).json({ error: "Invalid id" });
@@ -1742,47 +1871,206 @@ router.delete("/leave_assignment/:id/void-period", requireAdmin, async (req, res
     const leaveCode = String(rec.leave_code || "").trim();
     const py = rec.period_year;
     const sem = rec.period_semester ?? rec.period_month;
-    const semPad = sem != null ? String(sem).padStart(2, "0") : null;
     const beforeRemaining = toNum(rec.remaining_hours);
+    const actorEmpNum = getActorEmployeeNumber(req);
 
+    // Rollback-only void: undo the attendance deductions (absence / tardiness / half-day) and the
+    // earnings for this leave type and year, and keep the assignment itself. Leave requests,
+    // commutations and legacy opening lines stay, so the balance returns to what HR assigned
+    // minus any approved leave actually taken.
+    const KEPT_LEDGER_SOURCES = ["leave_request", "commutation", "legacy_opening"];
+    const periodRank = (r) => {
+      const s = r.period_semester ?? r.period_month;
+      return s == null || String(s).trim() === "" ? 0 : parseInt(s, 10) || 0;
+    };
+
+    // Payroll lock: refuse when any month this rollback touches is already in Payroll Processing
+    // (same rule the Leave Assignment and Abstract screens show). Months come from the deduction
+    // lines, earnings and half-day decisions that would be rolled back.
+    {
+      const monthRows = await queryAsync(
+        `SELECT DISTINCT m FROM (
+           SELECT lcu.period_month AS m FROM leave_credit_usage lcu
+             JOIN leave_assignment la ON la.id = lcu.leave_assignment_id
+            WHERE la.employeeNumber = ? AND TRIM(la.leave_code) = TRIM(?) AND la.period_year <=> ?
+              AND la.voided_at IS NULL AND lcu.voided_at IS NULL
+              AND LOWER(lcu.source_type) NOT IN ('leave_request','commutation','legacy_opening')
+           UNION
+           SELECT period_month FROM leave_earnings
+            WHERE employee_number = ? AND TRIM(leave_code) = TRIM(?) AND period_year <=> ?
+              AND voided_at IS NULL AND earn_status IN ('approved','pending')
+           UNION
+           SELECT MONTH(leave_date) FROM deduction_decision_log
+            WHERE employeeNumber = ? AND TRIM(leave_code) = TRIM(?) AND YEAR(leave_date) = ?
+              AND decision_source = 'half_day_policy_manual_apply' AND decision IN ('accepted','overridden')
+         ) t WHERE m BETWEEN 1 AND 12`,
+        [emp, leaveCode, py, emp, leaveCode, py, emp, leaveCode, py],
+      );
+      const months = monthRows.map((r) => parseInt(r.m, 10)).filter((m) => Number.isFinite(m));
+      if (months.length) {
+        const bounds = months.map((m) => {
+          const mm = String(m).padStart(2, "0");
+          return [`${py}-${mm}-01`, `${py}-${mm}-${String(new Date(py, m, 0).getDate()).padStart(2, "0")}`];
+        });
+        const locked = await queryAsync(
+          `SELECT startDate FROM payroll_processing
+            WHERE TRIM(CAST(employeeNumber AS CHAR)) IN (?, ?)
+              AND (${bounds.map(() => "(LEFT(startDate,10) = ? AND LEFT(endDate,10) = ?)").join(" OR ")})`,
+          [emp, emp.replace(/^0+/, "") || emp, ...bounds.flat()],
+        );
+        if (locked.length) {
+          const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+          const names = [...new Set(locked.map((l) => MONTHS[parseInt(String(l.startDate).slice(5, 7), 10) - 1]).filter(Boolean))];
+          return res.status(409).json({
+            code: "PAYROLL_LOCKED",
+            error: `Cannot void: ${names.join(", ")} ${py} is already in Payroll Processing. Remove it there first.`,
+          });
+        }
+      }
+    }
+
+    let summary;
     const conn = await getPromiseConnection();
     try {
       await conn.beginTransaction();
 
-      const [voidAssignResult] = await conn.execute(
-        `UPDATE leave_assignment SET voided_at = NOW()
+      const [chainRaw] = await conn.execute(
+        `SELECT * FROM leave_assignment
          WHERE employeeNumber = ? AND TRIM(leave_code) = TRIM(?)
-           AND period_year <=> ? AND period_semester <=> ?
-           AND voided_at IS NULL`,
-        [emp, leaveCode, py, sem],
+           AND period_year <=> ? AND voided_at IS NULL
+         FOR UPDATE`,
+        [emp, leaveCode, py],
       );
-      if (!voidAssignResult.affectedRows) {
+      // Oldest period first (annual row before monthly rows), then by id.
+      const chain = [...chainRaw].sort((a, b) => periodRank(a) - periodRank(b) || a.id - b.id);
+      if (!chain.some((r) => r.id === voidId)) {
         await conn.rollback();
-        return res.status(404).json({ error: "Period not found or already voided" });
+        return res.status(409).json({ error: "Period changed while voiding; reload and try again." });
       }
+      const chainIds = chain.map((r) => r.id);
+      const ph = (arr) => arr.map(() => "?").join(",");
 
-      await conn.execute(
-        `UPDATE leave_earnings SET voided_at = NOW(), voided = 1, is_applied = 0
-         WHERE employee_number = ? AND TRIM(leave_code) = TRIM(?)
-           AND voided_at IS NULL
-           AND period_year <=> ?
-           AND (period_month = ? OR period_month = ? OR (? IS NULL AND period_month IS NULL))`,
-        [emp, leaveCode, py, sem, semPad, sem],
+      // 1) Attendance deduction ledger lines.
+      const [usageRows] = await conn.execute(
+        `SELECT id FROM leave_credit_usage
+         WHERE leave_assignment_id IN (${ph(chainIds)}) AND voided_at IS NULL
+           AND LOWER(source_type) NOT IN (${ph(KEPT_LEDGER_SOURCES)})`,
+        [...chainIds, ...KEPT_LEDGER_SOURCES],
       );
-
-      const assignIds = allRows
-        .filter((a) => String(a.period_year) === String(py)
-          && String(a.period_semester ?? a.period_month) === String(sem ?? ""))
-        .map((a) => a.id)
-        .filter((aid) => aid != null);
-
-      if (assignIds.length) {
+      const usageIds = usageRows.map((r) => r.id);
+      if (usageIds.length) {
         await conn.execute(
-          `UPDATE leave_credit_usage SET voided_at = NOW()
-           WHERE leave_assignment_id IN (${assignIds.map(() => "?").join(",")}) AND voided_at IS NULL`,
-          assignIds,
+          `UPDATE leave_credit_usage SET voided_at = NOW() WHERE id IN (${ph(usageIds)})`,
+          usageIds,
         );
       }
+
+      // 2) Earnings (positive earned/adjustments and the negative deduction entries).
+      const [earnRows] = await conn.execute(
+        `SELECT id FROM leave_earnings
+         WHERE employee_number = ? AND TRIM(leave_code) = TRIM(?) AND period_year <=> ?
+           AND voided_at IS NULL AND earn_status IN ('approved','pending')
+         FOR UPDATE`,
+        [emp, leaveCode, py],
+      );
+      const earningIds = earnRows.map((r) => r.id);
+      if (earningIds.length) {
+        await conn.execute(
+          `UPDATE leave_earnings SET voided_at = NOW(), voided = 1, is_applied = 0 WHERE id IN (${ph(earningIds)})`,
+          earningIds,
+        );
+      }
+
+      // 3) Half-day decisions charged to this leave: reopen those dates for deduction.
+      const [ddlRows] = await conn.execute(
+        `SELECT id FROM deduction_decision_log
+         WHERE employeeNumber = ? AND TRIM(leave_code) = TRIM(?)
+           AND decision_source = 'half_day_policy_manual_apply'
+           AND decision IN ('accepted','overridden')
+           AND YEAR(leave_date) = ?
+         FOR UPDATE`,
+        [emp, leaveCode, py],
+      );
+      const decisionIds = ddlRows.map((r) => r.id);
+      if (decisionIds.length) {
+        await conn.execute(
+          `UPDATE deduction_decision_log
+           SET decision = 'voided',
+               override_reason = CONCAT_WS(' | ', NULLIF(override_reason, ''), ?)
+           WHERE id IN (${ph(decisionIds)})`,
+          [`Rolled back by leave void (${actorEmpNum}, ${new Date().toISOString().slice(0, 10)})`, ...decisionIds],
+        );
+      }
+
+      // 4) Derived rows that pointed at what was rolled back (attendance coverage, salary shortfall).
+      const sourceKeys = [
+        ...usageIds.map((i) => `LEAVE_CREDIT_USAGE:${i}`),
+        ...earningIds.map((i) => `LEAVE_EARNING:${i}`),
+        ...decisionIds.map((i) => `HALF_DAY_DDL:${i}`),
+      ];
+      let attendanceRemoved = 0;
+      if (sourceKeys.length) {
+        const [r] = await conn.execute(
+          `DELETE FROM attendance_result
+           WHERE source_key IN (${ph(sourceKeys)})
+              ${earningIds.length ? `OR leave_earning_id IN (${ph(earningIds)})` : ""}`,
+          [...sourceKeys, ...earningIds],
+        );
+        attendanceRemoved = r.affectedRows || 0;
+      }
+      // Every attendance deduction on this leave type for the year is now rolled back, so any
+      // remaining coverage row for it is stale (e.g. pointing at a rejected earning or a deleted
+      // decision). Keep only rows tied to ledger lines that are still active (leave requests).
+      const [keptUsage] = await conn.execute(
+        `SELECT id FROM leave_credit_usage WHERE leave_assignment_id IN (${ph(chainIds)}) AND voided_at IS NULL`,
+        chainIds,
+      );
+      const keptKeys = keptUsage.map((r) => `LEAVE_CREDIT_USAGE:${r.id}`);
+      const [stale] = await conn.execute(
+        `DELETE FROM attendance_result
+         WHERE TRIM(CAST(employee_number AS CHAR)) = ? AND TRIM(leave_used) = TRIM(?) AND YEAR(result_date) = ?
+           AND (source_key LIKE 'LEAVE_EARNING:%' OR source_key LIKE 'HALF_DAY_DDL:%' OR source_key LIKE 'LEAVE_CREDIT_USAGE:%')
+           ${keptKeys.length ? `AND source_key NOT IN (${ph(keptKeys)})` : ""}`,
+        [emp, leaveCode, py, ...keptKeys],
+      );
+      attendanceRemoved += stale.affectedRows || 0;
+      let shortfallRemoved = 0;
+      if (earningIds.length) {
+        const [r] = await conn.execute(
+          `DELETE FROM leave_salary_shortfall WHERE leave_earning_id IN (${ph(earningIds)})`,
+          earningIds,
+        );
+        shortfallRemoved = r.affectedRows || 0;
+      }
+
+      // 5) Rebuild the balances down the chain. Carry-forward rows (allocated == carried) were
+      //    snapshots of the prior period's remaining, so re-base them on the refreshed prior row.
+      let prevRemaining = null;
+      for (const row of chain) {
+        const alloc = toNum(row.allocated_hours);
+        const carried = toNum(row.carried_forward_hours);
+        if (prevRemaining != null && carried > 0 && Math.abs(alloc - carried) < 1e-6) {
+          await conn.execute(
+            `UPDATE leave_assignment SET allocated_hours = ?, carried_forward_hours = ? WHERE id = ?`,
+            [prevRemaining, prevRemaining, row.id],
+          );
+        }
+        const refreshed = await refreshLeaveAssignmentCacheFromLedger(conn, row.id);
+        if (refreshed && !refreshed.skipped) prevRemaining = refreshed.remaining;
+      }
+
+      const [[after]] = await conn.execute(
+        `SELECT remaining_hours FROM leave_assignment WHERE id = ?`,
+        [voidId],
+      );
+      summary = {
+        ledgerLines: usageIds.length,
+        earnings: earningIds.length,
+        halfDays: decisionIds.length,
+        attendanceRemoved,
+        shortfallRemoved,
+        remainingAfter: toNum(after?.remaining_hours),
+      };
 
       await conn.commit();
     } catch (txErr) {
@@ -1792,7 +2080,6 @@ router.delete("/leave_assignment/:id/void-period", requireAdmin, async (req, res
       conn.release();
     }
 
-    const actorEmpNum = getActorEmployeeNumber(req);
     try {
       const [empName, actorName, leaveDesc] = await Promise.all([
         getEmployeeFullName(emp),
@@ -1810,14 +2097,17 @@ router.delete("/leave_assignment/:id/void-period", requireAdmin, async (req, res
       const periodLbl = `${py}${sem != null ? ` / ${sem}` : ""}`;
       logAudit(
         { employeeNumber: actorEmpNum },
-        `Void Leave Assignment Period - ${leaveDesc}`,
+        `Void (roll back) Leave Deductions & Earnings - ${leaveDesc}`,
         "leave_assignment",
         voidId,
         emp,
       );
       await insertTransactionLog(
         String(emp),
-        `${actorDisplay} voided ${leaveDesc} period ${periodLbl} for ${empDisplay} (prior remaining ${beforeRemaining.toFixed(3)} hrs).`,
+        `${actorDisplay} rolled back ${leaveDesc} ${periodLbl} for ${empDisplay}: ` +
+          `${summary.ledgerLines} deduction line(s), ${summary.earnings} earning(s), ${summary.halfDays} half-day decision(s) voided; ` +
+          `${summary.attendanceRemoved} attendance result(s) and ${summary.shortfallRemoved} salary shortfall(s) removed. ` +
+          `Remaining ${beforeRemaining.toFixed(3)} → ${summary.remainingAfter.toFixed(3)} hrs.`,
         actorEmpNum,
       );
     } catch (e) {
@@ -1826,14 +2116,51 @@ router.delete("/leave_assignment/:id/void-period", requireAdmin, async (req, res
 
     emitLeaveChange("leaveAssignmentChanged");
     res.json({
-      message: "Period voided",
+      message: "Deductions and earnings rolled back",
       id: voidId,
       employeeNumber: emp,
       leave_code: leaveCode,
+      ...summary,
     });
   } catch (e) {
     console.error("[leave] void-period:", e.message);
     res.status(500).json({ error: e.message || "Failed to void period" });
+  }
+};
+router.delete("/leave_assignment/:id/void-period", requireAdmin, voidPeriodHandler);
+
+// ─── POST /leave_assignment/void-rollback ───────────────────────────────────
+// Same rollback as Void in Leave Assignment, addressed by employee + leave type + year
+// (used by the Abstract tab). Resolves the leave type's current period and voids that.
+router.post("/leave_assignment/void-rollback", requireAdmin, async (req, res) => {
+  const emp = String(req.body?.employeeNumber || "").trim();
+  const leaveCode = String(req.body?.leave_code || "").trim().toUpperCase();
+  const year = parseInt(req.body?.year, 10);
+  if (!emp || !leaveCode || !Number.isFinite(year)) {
+    return res.status(400).json({ error: "employeeNumber, leave_code and year are required" });
+  }
+  try {
+    const rows = await new Promise((resolve, reject) =>
+      db.query(
+        `SELECT * FROM leave_assignment WHERE employeeNumber = ? AND TRIM(leave_code) = TRIM(?)`,
+        [emp, leaveCode],
+        (err, r) => (err ? reject(err) : resolve((r || []).map(normalizeAssignmentRow))),
+      ),
+    );
+    const current = resolveCurrentDisplayPeriod(latestPeriodsByKey(rows));
+    if (!current) {
+      return res.status(404).json({ error: `${leaveCode} has no active assignment for this employee.` });
+    }
+    if (parseInt(current.period_year, 10) !== year) {
+      return res.status(409).json({
+        error: `The current ${leaveCode} period is in ${current.period_year}, not ${year}. Void it from Leave Assignment instead.`,
+      });
+    }
+    req.params.id = String(current.id);
+    return voidPeriodHandler(req, res);
+  } catch (e) {
+    console.error("[leave] void-rollback:", e.message);
+    return res.status(500).json({ error: e.message || "Failed to void" });
   }
 });
 
@@ -2319,8 +2646,7 @@ router.post("/leave_request/halfday-deduction-apply", requireAdmin, (req, res) =
         deducted_hours: hours,
       });
     } catch (e) {
-      console.error("[halfday-deduction-apply]", e);
-      res.status(500).json({ error: e.message || "Half-day deduction apply failed" });
+      sendLeaveError(res, e, "Half-day deduction apply failed");
     }
   })();
 });
@@ -2335,18 +2661,48 @@ router.post("/leave_request/hr-deduction-context", requireAdmin, (req, res) => {
   }
   (async () => {
     try {
-      const meta = await fetchLeaveDeductionMeta(employeeNumber, leave_code);
-      const { hoursPerDay, rateSource } = resolveHoursPerDayFromMeta(meta);
+      const [{ hoursPerDay, rateSource }, employmentTypeName, profile] = await Promise.all([
+        resolveHoursPerDay(employeeNumber),
+        fetchEmploymentTypeName(employeeNumber),
+        leaveRules.fetchEmployeeProfile(employeeNumber),
+      ]);
       res.json({
         hoursPerDay,
         rateSource,
-        employmentTypeName: meta.employment_type_name || null,
+        employmentTypeName,
+        cscCategory: profile.categoryCode,
+        allowed_charge_codes: leaveRules.allowedChargeCodes(leave_code, profile.categoryCode),
       });
     } catch (e) {
       console.error("[hr-deduction-context]", e.message);
       res.status(500).json({ error: "Failed to load deduction context" });
     }
   })();
+});
+
+// Non-working days (holidays + days outside the official time schedule) for the date picker.
+router.get("/leave_request/calendar/:employeeNumber", requireSelfOrAdmin('employeeNumber'), async (req, res) => {
+  const start = String(req.query.start || "").slice(0, 10);
+  const end = String(req.query.end || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end) || start > end) {
+    return res.status(400).json({ error: "start and end (YYYY-MM-DD) are required" });
+  }
+  try {
+    const [cal, profile] = await Promise.all([
+      leaveRules.describeCalendar(req.params.employeeNumber, start, end),
+      leaveRules.fetchEmployeeProfile(req.params.employeeNumber),
+    ]);
+    res.json({
+      ...cal,
+      cscCategory: profile.categoryCode,
+      categoryLabel: profile.categoryLabel,
+      noLeaveBenefits: profile.isJobOrder,
+      sex: profile.sex,
+    });
+  } catch (e) {
+    console.error("[leave_request/calendar]", e.message);
+    res.status(500).json({ error: "Failed to load leave calendar" });
+  }
 });
 
 router.get("/leave_request/:employeeNumber", requireSelfOrAdmin('employeeNumber'), (req, res) => {
@@ -2383,922 +2739,806 @@ router.get("/leave_request/transactions/:employeeNumber", requireSelfOrAdmin('em
 });
 
 // ============================================================
-// POST /leave_request
+// Leave request lifecycle
 //
-// RULES:
-//  1. Each requested date = 8 hours (for HR deduction workflows).
-//  2. Employees may file even with low/zero balance; HR approves or denies
-//     and applies deductions via the admin leave flow.
+// Status: 0 Pending, 1 Approved by Supervisor, 2 Approved by HR, 3 Denied, 4 Cancelled.
+// Credits move only on HR approval (-> 2, deduct) and on reversal of an HR approval
+// (2 -> 3/4, restore the exact ledger lines). Every transition runs in one transaction
+// with the request row locked, so a deduction can never be applied twice.
 // ============================================================
-router.post("/leave_request", (req, res) => {
-  const { employeeNumber, leave_code, leave_dates, status } = req.body;
-  const actorEmployeeNumber = getActorEmployeeNumber(req, employeeNumber);
-  const dates = Array.isArray(leave_dates) ? leave_dates : [leave_dates];
+const LEAVE_STATUS_LABELS = {
+  0: "Pending",
+  1: "Approved by Supervisor",
+  2: "Approved by HR",
+  3: "Denied",
+  4: "Cancelled",
+};
+const ALLOWED_LEAVE_TRANSITIONS = { 0: [1, 2, 3, 4], 1: [2, 3, 4], 2: [3, 4], 3: [], 4: [] };
 
-  if (!dates.length)
-    return res
-      .status(400)
-      .json({ error: "At least one leave date is required" });
-
-  const proceed = async () => {
-    // ── INSERT all leave request rows ──────────────────────────
-    const insertPromises = dates.map(
-      (date) =>
-        new Promise((resolve, reject) => {
-          db.query(
-            "INSERT INTO leave_request (employeeNumber, leave_code, leave_date, status, created_at) VALUES (?, ?, ?, ?, NOW())",
-            [employeeNumber, leave_code, date, status || 0],
-            (err, result) => (err ? reject(err) : resolve(result)),
-          );
-        }),
+const assertLeaveStatusTransition = (oldStatus, newStatus) => {
+  if (!Object.prototype.hasOwnProperty.call(LEAVE_STATUS_LABELS, newStatus)) {
+    throw new LeaveRuleError(400, "INVALID_STATUS", "Invalid status value");
+  }
+  if (!(ALLOWED_LEAVE_TRANSITIONS[oldStatus] || []).includes(newStatus)) {
+    throw new LeaveRuleError(
+      409,
+      "INVALID_TRANSITION",
+      `Cannot change a leave request from "${LEAVE_STATUS_LABELS[oldStatus] ?? oldStatus}" to "${LEAVE_STATUS_LABELS[newStatus]}".`,
     );
+  }
+};
 
-    Promise.all(insertPromises)
-.then(() => {
-  db.query(
-    "SELECT leave_description FROM leave_table WHERE TRIM(leave_code) = TRIM(?) LIMIT 1",
-    [leave_code],
-    async (err, leaveTypeRows) => {
-      if (err) {
-        console.error(err);
-        return res.status(500).json({ error: "Leave type lookup failed" });
+const isCtoCode = (code) => String(code || "").trim().toUpperCase() === "CTO";
+const isScCode = (code) => String(code || "").trim().toUpperCase() === "SC";
+
+const getRemainingForChargeCode = (employeeNumber, code) =>
+  isCtoCode(code)
+    ? getCtoRemainingHours(employeeNumber)
+    : isScCode(code)
+      ? getScRemainingHours(employeeNumber)
+      : getTotalRemainingHours(employeeNumber, code);
+
+const sendLeaveError = (res, e, fallback) => {
+  const status = Number(e?.status) || 500;
+  if (status >= 500) console.error(`[leave] ${fallback}:`, e?.message);
+  if (!res.headersSent) {
+    res.status(status).json({ error: e?.message || fallback, code: e?.code || null });
+  }
+};
+
+const resolveDeductionHours = ({ deduction_hours, rate_decimal, hoursPerDay }) => {
+  const dh = parseFloat(deduction_hours);
+  const rr = parseFloat(rate_decimal);
+  if (Number.isFinite(dh) && dh > 0) {
+    return {
+      delta: dh,
+      storedRate:
+        Number.isFinite(rr) && rr > 0
+          ? Number(rr.toFixed(3))
+          : Number((dh / hoursPerDay).toFixed(3)),
+    };
+  }
+  if (Number.isFinite(rr) && rr > 0) {
+    return { delta: Number((rr * hoursPerDay).toFixed(4)), storedRate: Number(rr.toFixed(3)) };
+  }
+  throw new LeaveRuleError(
+    400,
+    "DEDUCTION_REQUIRED",
+    "HR approval requires a positive deduction_hours and/or rate_decimal in the request body.",
+  );
+};
+
+/** SC/CTO ledgers use their own connections; surface their shortfalls as 409s. */
+const applyScDelta = async (args) => {
+  try {
+    await applyHoursDeltaAcrossServiceCredit(args);
+  } catch (e) {
+    if (/insufficient/i.test(e?.message || "")) {
+      throw new LeaveRuleError(409, "INSUFFICIENT_CREDITS", e.message);
+    }
+    throw e;
+  }
+};
+
+const ctoPeriodOf = (leaveDateOnly) => {
+  const y = parseInt(String(leaveDateOnly).slice(0, 4), 10);
+  const m = parseInt(String(leaveDateOnly).slice(5, 7), 10);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) {
+    throw new LeaveRuleError(400, "INVALID_DATE", "Invalid leave_date for CTO ledger period");
+  }
+  return { y, m };
+};
+
+/**
+ * Move one leave request to `newStatus`. Authorization, transition rules, the credit
+ * movement and the status update all happen while the request row is locked.
+ * Non-admins may only cancel their own request while it is still Pending/Supervisor-approved.
+ * Employee, leave type and date always come from the stored request, never the payload.
+ */
+const transitionLeaveRequest = async ({
+  req,
+  requestId,
+  newStatus,
+  actorEmployeeNumber,
+  isAdmin,
+  deductionInput = {},
+}) => {
+  const { deduction_hours, rate_decimal, charge_to, decision_context } = deductionInput;
+  const conn = await getPromiseConnection();
+  const afterCommit = [];
+  // SC/CTO ledgers write through the pool (outside this transaction). If anything after
+  // that write fails, this undoes it so the balance and the request stay in step.
+  let undoExternal = null;
+  let result;
+  try {
+    await conn.beginTransaction();
+    const [rows] = await conn.execute("SELECT * FROM leave_request WHERE id = ? FOR UPDATE", [requestId]);
+    const request = rows?.[0];
+    if (!request) throw new LeaveRuleError(404, "NOT_FOUND", "Leave request not found");
+    const oldStatus = parseInt(request.status, 10);
+
+    if (!isAdmin) {
+      const own = employeeNumbersMatch(request.employeeNumber, req.user?.employeeNumber);
+      if (!own || newStatus !== 4 || ![0, 1].includes(oldStatus)) {
+        throw new LeaveRuleError(
+          403,
+          "FORBIDDEN",
+          "You can only cancel your own leave requests that are not yet approved by HR.",
+        );
+      }
+    }
+    assertLeaveStatusTransition(oldStatus, newStatus);
+
+    const employeeNumber = String(request.employeeNumber);
+    const leave_code = request.leave_code;
+    const leave_date = toMysqlDateOnly(request.leave_date);
+    const base = { requestId, employeeNumber, leave_code, leave_date, oldStatus, newStatus };
+
+    // Payroll lock: once the leave date's month is in Payroll Processing, its credits are final.
+    if (newStatus === 2 || oldStatus === 2) {
+      await leaveRules.assertNotPayrollLocked(
+        employeeNumber,
+        [leave_date],
+        newStatus === 2 ? "approve this leave" : "reverse this HR-approved leave",
+      );
+    }
+
+    if (newStatus === 2) {
+      const fallbackSuggestion = await buildDeductionSuggestion({
+        employeeNumber,
+        leave_code,
+        leave_date,
+        has_leave_form: true,
+        is_half_day_absence: false,
+        requested_rate_decimal: parseFloat(rate_decimal) || null,
+      });
+      const systemRecommendation = decision_context?.system_recommendation || fallbackSuggestion;
+      const chargeCode = resolveHrDeductionChargeCode({
+        charge_to,
+        decision_context,
+        requestLeaveCode: leave_code,
+        systemRecommendation,
+      });
+      if (!chargeCode || chargeCode === DEDUCTION_SALARY) {
+        throw new LeaveRuleError(
+          409,
+          "INSUFFICIENT_CREDITS",
+          "This leave cannot be approved as a salary deduction. Choose a leave balance with enough credits, or deny the request.",
+        );
+      }
+      const profile = await leaveRules.fetchEmployeeProfile(employeeNumber);
+      leaveRules.assertChargeAllowed(leave_code, chargeCode, profile.categoryCode);
+      const { hoursPerDay } = await resolveHoursPerDay(employeeNumber);
+      const { delta, storedRate } = resolveDeductionHours({ deduction_hours, rate_decimal, hoursPerDay });
+      const availableBefore = await getRemainingForChargeCode(employeeNumber, chargeCode);
+
+      if (isCtoCode(chargeCode)) {
+        const { y, m } = ctoPeriodOf(leave_date);
+        const ctoLedger = await appendCtoDeductionSnapshotRowAsync({
+          employeeNumber,
+          needHours: delta,
+          period_year: y,
+          period_month: m,
+          expiry_date: null,
+          remarksForLedger: `Leave request HR approval · ${leave_date} · leave_request:${requestId}`,
+          emp_category_snapshot: null,
+          usageDateUsed: leave_date,
+          usageAction: "offset",
+        });
+        const ctoTaken = Number(ctoLedger?.deducted) || 0;
+        if (ctoTaken > 0) {
+          undoExternal = () =>
+            appendCtoDeductionSnapshotRowAsync({
+              employeeNumber,
+              needHours: -ctoTaken,
+              period_year: y,
+              period_month: m,
+              expiry_date: null,
+              remarksForLedger: `Leave request approval rolled back · ${leave_date} · leave_request:${requestId}`,
+              emp_category_snapshot: null,
+              usageDateUsed: leave_date,
+              usageAction: "restore",
+            });
+        }
+        if (!Number.isFinite(ctoLedger?.deducted) || ctoLedger.deducted + 1e-6 < delta) {
+          throw new LeaveRuleError(409, "INSUFFICIENT_CREDITS", "CTO deduction failed due to insufficient remaining credits");
+        }
+      } else if (isScCode(chargeCode)) {
+        await applyScDelta({
+          req,
+          actorEmployeeNumber,
+          employeeNumber,
+          deltaHours: delta,
+          leaveDateOnly: leave_date,
+          requestId,
+          reason: `HR Approved — deducted ${delta} hours from SC balance`,
+          scType: "non_commutative",
+        });
+        undoExternal = () =>
+          applyScDelta({
+            req,
+            actorEmployeeNumber,
+            employeeNumber,
+            deltaHours: -delta,
+            leaveDateOnly: leave_date,
+            requestId,
+            reason: `HR approval rolled back — restored ${delta} hours to SC`,
+            scType: "non_commutative",
+          });
+      } else {
+        await applyHoursDeltaAcrossAssignments({
+          req,
+          actorEmployeeNumber,
+          employeeNumber,
+          leave_code: chargeCode,
+          deltaHours: delta,
+          requestId,
+          reason: `HR Approved — deducted ${delta} hours from ${chargeCode} balance`,
+          conn,
+          afterCommit,
+        });
       }
 
-      const leave_description =
-        (leaveTypeRows &&
-          leaveTypeRows[0] &&
-          leaveTypeRows[0].leave_description) ||
-        leave_code;
+      // Leave balances are read through the pool, which cannot see this uncommitted
+      // transaction, so derive the after-balance; SC/CTO ledgers are already committed.
+      const availableAfter =
+        isCtoCode(chargeCode) || isScCode(chargeCode)
+          ? await getRemainingForChargeCode(employeeNumber, chargeCode)
+          : Math.max(0, availableBefore - delta);
 
+      await conn.execute(
+        `UPDATE leave_request
+            SET status = 2, deduction_applied_hours = ?, hr_approval_rate = ?, deduction_charge_to = ?,
+                deduction_balance_before_hours = ?, deduction_balance_after_hours = ?
+          WHERE id = ?`,
+        [
+          delta,
+          storedRate,
+          chargeCode,
+          Number(availableBefore.toFixed(4)),
+          Number(availableAfter.toFixed(4)),
+          requestId,
+        ],
+      );
+      result = {
+        ...base,
+        kind: "deduct",
+        chargeCode,
+        delta,
+        storedRate,
+        availableBefore,
+        availableAfter,
+        systemRecommendation,
+      };
+    } else if (oldStatus === 2) {
+      const chargeCode = String(request.deduction_charge_to || "").trim() || leave_code;
+      const recorded = parseFloat(request.deduction_applied_hours);
+      const recordedHours = Number.isFinite(recorded) && recorded > 0 ? recorded : 0;
+      const reason = `HR approval reversed (${newStatus === 3 ? "denied" : "cancelled"})`;
+      const availableBefore = await getRemainingForChargeCode(employeeNumber, chargeCode);
+      let restored = 0;
+
+      if (isCtoCode(chargeCode)) {
+        if (recordedHours > 0) {
+          const { y, m } = ctoPeriodOf(leave_date);
+          await appendCtoDeductionSnapshotRowAsync({
+            employeeNumber,
+            needHours: -recordedHours,
+            period_year: y,
+            period_month: m,
+            expiry_date: null,
+            remarksForLedger: `Leave request HR reversal · ${leave_date} · leave_request:${requestId}`,
+            emp_category_snapshot: null,
+            usageDateUsed: leave_date,
+            usageAction: "restore",
+          });
+          restored = recordedHours;
+          undoExternal = () =>
+            appendCtoDeductionSnapshotRowAsync({
+              employeeNumber,
+              needHours: recordedHours,
+              period_year: y,
+              period_month: m,
+              expiry_date: null,
+              remarksForLedger: `Leave request reversal rolled back · ${leave_date} · leave_request:${requestId}`,
+              emp_category_snapshot: null,
+              usageDateUsed: leave_date,
+              usageAction: "offset",
+            });
+        }
+      } else if (isScCode(chargeCode)) {
+        if (recordedHours > 0) {
+          await applyScDelta({
+            req,
+            actorEmployeeNumber,
+            employeeNumber,
+            deltaHours: -recordedHours,
+            leaveDateOnly: leave_date,
+            requestId,
+            reason: `${reason} — restored ${recordedHours} hours to SC`,
+            scType: "non_commutative",
+          });
+          restored = recordedHours;
+          undoExternal = () =>
+            applyScDelta({
+              req,
+              actorEmployeeNumber,
+              employeeNumber,
+              deltaHours: recordedHours,
+              leaveDateOnly: leave_date,
+              requestId,
+              reason: `Reversal rolled back — deducted ${recordedHours} hours from SC again`,
+              scType: "non_commutative",
+            });
+        }
+      } else {
+        restored = await reverseLeaveRequestLedger({
+          conn,
+          requestId,
+          employeeNumber,
+          actorEmployeeNumber,
+          reason,
+          afterCommit,
+          req,
+        });
+        if (restored === 0 && recordedHours > 0 && !(await hasLeaveRequestLedgerHistory(conn, requestId))) {
+          // Approved before the credit ledger existed: restore the recorded hours.
+          restored = await applyHoursDeltaAcrossAssignments({
+            req,
+            actorEmployeeNumber,
+            employeeNumber,
+            leave_code: chargeCode,
+            deltaHours: -recordedHours,
+            requestId,
+            reason: `${reason} — restored ${recordedHours} hours to ${chargeCode}`,
+            conn,
+            afterCommit,
+          });
+        }
+      }
+
+      const availableAfter =
+        isCtoCode(chargeCode) || isScCode(chargeCode)
+          ? await getRemainingForChargeCode(employeeNumber, chargeCode)
+          : availableBefore + restored;
+
+      await conn.execute(
+        `UPDATE leave_request
+            SET status = ?, deduction_applied_hours = NULL, hr_approval_rate = NULL, deduction_charge_to = NULL,
+                deduction_balance_before_hours = NULL, deduction_balance_after_hours = NULL
+          WHERE id = ?`,
+        [newStatus, requestId],
+      );
+      result = { ...base, kind: "restore", chargeCode, restored, availableBefore, availableAfter };
+    } else {
+      await conn.execute("UPDATE leave_request SET status = ? WHERE id = ?", [newStatus, requestId]);
+      result = { ...base, kind: "status" };
+    }
+
+    await conn.commit();
+  } catch (e) {
+    try {
+      await conn.rollback();
+    } catch (_r) {}
+    if (undoExternal) {
+      try {
+        await undoExternal();
+      } catch (undoErr) {
+        console.error(`[leave] could not undo SC/CTO write for leave_request:${requestId}:`, undoErr.message);
+      }
+    }
+    throw e;
+  } finally {
+    conn.release();
+  }
+
+  afterCommit.forEach((fn) => {
+    try {
+      fn();
+    } catch (e) {
+      console.error("[leave] post-commit audit:", e.message);
+    }
+  });
+  return result;
+};
+
+const getLeaveDescription = (code) =>
+  new Promise((resolve) =>
+    db.query(
+      "SELECT leave_description FROM leave_table WHERE TRIM(leave_code) = TRIM(?) LIMIT 1",
+      [code],
+      (e, r) => resolve((r && r[0] && r[0].leave_description) || code),
+    ),
+  );
+
+/** Logs, decision record and DTR sync after a committed transition. Never throws. */
+const runLeaveTransitionSideEffects = async ({ result, actorEmployeeNumber, mode, decision_context }) => {
+  const { requestId, employeeNumber, leave_code, leave_date, newStatus } = result;
+  try {
+    const [empName, actorName, leaveDesc] = await Promise.all([
+      getEmployeeFullName(employeeNumber),
+      getEmployeeFullName(actorEmployeeNumber),
+      getLeaveDescription(leave_code),
+    ]);
+    const actorDisplay = formatUserDisplayName(actorEmployeeNumber, actorName);
+    const empDisplay = formatUserDisplayName(employeeNumber, empName);
+
+    if (result.kind === "deduct") {
+      const { chargeCode, delta, storedRate, availableBefore, availableAfter, systemRecommendation } = result;
+      try {
+        await syncApprovedLeaveToAttendanceRecord(employeeNumber, leave_date);
+      } catch (syncErr) {
+        console.error("[leave] attendance sync (HR approve):", syncErr.message);
+      }
+      const overrideReason = (decision_context?.override_reason || "").trim() || null;
+      const chargeDiffers =
+        mode === "single" &&
+        String(chargeCode).trim().toUpperCase() !==
+          String(systemRecommendation?.recommended_charge_to || "").trim().toUpperCase();
+      const decision =
+        overrideReason ||
+        !nearlyEqual(systemRecommendation?.recommended_hours, delta) ||
+        !nearlyEqual(systemRecommendation?.recommended_rate_decimal, storedRate) ||
+        chargeDiffers
+          ? "overridden"
+          : "accepted";
+      await insertDeductionDecisionLog({
+        leaveRequestId: requestId,
+        employeeNumber,
+        leave_code,
+        leave_date,
+        decision,
+        decisionSource: mode === "bulk" ? "hr_bulk_approval" : "hr_single_approval",
+        actorEmployeeNumber,
+        systemRecommendation,
+        finalApplied: {
+          applied_rate_decimal: storedRate,
+          applied_hours: delta,
+          charge_to: chargeCode,
+          request_leave_code: leave_code,
+          available_hours_before: availableBefore,
+          available_hours_after: availableAfter,
+        },
+        overrideReason,
+      });
+      const chargeDesc = await getLeaveDescription(chargeCode);
+      const txMsg = `${actorDisplay} deducted ${delta} hrs from ${chargeDesc} (${chargeCode}) balance for ${empDisplay} (${mode === "bulk" ? "HR bulk approval" : "HR approval"}).${formatBalanceUpdatedSuffix(availableBefore, availableAfter, delta)}`;
+      await insertTransactionLog(employeeNumber, txMsg, actorEmployeeNumber, {
+        audit_action: mode === "bulk" ? "HR leave bulk approval deduction" : "HR leave approval deduction",
+        transaction_message: txMsg,
+        leave_request_id: requestId,
+        request_leave_code: leave_code,
+        charge_to: chargeCode,
+        deducted_hours: delta,
+        available_hours_before: availableBefore,
+        available_hours_after: availableAfter,
+      });
+    } else {
+      if (result.kind === "restore") {
+        // The date counts as a working day again; attendance/earnings screens recount it.
+        try {
+          notifyAttendanceChanged("updated", {
+            scope: "leave-hr-reversed",
+            personIDs: [employeeNumber],
+            dates: [leave_date],
+          });
+        } catch (_n) {}
+        const { chargeCode, restored, availableBefore, availableAfter } = result;
+        const chargeDesc = await getLeaveDescription(chargeCode);
+        const txMsg = `${actorDisplay} restored ${restored} hrs to ${chargeDesc} (${chargeCode}) balance for ${empDisplay} (reversal).${formatBalanceUpdatedSuffix(availableBefore, availableAfter, -restored)}`;
+        await insertTransactionLog(employeeNumber, txMsg, actorEmployeeNumber, {
+          audit_action: "HR leave approval reversal",
+          transaction_message: txMsg,
+          leave_request_id: requestId,
+          charge_to: chargeCode,
+          restored_hours: restored,
+          available_hours_before: availableBefore,
+          available_hours_after: availableAfter,
+        });
+      }
+      const action = statusToLeaveAction(newStatus);
+      const message =
+        action &&
+        buildLeaveTransactionMessage({
+          action,
+          actorDisplayName: actorDisplay,
+          requesterDisplayName: empDisplay,
+          leaveDesc,
+          leaveDates: leave_date,
+        });
+      if (message) await insertTransactionLog(employeeNumber, message, actorEmployeeNumber);
+    }
+
+    const auditActionStr =
+      {
+        immediateSupervisor_approved: "Supervisor Approved Leave",
+        hr_approved: "HR Approved Leave",
+        denied: "Leave Request Denied",
+        cancelled: "Cancel Leave Request",
+      }[statusToLeaveAction(newStatus)] || "Update Leave Request";
+    logAudit(
+      { employeeNumber: actorEmployeeNumber },
+      `${auditActionStr} - ${leaveDesc}`,
+      "leave_request",
+      requestId,
+      employeeNumber,
+    );
+  } catch (e) {
+    console.error("[leave] transition side effects:", e.message);
+  }
+};
+
+// ============================================================
+// POST /leave_request
+//
+// Files one Pending row per date. Credits are never touched here; they move only when HR
+// approves. Non-admins may file only for themselves.
+// ============================================================
+router.post("/leave_request", async (req, res) => {
+  const { employeeNumber, leave_code, leave_dates } = req.body || {};
+  const actorEmployeeNumber = getActorEmployeeNumber(req, employeeNumber);
+  const emp = String(employeeNumber || "").trim();
+  const code = String(leave_code || "").trim();
+
+  if (!emp || !code) {
+    return res.status(400).json({ error: "employeeNumber and leave_code are required" });
+  }
+  if (!isAdminRole(req.user?.role) && !employeeNumbersMatch(emp, req.user?.employeeNumber)) {
+    return res.status(403).json({ error: "You can only file leave requests for yourself." });
+  }
+
+  const rawDates = (Array.isArray(leave_dates) ? leave_dates : [leave_dates]).filter(
+    (d) => d != null && String(d).trim() !== "",
+  );
+  const dates = [...new Set(rawDates.map(toMysqlDateOnly))];
+  if (!rawDates.length || dates.some((d) => !d)) {
+    return res.status(400).json({ error: "At least one valid leave date (YYYY-MM-DD) is required" });
+  }
+  dates.sort();
+
+  const queryAsync = (sql, params = []) =>
+    new Promise((resolve, reject) => {
+      db.query(sql, params, (err, rows) => (err ? reject(err) : resolve(rows || [])));
+    });
+
+  try {
+    const leaveTypeRows = await queryAsync(
+      "SELECT leave_code, leave_description, gender_restriction FROM leave_table WHERE TRIM(leave_code) = TRIM(?) LIMIT 1",
+      [code],
+    ).catch(() =>
+      // Older schema without gender_restriction.
+      queryAsync("SELECT leave_code, leave_description FROM leave_table WHERE TRIM(leave_code) = TRIM(?) LIMIT 1", [code]),
+    );
+    if (!leaveTypeRows.length) {
+      return res.status(400).json({ error: `Unknown leave type "${code}"` });
+    }
+    const leave_description = leaveTypeRows[0].leave_description || code;
+
+    // CSC eligibility: JO/COS have no leave benefits; gender-restricted types.
+    await leaveRules.assertEligibleToFile(emp, leaveTypeRows[0]);
+
+    // Holidays are refused (HR may override with a reason). Days outside the employee's
+    // official-time schedule are allowed, with a warning returned in `notices`.
+    const nonWorkingAll = await leaveRules.findNonWorkingDates(emp, dates);
+    const nonWorking = nonWorkingAll.filter((n) => n.kind === "holiday");
+    const unscheduled = nonWorkingAll.filter((n) => n.kind === "no_schedule");
+    const overrideReason = String(req.body?.non_working_override_reason || "").trim();
+    const hrOverride = isAdminRole(req.user?.role) && req.body?.allow_non_working_days === true && overrideReason;
+    if (nonWorking.length && !hrOverride) {
+      return res.status(400).json({
+        code: "NON_WORKING_DAY",
+        error: `Leave is not counted on holidays (CSC MC 41 s.1998). Holiday: ${nonWorking
+          .map((n) => `${n.date} (${n.reason})`)
+          .join(", ")}.`,
+        dates: nonWorking,
+      });
+    }
+    const notices = leaveRules.filingNotices(code, dates);
+    if (unscheduled.length) {
+      notices.push({
+        code: "NO_SCHEDULE",
+        message: `No official time schedule on: ${unscheduled.map((n) => `${n.date} (${n.reason})`).join(", ")}. HR will check these dates.`,
+        dates: unscheduled,
+      });
+    }
+
+    const duplicates = await queryAsync(
+      `SELECT DATE_FORMAT(leave_date, '%Y-%m-%d') AS d
+       FROM leave_request
+       WHERE CAST(employeeNumber AS CHAR) = CAST(? AS CHAR)
+         AND leave_date IN (${dates.map(() => "?").join(",")})
+         AND status IN (0, 1, 2)`,
+      [emp, ...dates],
+    );
+    if (duplicates.length) {
+      const taken = [...new Set(duplicates.map((r) => r.d))].sort();
+      return res.status(409).json({
+        error: `A leave request already exists for: ${taken.join(", ")}`,
+        code: "DUPLICATE_LEAVE_DATE",
+        dates: taken,
+      });
+    }
+
+    const conn = await getPromiseConnection();
+    try {
+      await conn.beginTransaction();
+      for (const date of dates) {
+        await conn.execute(
+          "INSERT INTO leave_request (employeeNumber, leave_code, leave_date, status, created_at) VALUES (?, ?, ?, 0, NOW())",
+          [emp, code, date],
+        );
+      }
+      await conn.commit();
+    } catch (txErr) {
+      await conn.rollback();
+      throw txErr;
+    } finally {
+      conn.release();
+    }
+
+    try {
       const [actorFullName, requesterFullName] = await Promise.all([
         getEmployeeFullName(actorEmployeeNumber),
-        getEmployeeFullName(employeeNumber),
+        getEmployeeFullName(emp),
       ]);
-
-      const actorDisplayName = formatUserDisplayName(
-        actorEmployeeNumber,
-        actorFullName
-      );
-      const requesterDisplayName = formatUserDisplayName(
-        employeeNumber,
-        requesterFullName
-      );
-
       const requestMessage = buildLeaveTransactionMessage({
         action: "request",
-        actorDisplayName,
-        requesterDisplayName,
+        actorDisplayName: formatUserDisplayName(actorEmployeeNumber, actorFullName),
+        requesterDisplayName: formatUserDisplayName(emp, requesterFullName),
         leaveDesc: leave_description,
         leaveDates: dates,
       });
-
-      await insertTransactionLog(
-        employeeNumber,
-        requestMessage,
-        actorEmployeeNumber
+      await insertTransactionLog(emp, requestMessage, actorEmployeeNumber);
+      if (nonWorking.length && hrOverride) {
+        await insertTransactionLog(
+          emp,
+          `Filed on non-working day(s) by HR override: ${nonWorking.map((n) => `${n.date} (${n.reason})`).join(", ")} — reason: ${overrideReason}`,
+          actorEmployeeNumber,
+        );
+      }
+      logAudit(
+        { employeeNumber: actorEmployeeNumber },
+        `Submit Leave Request - ${leave_description} (${dates.length} day(s))`,
+        "leave_request",
+        null,
+        emp,
       );
-
-      logAudit({ employeeNumber: actorEmployeeNumber }, `Submit Leave Request - ${leave_description} (${dates.length} day(s))`, 'leave_request', null, employeeNumber);
-      emitLeaveChange("leaveRequestChanged");
-
-      res.json({
-        message: "Leave requests created successfully",
-        count: dates.length,
-      });
+    } catch (logErr) {
+      console.error("[leave_request] submit log:", logErr.message);
     }
-  );
-})
-      .catch((err) => {
-        console.error("Error creating leave requests:", err);
-        logAudit({ employeeNumber: actorEmployeeNumber }, 'Submit Leave Request Failed', 'leave_request', null, employeeNumber);
-        res.status(500).json({ error: "Failed to create leave requests" });
-      });
-  };
-  proceed().catch((e) => {
-    console.error("[leave_request] submit error:", e.message);
-    if (!res.headersSent) {
-      res.status(500).json({ error: "Failed to submit leave request" });
+
+    emitLeaveChange("leaveRequestChanged");
+    res.json({ message: "Leave requests created successfully", count: dates.length, notices });
+  } catch (err) {
+    if (err instanceof leaveRules.LeaveRequestRuleError) {
+      return sendLeaveError(res, err, "Failed to create leave requests");
     }
-  });
+    console.error("Error creating leave requests:", err);
+    logAudit({ employeeNumber: actorEmployeeNumber }, "Submit Leave Request Failed", "leave_request", null, emp);
+    if (!res.headersSent) res.status(500).json({ error: "Failed to create leave requests" });
+  }
 });
 
 // ============================================================
 // PUT /leave_request/bulk-update
 //
-// HR bulk approve (status 2): requires hr_approval_rate and/or deduction_hours_each
-// in the body. Per row: hours = deduction_hours_each OR hr_approval_rate × hours/day.
+// Applies the same transition to each id through transitionLeaveRequest (one transaction
+// per row). HR bulk approve (status 2) requires hr_approval_rate and/or deduction_hours_each.
+// Any row failure is reported with its reason; successful rows stay committed.
 // ============================================================
-router.put("/leave_request/bulk-update", requireAdmin, (req, res) => {
-  const {
-    ids,
-    status,
-    hr_approval_rate,
-    deduction_hours_each,
-    charge_to,
-    decision_context,
-  } = req.body;
+router.put("/leave_request/bulk-update", requireAdmin, async (req, res) => {
+  const { ids, status, hr_approval_rate, deduction_hours_each, charge_to, decision_context } = req.body || {};
   const actorEmployeeNumber = getActorEmployeeNumber(req);
-  if (!Array.isArray(ids) || !ids.length)
+  if (!Array.isArray(ids) || !ids.length) {
     return res.status(400).json({ error: "ids must be a non-empty array" });
+  }
   const newStatus = Number(status);
-  if (![0, 1, 2, 3, 4].includes(newStatus))
+  if (![0, 1, 2, 3, 4].includes(newStatus)) {
     return res.status(400).json({ error: "Invalid status value" });
-
-  const bulkRate = parseFloat(hr_approval_rate);
-  const bulkHoursEach = parseFloat(deduction_hours_each);
+  }
   if (newStatus === 2) {
-    const hasRate = Number.isFinite(bulkRate) && bulkRate > 0;
-    const hasHours = Number.isFinite(bulkHoursEach) && bulkHoursEach > 0;
-    if (!hasRate && !hasHours) {
+    const rate = parseFloat(hr_approval_rate);
+    const hoursEach = parseFloat(deduction_hours_each);
+    if (!(Number.isFinite(rate) && rate > 0) && !(Number.isFinite(hoursEach) && hoursEach > 0)) {
       return res.status(400).json({
-        error:
-          "Bulk HR approval requires hr_approval_rate and/or deduction_hours_each in the request body.",
+        error: "Bulk HR approval requires hr_approval_rate and/or deduction_hours_each in the request body.",
       });
     }
   }
 
-  const placeholders = ids.map(() => "?").join(",");
-  db.query(
-    `SELECT lr.id, lr.employeeNumber, lr.leave_code, lr.leave_date, lr.status,
-            lr.deduction_applied_hours, lt.leave_description
-     FROM leave_request lr
-     LEFT JOIN leave_table lt ON lr.leave_code = lt.leave_code
-     WHERE lr.id IN (${placeholders})`,
-    ids,
-    (err, requests) => {
-      if (err) return res.status(500).json({ error: err.message });
-      if (!requests.length)
-        return res
-          .status(404)
-          .json({ error: "No leave requests found with provided IDs" });
-
-      db.query(
-        `UPDATE leave_request SET status = ? WHERE id IN (${placeholders})`,
-        [newStatus, ...ids],
-        (updateErr) => {
-          if (updateErr)
-            return res.status(500).json({ error: updateErr.message });
-
-          (async () => {
-            try {
-              const hasRate = Number.isFinite(bulkRate) && bulkRate > 0;
-              const hasHours =
-                Number.isFinite(bulkHoursEach) && bulkHoursEach > 0;
-
-              if (newStatus === 2) {
-                for (const reqRow of requests) {
-                  const oldSt = Number(reqRow.status);
-                  if (oldSt === 2) continue;
-                  const rowSuggestion = await buildDeductionSuggestion({
-                    employeeNumber: reqRow.employeeNumber,
-                    leave_code: reqRow.leave_code,
-                    leave_date: reqRow.leave_date,
-                    has_leave_form: true,
-                    is_half_day_absence: false,
-                    requested_rate_decimal: hasRate ? bulkRate : null,
-                  });
-                  const chargeCode = resolveHrDeductionChargeCode({
-                    charge_to,
-                    decision_context,
-                    requestLeaveCode: reqRow.leave_code,
-                    systemRecommendation:
-                      decision_context?.system_recommendation || rowSuggestion,
-                  });
-                  const availableBefore = await getTotalRemainingHours(
-                    reqRow.employeeNumber,
-                    chargeCode,
-                  );
-                  const meta = await fetchLeaveDeductionMeta(
-                    reqRow.employeeNumber,
-                    reqRow.leave_code,
-                  );
-                  const { hoursPerDay } = resolveHoursPerDayFromMeta(meta);
-                  let delta;
-                  let storedRate;
-                  if (hasHours) {
-                    delta = bulkHoursEach;
-                    storedRate = hasRate
-                      ? Number(bulkRate.toFixed(3))
-                      : Number((delta / hoursPerDay).toFixed(3));
-                  } else {
-                    delta = bulkRate * hoursPerDay;
-                    storedRate = Number(bulkRate.toFixed(3));
-                  }
-                  await applyHoursDeltaAcrossAssignments({
-                    req,
-                    actorEmployeeNumber,
-                    employeeNumber: reqRow.employeeNumber,
-                    leave_code: chargeCode,
-                    deltaHours: delta,
-                    requestId: reqRow.id,
-                    reason: `HR Approved (bulk) — deducted ${delta} hours from ${chargeCode}`,
-                  });
-                  const availableAfter = await getTotalRemainingHours(
-                    reqRow.employeeNumber,
-                    chargeCode,
-                  );
-                  await new Promise((resolve) => {
-                    db.query(
-                      `UPDATE leave_request SET deduction_applied_hours = ?, hr_approval_rate = ?, deduction_charge_to = ?, deduction_balance_before_hours = ?, deduction_balance_after_hours = ? WHERE id = ?`,
-                      [
-                        delta,
-                        storedRate,
-                        chargeCode,
-                        Number(availableBefore.toFixed(4)),
-                        Number(availableAfter.toFixed(4)),
-                        reqRow.id,
-                      ],
-                      () => resolve(),
-                    );
-                  });
-                  try {
-                    await syncApprovedLeaveToAttendanceRecord(
-                      reqRow.employeeNumber,
-                      reqRow.leave_date,
-                    );
-                  } catch (syncErr) {
-                    console.error(
-                      "[leave] bulk attendance sync:",
-                      syncErr.message,
-                    );
-                  }
-
-                  const fallbackSuggestion = await buildDeductionSuggestion({
-                    employeeNumber: reqRow.employeeNumber,
-                    leave_code: reqRow.leave_code,
-                    leave_date: reqRow.leave_date,
-                    has_leave_form: true,
-                    is_half_day_absence: false,
-                    requested_rate_decimal: storedRate,
-                  });
-                  const systemRecommendation =
-                    decision_context?.system_recommendation || fallbackSuggestion;
-                  const overrideReason =
-                    (decision_context?.override_reason || "").trim() || null;
-                  const decision =
-                    overrideReason ||
-                    !nearlyEqual(systemRecommendation?.recommended_hours, delta) ||
-                    !nearlyEqual(
-                      systemRecommendation?.recommended_rate_decimal,
-                      storedRate,
-                    )
-                      ? "overridden"
-                      : "accepted";
-                  await insertDeductionDecisionLog({
-                    leaveRequestId: reqRow.id,
-                    employeeNumber: reqRow.employeeNumber,
-                    leave_code: reqRow.leave_code,
-                    leave_date: reqRow.leave_date,
-                    decision,
-                    decisionSource: "hr_bulk_approval",
-                    actorEmployeeNumber,
-                    systemRecommendation,
-                    finalApplied: {
-                      applied_rate_decimal: storedRate,
-                      applied_hours: delta,
-                      charge_to: chargeCode,
-                      request_leave_code: reqRow.leave_code,
-                      available_hours_before: availableBefore,
-                      available_hours_after: availableAfter,
-                    },
-                    overrideReason,
-                  });
-
-                  try {
-                    const [empName, actorName] = await Promise.all([
-                      getEmployeeFullName(String(reqRow.employeeNumber)),
-                      getEmployeeFullName(actorEmployeeNumber),
-                    ]);
-                    const chargeDesc = await new Promise((resolve) =>
-                      db.query(
-                        "SELECT leave_description FROM leave_table WHERE TRIM(leave_code) = TRIM(?) LIMIT 1",
-                        [chargeCode],
-                        (e, r) =>
-                          resolve(
-                            (r && r[0] && r[0].leave_description) || chargeCode,
-                          ),
-                      ),
-                    );
-                    const actorDisplay = formatUserDisplayName(
-                      actorEmployeeNumber,
-                      actorName,
-                    );
-                    const empDisplay = formatUserDisplayName(
-                      String(reqRow.employeeNumber),
-                      empName,
-                    );
-                    const beforeH = Number(availableBefore || 0);
-                    const afterH = Number(availableAfter || 0);
-                    const txMsg = `${actorDisplay} deducted ${delta} hrs from ${chargeDesc} (${chargeCode}) balance for ${empDisplay} (HR bulk approval).${formatBalanceUpdatedSuffix(beforeH, afterH, delta)}`;
-                    await insertTransactionLog(
-                      String(reqRow.employeeNumber),
-                      txMsg,
-                      actorEmployeeNumber,
-                      {
-                        audit_action: "HR leave bulk approval deduction",
-                        transaction_message: txMsg,
-                        leave_request_id: reqRow.id,
-                        request_leave_code: reqRow.leave_code,
-                        charge_to: chargeCode,
-                        deducted_hours: delta,
-                        available_hours_before: beforeH,
-                        available_hours_after: afterH,
-                      },
-                    );
-                  } catch (e) {
-                    console.error(
-                      "[leave] bulk HR deduction transaction log:",
-                      e.message,
-                    );
-                  }
-                }
-              } else if (newStatus === 3 || newStatus === 4) {
-                for (const reqRow of requests) {
-                  const oldSt = Number(reqRow.status);
-                  if (oldSt !== 2) continue;
-                  const applied = parseFloat(reqRow.deduction_applied_hours);
-                  const restoreAmt =
-                    Number.isFinite(applied) && applied > 0 ? applied : 8;
-                  await applyHoursDeltaAcrossAssignments({
-                    req,
-                    actorEmployeeNumber,
-                    employeeNumber: reqRow.employeeNumber,
-                    leave_code: reqRow.leave_code,
-                    deltaHours: -restoreAmt,
-                    requestId: reqRow.id,
-                    reason: `HR approval reversed (bulk) — restored ${restoreAmt} hours`,
-                  });
-                  await new Promise((resolve) => {
-                    db.query(
-                      `UPDATE leave_request SET deduction_applied_hours = NULL, hr_approval_rate = NULL WHERE id = ?`,
-                      [reqRow.id],
-                      () => resolve(),
-                    );
-                  });
-                }
-              }
-
-              const action = statusToLeaveAction(newStatus);
-              if (action && newStatus !== 2) {
-                const actorFullName =
-                  await getEmployeeFullName(actorEmployeeNumber);
-                const actorDisplayName = formatUserDisplayName(
-                  actorEmployeeNumber,
-                  actorFullName,
-                );
-
-                const nameCache = new Map();
-                const getRequesterDisplayName = async (empNo) => {
-                  const key = String(empNo || "");
-                  if (nameCache.has(key)) return nameCache.get(key);
-                  const fullName = await getEmployeeFullName(empNo);
-                  const display = formatUserDisplayName(empNo, fullName);
-                  nameCache.set(key, display);
-                  return display;
-                };
-
-                await Promise.all(
-                  requests.map(async (request) => {
-                    const requesterDisplayName = await getRequesterDisplayName(
-                      request.employeeNumber,
-                    );
-                    const message = buildLeaveTransactionMessage({
-                      action,
-                      actorDisplayName,
-                      requesterDisplayName,
-                      leaveDesc: request.leave_description,
-                      leaveDates: request.leave_date,
-                    });
-                    return insertTransactionLog(
-                      String(request.employeeNumber),
-                      message,
-                      actorEmployeeNumber,
-                    );
-                  }),
-                );
-              }
-
-              emitLeaveChange("leaveRequestChanged");
-              emitLeaveChange("leaveAssignmentChanged");
-              res.json({
-                message: "Bulk update successful",
-                updated: requests.length,
-                newStatus,
-              });
-            } catch (e) {
-              console.error("[bulk-update]", e);
-              res
-                .status(500)
-                .json({ error: e.message || "Bulk update failed" });
-            }
-          })();
+  const results = [];
+  for (const rawId of ids) {
+    const requestId = parseInt(rawId, 10);
+    if (!Number.isFinite(requestId)) {
+      results.push({ id: rawId, ok: false, error: "Invalid id" });
+      continue;
+    }
+    try {
+      const result = await transitionLeaveRequest({
+        req,
+        requestId,
+        newStatus,
+        actorEmployeeNumber,
+        isAdmin: true,
+        deductionInput: {
+          deduction_hours: deduction_hours_each,
+          rate_decimal: hr_approval_rate,
+          charge_to,
+          decision_context,
         },
-      );
-    },
-  );
+      });
+      await runLeaveTransitionSideEffects({ result, actorEmployeeNumber, mode: "bulk", decision_context });
+      results.push({ id: requestId, ok: true });
+    } catch (e) {
+      if ((Number(e?.status) || 500) >= 500) console.error("[bulk-update]", requestId, e?.message);
+      results.push({ id: requestId, ok: false, error: e?.message || "Update failed", code: e?.code || null });
+    }
+  }
+
+  emitLeaveChange("leaveRequestChanged");
+  emitLeaveChange("leaveAssignmentChanged");
+
+  const failed = results.filter((r) => !r.ok);
+  const updated = results.length - failed.length;
+  if (!failed.length) {
+    return res.json({ message: "Bulk update successful", updated, newStatus });
+  }
+  return res.status(409).json({
+    error: `${updated} of ${results.length} request(s) updated. Failed: ${failed
+      .map((f) => `#${f.id} (${f.error})`)
+      .join("; ")}`,
+    updated,
+    failed,
+    newStatus,
+  });
 });
 
 // ============================================================
 // PUT /leave_request/:id
 //
-// Deducts / restores ONLY from the ALLOCATED row.
+// Single status change through transitionLeaveRequest. Admins may apply any allowed
+// transition; employees may only cancel their own request before HR approval.
 // ============================================================
-router.put("/leave_request/:id", (req, res) => {
-  const { id } = req.params;
-  const {
-    employeeNumber,
-    leave_code,
-    leave_date,
-    status,
-    deduction_hours,
-    rate_decimal,
-    charge_to,
-    decision_context,
-  } = req.body;
+router.put("/leave_request/:id", async (req, res) => {
+  const requestId = parseInt(req.params.id, 10);
+  if (!Number.isFinite(requestId)) {
+    return res.status(400).json({ error: "Invalid leave request id" });
+  }
+  const newStatus = parseInt(req.body?.status, 10);
+  const { deduction_hours, rate_decimal, charge_to, decision_context } = req.body || {};
   const actorEmployeeNumber = getActorEmployeeNumber(req);
 
-  db.query(
-    "SELECT * FROM leave_request WHERE id = ?",
-    [id],
-    (err, currentReq) => {
-      if (err)
-        return res.status(500).json({ error: "Failed to fetch request" });
-      if (!currentReq.length)
-        return res.status(404).json({ error: "Leave request not found" });
+  try {
+    const result = await transitionLeaveRequest({
+      req,
+      requestId,
+      newStatus,
+      actorEmployeeNumber,
+      isAdmin: isAdminRole(req.user?.role),
+      deductionInput: { deduction_hours, rate_decimal, charge_to, decision_context },
+    });
+    await runLeaveTransitionSideEffects({ result, actorEmployeeNumber, mode: "single", decision_context });
 
-      const request = currentReq[0];
-      const oldStatus = parseInt(request.status);
-      const newStatus = parseInt(status);
-
-      const updateStatus = (opts = {}) => {
-        const {
-          setDeduction = null,
-          clearDeduction = false,
-          skipTransactionLog = false,
-        } = opts;
-        let sql =
-          "UPDATE leave_request SET employeeNumber = ?, leave_code = ?, leave_date = ?, status = ?";
-        const params = [
-          employeeNumber,
-          leave_code,
-          leave_date,
-          newStatus,
-        ];
-        if (setDeduction) {
-          sql +=
-            ", deduction_applied_hours = ?, hr_approval_rate = ?, deduction_charge_to = ?, deduction_balance_before_hours = ?, deduction_balance_after_hours = ?";
-          params.push(
-            setDeduction.hours,
-            setDeduction.rate,
-            setDeduction.chargeTo || null,
-            setDeduction.balanceBefore ?? null,
-            setDeduction.balanceAfter ?? null,
-          );
-        } else if (clearDeduction) {
-          sql +=
-            ", deduction_applied_hours = NULL, hr_approval_rate = NULL, deduction_charge_to = NULL, deduction_balance_before_hours = NULL, deduction_balance_after_hours = NULL";
-        }
-        sql += " WHERE id = ?";
-        params.push(id);
-        db.query(sql, params, async (updateErr) => {
-          if (updateErr) {
-            logAudit(
-              { employeeNumber: actorEmployeeNumber },
-              "Update Leave Request Failed",
-              "leave_request",
-              id,
-              employeeNumber,
-            );
-            return res.status(500).json({ error: "Failed to update status" });
-          }
-          db.query(
-            "SELECT leave_description FROM leave_table WHERE leave_code = ?",
-            [leave_code],
-            async (err2, leaveRows) => {
-              if (err2) {
-                console.error(
-                  "[Update Status] Error fetching leave description:",
-                  err2,
-                );
-                return res
-                  .status(500)
-                  .json({ error: "Failed to fetch leave description" });
-              }
-
-              const leave_description =
-                leaveRows[0]?.leave_description || "Unknown Leave Type";
-              const action = statusToLeaveAction(newStatus);
-              if (action && !skipTransactionLog) {
-                const actorFullName = await getEmployeeFullName(
-                  actorEmployeeNumber,
-                );
-                const requesterFullName = await getEmployeeFullName(
-                  employeeNumber,
-                );
-                const actorDisplayName = formatUserDisplayName(
-                  actorEmployeeNumber,
-                  actorFullName,
-                );
-                const requesterDisplayName = formatUserDisplayName(
-                  employeeNumber,
-                  requesterFullName,
-                );
-                const message = buildLeaveTransactionMessage({
-                  action,
-                  actorDisplayName,
-                  requesterDisplayName,
-                  leaveDesc: leave_description,
-                  leaveDates: leave_date,
-                });
-                await insertTransactionLog(
-                  String(employeeNumber),
-                  message,
-                  actorEmployeeNumber,
-                );
-              }
-
-              const auditActionStr =
-                {
-                  immediateSupervisor_approved: "Supervisor Approved Leave",
-                  hr_approved: "HR Approved Leave",
-                  denied: "Leave Request Denied",
-                  cancelled: "Cancel Leave Request",
-                }[statusToLeaveAction(newStatus)] || "Update Leave Request";
-              logAudit(
-                { employeeNumber: actorEmployeeNumber },
-                `${auditActionStr} - ${leave_description}`,
-                "leave_request",
-                id,
-                employeeNumber,
-              );
-
-              emitLeaveChange("leaveRequestChanged");
-              res.json({
-                id,
-                employeeNumber,
-                leave_code,
-                leave_date,
-                status: newStatus,
-                message: "Status updated successfully",
-              });
-            },
-          );
-        });
-      };
-
-      // DEDUCT: status → 2 (HR Approved) — hours from HR modal (deduction_hours and/or rate_decimal)
-      if (newStatus === 2 && oldStatus !== 2) {
-        (async () => {
-          try {
-            const fallbackSuggestion = await buildDeductionSuggestion({
-              employeeNumber,
-              leave_code,
-              leave_date,
-              has_leave_form: true,
-              is_half_day_absence: false,
-              requested_rate_decimal: parseFloat(rate_decimal) || null,
-            });
-            const systemRecommendation =
-              decision_context?.system_recommendation || fallbackSuggestion;
-            const chargeCode = resolveHrDeductionChargeCode({
-              charge_to,
-              decision_context,
-              requestLeaveCode: leave_code,
-              systemRecommendation,
-            });
-
-            const leaveDateOnly = toMysqlDateOnly(leave_date);
-            const availableBefore =
-              String(chargeCode || "").trim().toUpperCase() === "CTO"
-                ? await getCtoRemainingHours(employeeNumber)
-                : String(chargeCode || "").trim().toUpperCase() === "SC"
-                  ? await getScRemainingHours(employeeNumber)
-                  : await getTotalRemainingHours(employeeNumber, chargeCode);
-            const meta = await fetchLeaveDeductionMeta(
-              request.employeeNumber,
-              request.leave_code,
-            );
-            const { hoursPerDay } = resolveHoursPerDayFromMeta(meta);
-            const dh = parseFloat(deduction_hours);
-            const rr = parseFloat(rate_decimal);
-            let delta;
-            let storedRate;
-            if (Number.isFinite(dh) && dh > 0) {
-              delta = dh;
-              storedRate =
-                Number.isFinite(rr) && rr > 0
-                  ? Number(rr.toFixed(3))
-                  : Number((delta / hoursPerDay).toFixed(3));
-            } else if (Number.isFinite(rr) && rr > 0) {
-              delta = rr * hoursPerDay;
-              storedRate = Number(rr.toFixed(3));
-            } else {
-              return res.status(400).json({
-                error:
-                  "HR approval requires a positive deduction_hours and/or rate_decimal in the request body.",
-              });
-            }
-
-            if (String(chargeCode || "").trim().toUpperCase() === "CTO") {
-              const y = parseInt(String(leaveDateOnly).slice(0, 4), 10);
-              const m = parseInt(String(leaveDateOnly).slice(5, 7), 10);
-              if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) {
-                return res
-                  .status(400)
-                  .json({ error: "Invalid leave_date for CTO ledger period" });
-              }
-              const baseRemark = `Leave request HR approval · ${leaveDateOnly} · leave_request:${id}`;
-              const ctoLedger = await appendCtoDeductionSnapshotRowAsync({
-                employeeNumber,
-                needHours: delta,
-                period_year: y,
-                period_month: m,
-                expiry_date: null,
-                remarksForLedger: baseRemark,
-                emp_category_snapshot: null,
-                usageDateUsed: leaveDateOnly,
-                usageAction: "offset",
-              });
-              if (
-                !Number.isFinite(ctoLedger?.deducted) ||
-                ctoLedger.deducted + 1e-6 < delta
-              ) {
-                return res.status(400).json({
-                  error: "CTO deduction failed due to insufficient remaining credits",
-                });
-              }
-            } else if (String(chargeCode || "").trim().toUpperCase() === "SC") {
-              await applyHoursDeltaAcrossServiceCredit({
-                req,
-                actorEmployeeNumber,
-                employeeNumber,
-                deltaHours: delta,
-                leaveDateOnly,
-                requestId: id,
-                reason: `HR Approved — deducted ${delta} hours from SC balance`,
-                scType: "non_commutative",
-              });
-            } else {
-              await applyHoursDeltaAcrossAssignments({
-                req,
-                actorEmployeeNumber,
-                employeeNumber,
-                leave_code: chargeCode,
-                deltaHours: delta,
-                requestId: id,
-                reason: `HR Approved — deducted ${delta} hours from ${chargeCode} balance`,
-              });
-            }
-
-            try {
-              await syncApprovedLeaveToAttendanceRecord(
-                employeeNumber,
-                leave_date,
-              );
-            } catch (syncErr) {
-              console.error(
-                "[leave] attendance sync (HR approve):",
-                syncErr.message,
-              );
-            }
-
-            const availableAfter =
-              String(chargeCode || "").trim().toUpperCase() === "CTO"
-                ? await getCtoRemainingHours(employeeNumber)
-                : String(chargeCode || "").trim().toUpperCase() === "SC"
-                  ? await getScRemainingHours(employeeNumber)
-                  : await getTotalRemainingHours(employeeNumber, chargeCode);
-            const overrideReason =
-              (decision_context?.override_reason || "").trim() || null;
-            const decision =
-              overrideReason ||
-              !nearlyEqual(systemRecommendation?.recommended_hours, delta) ||
-              !nearlyEqual(
-                systemRecommendation?.recommended_rate_decimal,
-                storedRate,
-              ) ||
-              String(chargeCode).trim().toUpperCase() !==
-                String(
-                  systemRecommendation?.recommended_charge_to || "",
-                )
-                  .trim()
-                  .toUpperCase()
-                ? "overridden"
-                : "accepted";
-            await insertDeductionDecisionLog({
-              leaveRequestId: id,
-              employeeNumber,
-              leave_code,
-              leave_date,
-              decision,
-              decisionSource: "hr_single_approval",
-              actorEmployeeNumber,
-              systemRecommendation,
-              finalApplied: {
-                applied_rate_decimal: storedRate,
-                applied_hours: delta,
-                charge_to: chargeCode,
-                request_leave_code: leave_code,
-                available_hours_before: availableBefore,
-                available_hours_after: availableAfter,
-              },
-              overrideReason,
-            });
-
-            try {
-              const [empName, actorName] = await Promise.all([
-                getEmployeeFullName(String(employeeNumber)),
-                getEmployeeFullName(actorEmployeeNumber),
-              ]);
-              const chargeDesc = await new Promise((resolve) =>
-                db.query(
-                  "SELECT leave_description FROM leave_table WHERE TRIM(leave_code) = TRIM(?) LIMIT 1",
-                  [chargeCode],
-                  (e, r) =>
-                    resolve(
-                      (r && r[0] && r[0].leave_description) || chargeCode,
-                    ),
-                ),
-              );
-              const actorDisplay = formatUserDisplayName(
-                actorEmployeeNumber,
-                actorName,
-              );
-              const empDisplay = formatUserDisplayName(
-                String(employeeNumber),
-                empName,
-              );
-              const beforeH = Number(availableBefore || 0);
-              const afterH = Number(availableAfter || 0);
-              const txMsg = `${actorDisplay} deducted ${delta} hrs from ${chargeDesc} (${chargeCode}) balance for ${empDisplay} (HR approval).${formatBalanceUpdatedSuffix(beforeH, afterH, delta)}`;
-              await insertTransactionLog(
-                String(employeeNumber),
-                txMsg,
-                actorEmployeeNumber,
-                {
-                  audit_action: "HR leave approval deduction",
-                  transaction_message: txMsg,
-                  leave_request_id: id,
-                  request_leave_code: leave_code,
-                  charge_to: chargeCode,
-                  deducted_hours: delta,
-                  available_hours_before: beforeH,
-                  available_hours_after: afterH,
-                },
-              );
-            } catch (e) {
-              console.error(
-                "[leave] Failed to insert deduction transaction log:",
-                e.message,
-              );
-            }
-
-            emitLeaveChange("leaveAssignmentChanged");
-            updateStatus({
-              setDeduction: {
-                hours: delta,
-                rate: storedRate,
-                chargeTo: chargeCode,
-                balanceBefore: Number(availableBefore.toFixed(4)),
-                balanceAfter: Number(availableAfter.toFixed(4)),
-              },
-              skipTransactionLog: true,
-            });
-          } catch (e) {
-            console.error("[Deduct] Error:", e.message);
-            return res.status(500).json({ error: e.message || "Deduction failed" });
-          }
-        })();
-        return;
-      }
-      // RESTORE: was HR Approved (2), now denied/cancelled
-      if (oldStatus === 2 && (newStatus === 3 || newStatus === 4)) {
-        (async () => {
-          try {
-            const applied = parseFloat(request.deduction_applied_hours);
-            const restoreAmt =
-              Number.isFinite(applied) && applied > 0 ? applied : 8;
-            const restoreChargeCode =
-              String(request.deduction_charge_to || "").trim() || leave_code;
-            const leaveDateOnly = toMysqlDateOnly(leave_date);
-            const availableBefore =
-              String(restoreChargeCode || "").trim().toUpperCase() === "CTO"
-                ? await getCtoRemainingHours(employeeNumber)
-                : String(restoreChargeCode || "").trim().toUpperCase() === "SC"
-                  ? await getScRemainingHours(employeeNumber)
-                  : await getTotalRemainingHours(employeeNumber, restoreChargeCode);
-
-            if (String(restoreChargeCode || "").trim().toUpperCase() === "CTO") {
-              const y = parseInt(String(leaveDateOnly).slice(0, 4), 10);
-              const m = parseInt(String(leaveDateOnly).slice(5, 7), 10);
-              if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) {
-                return res
-                  .status(400)
-                  .json({ error: "Invalid leave_date for CTO ledger period" });
-              }
-              const baseRemark = `Leave request HR reversal · ${leaveDateOnly} · leave_request:${id}`;
-              await appendCtoDeductionSnapshotRowAsync({
-                employeeNumber,
-                needHours: -restoreAmt,
-                period_year: y,
-                period_month: m,
-                expiry_date: null,
-                remarksForLedger: baseRemark,
-                emp_category_snapshot: null,
-                usageDateUsed: leaveDateOnly,
-                usageAction: "restore",
-              });
-            } else if (String(restoreChargeCode || "").trim().toUpperCase() === "SC") {
-              await applyHoursDeltaAcrossServiceCredit({
-                req,
-                actorEmployeeNumber,
-                employeeNumber,
-                deltaHours: -restoreAmt,
-                leaveDateOnly,
-                requestId: id,
-                reason: `HR approval reversed (${newStatus === 3 ? "denied" : "cancelled"}) — restored ${restoreAmt} hours to SC`,
-                scType: "non_commutative",
-              });
-            } else {
-              await applyHoursDeltaAcrossAssignments({
-                req,
-                actorEmployeeNumber,
-                employeeNumber,
-                leave_code: restoreChargeCode,
-                deltaHours: -restoreAmt,
-                requestId: id,
-                reason: `HR approval reversed (${newStatus === 3 ? "denied" : "cancelled"}) — restored ${restoreAmt} hours to ${restoreChargeCode}`,
-              });
-            }
-
-            const availableAfter =
-              String(restoreChargeCode || "").trim().toUpperCase() === "CTO"
-                ? await getCtoRemainingHours(employeeNumber)
-                : String(restoreChargeCode || "").trim().toUpperCase() === "SC"
-                  ? await getScRemainingHours(employeeNumber)
-                  : await getTotalRemainingHours(employeeNumber, restoreChargeCode);
-
-            try {
-              const [empName, actorName] = await Promise.all([
-                getEmployeeFullName(String(employeeNumber)),
-                getEmployeeFullName(actorEmployeeNumber),
-              ]);
-              const leaveDesc = await new Promise((resolve) =>
-                db.query(
-                  "SELECT leave_description FROM leave_table WHERE TRIM(leave_code) = TRIM(?) LIMIT 1",
-                  [restoreChargeCode],
-                  (e, r) =>
-                    resolve(
-                      (r && r[0] && r[0].leave_description) || restoreChargeCode,
-                    ),
-                ),
-              );
-              const actorDisplay = formatUserDisplayName(
-                actorEmployeeNumber,
-                actorName,
-              );
-              const empDisplay = formatUserDisplayName(
-                String(employeeNumber),
-                empName,
-              );
-              const beforeH = Number(availableBefore || 0);
-              const afterH = Number(availableAfter || 0);
-              const txMsg = `${actorDisplay} restored ${restoreAmt} hrs to ${leaveDesc} (${restoreChargeCode}) balance for ${empDisplay} (reversal).${formatBalanceUpdatedSuffix(beforeH, afterH, -restoreAmt)}`;
-              await insertTransactionLog(
-                String(employeeNumber),
-                txMsg,
-                actorEmployeeNumber,
-                {
-                  audit_action: "HR leave approval reversal",
-                  transaction_message: txMsg,
-                  leave_request_id: id,
-                  charge_to: restoreChargeCode,
-                  restored_hours: restoreAmt,
-                  available_hours_before: beforeH,
-                  available_hours_after: afterH,
-                },
-              );
-            } catch (e) {
-              console.error(
-                "[leave] Failed to insert restoration transaction log:",
-                e.message,
-              );
-            }
-
-            emitLeaveChange("leaveAssignmentChanged");
-            updateStatus({ clearDeduction: true });
-          } catch (e) {
-            console.error("[Restore] Error:", e.message);
-            return res
-              .status(500)
-              .json({ error: e.message || "Restore balance failed" });
-          }
-        })();
-        return;
-      }
-      updateStatus();
-    },
-  );
+    emitLeaveChange("leaveRequestChanged");
+    if (result.kind !== "status") emitLeaveChange("leaveAssignmentChanged");
+    res.json({
+      id: requestId,
+      employeeNumber: result.employeeNumber,
+      leave_code: result.leave_code,
+      leave_date: result.leave_date,
+      status: newStatus,
+      message: "Status updated successfully",
+    });
+  } catch (e) {
+    logAudit(
+      { employeeNumber: actorEmployeeNumber },
+      "Update Leave Request Failed",
+      "leave_request",
+      requestId,
+      null,
+    );
+    sendLeaveError(res, e, "Failed to update leave request");
+  }
 });
 
 // ─── Leave credit usage ledger (transaction history + reconcile) ─────────────
@@ -3446,15 +3686,28 @@ router.post("/leave_credit_usage/reconcile", requireAdmin, async (req, res) => {
   }
 });
 
-// DELETE leave request
+// DELETE leave request — only for requests that never moved credits. An HR-approved
+// request (or one with ledger history) must be cancelled instead so the deduction is
+// reversed and the history is kept.
 router.delete("/leave_request/:id", requireAdmin, (req, res) => {
   const actorEmpNum = getActorEmployeeNumber(req);
   // Fetch first so we have employee info for logging
   db.query(
-    "SELECT lr.employeeNumber, lr.leave_code, lt.leave_description FROM leave_request lr LEFT JOIN leave_table lt ON lr.leave_code = lt.leave_code WHERE lr.id = ?",
+    `SELECT lr.employeeNumber, lr.leave_code, lr.status, lt.leave_description,
+            (SELECT COUNT(*) FROM leave_credit_usage lcu
+              WHERE lcu.source_type = 'LEAVE_REQUEST' AND lcu.source_id = lr.id) AS ledger_lines
+     FROM leave_request lr LEFT JOIN leave_table lt ON lr.leave_code = lt.leave_code WHERE lr.id = ?`,
     [req.params.id],
     (fetchErr, rows) => {
-      const targetRecord = (!fetchErr && rows && rows[0]) ? rows[0] : null;
+      if (fetchErr) return res.status(500).json({ error: "Failed to load leave request" });
+      const targetRecord = rows && rows[0] ? rows[0] : null;
+      if (!targetRecord) return res.status(404).json({ error: "Leave request not found" });
+      if (Number(targetRecord.status) === 2 || Number(targetRecord.ledger_lines) > 0) {
+        return res.status(409).json({
+          error: "This request has deducted leave credits. Cancel it instead so the credits are restored and the history is kept.",
+          code: "HAS_LEDGER_HISTORY",
+        });
+      }
       db.query("DELETE FROM leave_request WHERE id = ?", [req.params.id], async (err) => {
         if (err) {
           if (targetRecord) logAudit({ employeeNumber: actorEmpNum }, 'Delete Leave Request Failed', 'leave_request', req.params.id, targetRecord.employeeNumber);
