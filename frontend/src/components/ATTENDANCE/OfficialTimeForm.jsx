@@ -2182,7 +2182,12 @@ const OfficialTimeForm = ({
   useEffect(() => () => { if (tamperCheckIntervalRef.current) clearInterval(tamperCheckIntervalRef.current); }, []);
 
   // ── Employee select ──
+  // Monotonic id so a slow response for a previously searched employee can
+  // never paint over the current one (the embedded seed can fire again while
+  // the earlier request is still in flight).
+  const employeeSelectSeqRef = useRef(0);
   const handleEmployeeSelect = useCallback(async (emp) => {
+    const selectSeq = ++employeeSelectSeqRef.current;
     setSelectedEmployee(emp);
     setEmployeeID(String(emp.employeeNumber));
     setRecords([]);
@@ -2203,6 +2208,8 @@ const OfficialTimeForm = ({
     setHasSearched(true);
     try {
       const res = await axios.get(`${API_BASE_URL}/officialtimetable/${id}`, officialTimeGetConfig(true));
+      // A newer employee was selected while this was in flight — drop it.
+      if (selectSeq !== employeeSelectSeqRef.current) return;
       const data = res.data.length > 0 ? res.data : buildDefaultRecords(id);
       stampServerRecords(data);
       setRecords(deepClone(data));
@@ -2214,7 +2221,7 @@ const OfficialTimeForm = ({
           const key = `${normalizeDateStr(r.startDate)}|${normalizeDateStr(r.endDate)}`;
           if (!byKey.has(key)) byKey.set(key, { status: r.status, key });
         }
-        const sorted = Array.from(byKey.values()).sort((a, b) => (String(b.status).toLowerCase() === "active" ? 1 : 0) - (String(a.status).toLowerCase() === "active" ? 1 : 0));
+        const sorted = Array.from(byKey.values()).sort((a, b) => (String(b.status).toLowerCase() === 'active' ? 1 : 0) - (String(a.status).toLowerCase() === 'active' ? 1 : 0));
         if (sorted.length > 0) setActiveScheduleKey(sorted[0].key);
       }
       logOfficialTimeSearch({
@@ -2224,10 +2231,11 @@ const OfficialTimeForm = ({
         hadExisting,
       });
     } catch (err) {
+      if (selectSeq !== employeeSelectSeqRef.current) return;
       console.error("Error fetching records:", err);
       showToast("Error fetching records.");
     } finally {
-      setLoading(false);
+      if (selectSeq === employeeSelectSeqRef.current) setLoading(false);
     }
   }, [buildDefaultRecords, showToast, stampServerRecords]);
 

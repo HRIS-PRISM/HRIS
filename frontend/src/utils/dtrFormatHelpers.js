@@ -36,6 +36,41 @@ export const DTR_INDICATOR_OPTIONS = [
 export const defaultDtrIndicatorVisibility = () =>
   Object.fromEntries(DTR_INDICATOR_OPTIONS.map((opt) => [opt.key, true]));
 
+/* ── Late / U-time deduction columns ────────────────────────────────────────
+ * Display only — the late / undertime math is never touched. Mirrors the
+ * indicator visibility pattern: persisted per browser, shared by the screen
+ * preview and the print / PDF output.
+ */
+export const DTR_DEDUCTIONS_STORAGE_KEY = 'hris-dtr-deductions-visible';
+
+export const defaultDtrDeductionsVisible = () => true;
+
+/** Bad/missing value → deductions stay visible (same default as the marks). */
+export const loadDtrDeductionsVisible = () => {
+  try {
+    const raw = localStorage.getItem(DTR_DEDUCTIONS_STORAGE_KEY);
+    if (raw === null) return defaultDtrDeductionsVisible();
+    const parsed = JSON.parse(raw);
+    return typeof parsed === 'boolean'
+      ? parsed
+      : defaultDtrDeductionsVisible();
+  } catch {
+    /* ignore private mode / bad JSON */
+    return defaultDtrDeductionsVisible();
+  }
+};
+
+export const persistDtrDeductionsVisible = (visible) => {
+  try {
+    localStorage.setItem(
+      DTR_DEDUCTIONS_STORAGE_KEY,
+      JSON.stringify(Boolean(visible)),
+    );
+  } catch {
+    /* ignore private mode / quota */
+  }
+};
+
 /** Missing map means all marks stay on (pages that do not pass the setting). */
 export const isDtrIndicatorEnabled = (visibility, key) =>
   visibility == null || visibility[key] !== false;

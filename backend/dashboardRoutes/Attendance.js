@@ -55,6 +55,15 @@
     };
   }
 
+  /**
+   * Optional employee filter from a request body: null when not given (= everyone),
+   * otherwise the de-duplicated, trimmed IDs (an empty array means "nobody").
+   */
+  function normalizePersonIds(value) {
+    if (!Array.isArray(value)) return null;
+    return [...new Set(value.map((v) => String(v ?? '').trim()).filter(Boolean))];
+  }
+
   /** Manila YYYY-MM-DD from a millis column — session-TZ independent (epoch + 8h). */
   function manilaYmdSql(column = 'AttendanceDateTime') {
     return `DATE_FORMAT(DATE_ADD('1970-01-01 00:00:00', INTERVAL FLOOR(${column}/1000) + 28800 SECOND), '%Y-%m-%d')`;
@@ -242,6 +251,7 @@
 
   const attendanceStateLabel = (state) => {
     switch (Number(state)) {
+      case 0: return 'Uncategorized';
       case 1: return 'Time IN';
       case 2: return 'Breaktime OUT';
       case 3: return 'Breaktime IN';
@@ -2085,6 +2095,135 @@
     });
   });
 
+  // ─── Bulk fetch: every summary overlapping a period ────────────────────────
+  //
+  // The single-employee GET above requires personID, which forces the UI to
+  // be driven one person at a time. This returns every summary whose period
+  // overlaps [startDate, endDate] in one round trip so Attendance Summary can
+  // list a whole department / month and filter client-side.
+  //
+  // Visibility matches /officialtime/month-coverage: admins see everyone,
+  // supervisors see only their own departments. The department / person_table
+  // joins are pre-aggregated so a person with several assignment rows still
+  // yields exactly one row per summary record.
+  router.get(
+    '/api/overall_attendance_record/bulk',
+    authenticateToken,
+    (req, res) => {
+      const startDate = normalizeYmd(req.query.startDate);
+      const endDate = normalizeYmd(req.query.endDate);
+      if (!startDate || !endDate) {
+        return res
+          .status(400)
+          .json({ message: 'startDate and endDate are required.' });
+      }
+      if (startDate > endDate) {
+        return res
+          .status(400)
+          .json({ message: 'startDate must be on or before endDate.' });
+      }
+
+      const personFilter = String(req.query.personID ?? '').trim();
+      // Accepts either a department code or its description, because the roster
+      // that feeds the picker exposes the human-readable name (month-coverage
+      // returns department_table.description).
+      const departmentFilter = String(req.query.department ?? '').trim();
+
+      const query = `
+        SELECT
+          oar.*,
+          da.code AS code,
+          dt.description AS departmentName,
+          pt.firstName,
+          pt.middleName,
+          pt.lastName,
+          pt.nameExtension
+        FROM
+          overall_attendance_record oar
+        LEFT JOIN (
+          SELECT employeeNumber, MAX(code) AS code
+          FROM department_assignment
+          WHERE employeeNumber IS NOT NULL AND employeeNumber != ''
+          GROUP BY employeeNumber
+        ) da
+          ON da.employeeNumber = oar.personID
+        LEFT JOIN department_table dt
+          ON dt.code = da.code
+        LEFT JOIN (
+          SELECT
+            agencyEmployeeNum,
+            MAX(firstName)      AS firstName,
+            MAX(middleName)     AS middleName,
+            MAX(lastName)       AS lastName,
+            MAX(nameExtension)  AS nameExtension
+          FROM person_table
+          WHERE agencyEmployeeNum IS NOT NULL AND agencyEmployeeNum != ''
+          GROUP BY agencyEmployeeNum
+        ) pt
+          ON pt.agencyEmployeeNum = oar.personID
+        WHERE
+          oar.startDate <= ?
+          AND oar.endDate >= ?
+          AND (? = '' OR oar.personID = ?)
+          AND (? = '' OR da.code = ? OR dt.description = ?)
+          AND (
+            EXISTS (
+              SELECT 1
+              FROM users currentUser
+              WHERE currentUser.employeeNumber = ?
+                AND LOWER(currentUser.role) IN (
+                  'superadmin',
+                  'technical',
+                  'administrator',
+                  'admin'
+                )
+            )
+            OR
+            EXISTS (
+              SELECT 1
+              FROM supervisor_assignment sa
+              JOIN department_assignment supervisorScope
+                ON supervisorScope.employeeNumber = oar.personID
+              WHERE sa.supervisorEmployeeNumber = ?
+                AND sa.departmentCode = supervisorScope.code
+            )
+          )
+        ORDER BY
+          oar.personID ASC,
+          oar.endDate DESC
+        LIMIT 2000
+      `;
+
+      const loggedInEmployeeNumber =
+        req.user?.employeeNumber || req.user?.username || '';
+
+      db.query(
+        query,
+        [
+          endDate,
+          startDate,
+          personFilter,
+          personFilter,
+          departmentFilter,
+          departmentFilter,
+          departmentFilter,
+          loggedInEmployeeNumber,
+          loggedInEmployeeNumber,
+        ],
+        (error, results) => {
+          if (error) {
+            console.error('Error fetching bulk overall attendance records:', error);
+            return res.status(500).json({ message: 'Database error', error });
+          }
+          res.status(200).json({
+            message: 'Overall attendance records fetched successfully',
+            data: results || [],
+          });
+        },
+      );
+    },
+  );
+
   // List absent dates across employees (for Absences Report)
   router.get('/api/overall_attendance_absences', authenticateToken, (req, res) => {
     const { from, to, limitDays } = req.query;
@@ -2651,6 +2790,10 @@
     }
 
     const { startTimestamp, endTimestamp } = manilaDayRangeMs(startDate, endDate);
+    // Optional: only these employees (the All Users filters chosen before loading)
+    const personIds = normalizePersonIds(req.body?.personIds);
+    if (personIds && personIds.length === 0) return res.json([]);
+    const personSql = personIds ? ' AND PersonID IN (?)' : '';
 
     const sql = `
       SELECT
@@ -2662,19 +2805,22 @@
           PersonID,
           ${manilaYmdSql()} AS dt
         FROM AttendanceRecordInfo
-        WHERE AttendanceDateTime BETWEEN ? AND ?
+        WHERE AttendanceDateTime BETWEEN ? AND ?${personSql}
         GROUP BY PersonID, dt
       ) daily
       LEFT JOIN (
         SELECT PersonID, COUNT(*) AS rawRecordCount
         FROM AttendanceRecordInfo
-        WHERE AttendanceDateTime BETWEEN ? AND ?
+        WHERE AttendanceDateTime BETWEEN ? AND ?${personSql}
         GROUP BY PersonID
       ) raw ON daily.PersonID = raw.PersonID
       GROUP BY daily.PersonID, raw.rawRecordCount
     `;
+    const params = personIds
+      ? [startTimestamp, endTimestamp, personIds, startTimestamp, endTimestamp, personIds]
+      : [startTimestamp, endTimestamp, startTimestamp, endTimestamp];
 
-    db.query(sql, [startTimestamp, endTimestamp, startTimestamp, endTimestamp], (err, results) => {
+    db.query(sql, params, (err, results) => {
       if (err) {
         console.error('Error fetching device attendance summary:', err);
         return res.status(500).json({ error: err.message });
@@ -3084,6 +3230,15 @@
 
     try {
       const { startTimestamp, endTimestamp } = manilaDayRangeMs(startDate, endDate);
+      // Optional: sync only these employees (the All Users filters chosen before loading)
+      const personIds = normalizePersonIds(req.body?.personIds);
+      if (personIds && personIds.length === 0) {
+        return res.json({
+          success: true,
+          message: 'No employees to sync for the selected filters',
+          stats: { totalUsers: 0, dayRows: 0, saved: 0, updated: 0, errors: 0, skipped: 0 },
+        });
+      }
 
       const records = await new Promise((resolve, reject) => {
         db.query(
@@ -3098,11 +3253,13 @@
               MIN(CASE WHEN AttendanceState = 5 THEN AttendanceDateTime END) AS Time5,
               MAX(CASE WHEN AttendanceState = 6 THEN AttendanceDateTime END) AS Time6
             FROM AttendanceRecordInfo
-            WHERE AttendanceDateTime BETWEEN ? AND ?
+            WHERE AttendanceDateTime BETWEEN ? AND ?${personIds ? ' AND PersonID IN (?)' : ''}
             GROUP BY Date, PersonID, PersonName
             HAVING Date BETWEEN ? AND ?
           `,
-          [startTimestamp, endTimestamp, startDate, endDate],
+          personIds
+            ? [startTimestamp, endTimestamp, personIds, startDate, endDate]
+            : [startTimestamp, endTimestamp, startDate, endDate],
           (err, result) => {
             if (err) reject(err);
             else resolve(result || []);
@@ -4084,11 +4241,11 @@
       !personKey ||
       !Number.isFinite(ts) ||
       !Number.isInteger(newState) ||
-      newState < 1 ||
+      newState < 0 ||
       newState > 6
     ) {
       return res.status(400).json({
-        error: 'personID, attendanceDateTime, and attendanceState (1–6) are required',
+        error: 'personID, attendanceDateTime, and attendanceState (0–6) are required',
       });
     }
 

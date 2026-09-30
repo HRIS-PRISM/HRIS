@@ -313,6 +313,11 @@ export default function DTRTemplate({
   showOfficialTimeOnDtr = false,
   /** Which on-form marks to paint. Omit to keep every indicator on. */
   indicatorVisibility = null,
+  /**
+   * Show the Late / U-time deduction values. Display only — the computation is
+   * unchanged and the columns themselves always stay so the grid never shifts.
+   */
+  showDeductions = true,
   startDate = '',
   endDate = '',
   selectedYear,
@@ -1316,12 +1321,19 @@ export default function DTRTemplate({
 
       // Honorarium / Service Credits / Overtime: specialTimeIN/OUT + hours/minutes.
       if (isSpecialDtr) {
+        // These sit in the same Late / U-time columns, so the deductions toggle
+        // blanks them as well — the columns themselves always stay.
+        const showDeductionValues = showDeductions !== false;
         const hoursVal =
-          record?.hours != null && record.hours !== ''
+          showDeductionValues &&
+          record?.hours != null &&
+          record.hours !== ''
             ? String(record.hours)
             : '';
         const minutesVal =
-          record?.minutes != null && record.minutes !== ''
+          showDeductionValues &&
+          record?.minutes != null &&
+          record.minutes !== ''
             ? String(record.minutes)
             : '';
         const cellIndicator = showPartialSuspension ? null : indicator;
@@ -1416,6 +1428,12 @@ export default function DTRTemplate({
         isNotScheduledDay,
         isPendingHalfDay,
       });
+      // Hiding deductions blanks the values only. The Late / U-time columns,
+      // their headers, and every punch time stay exactly as they print, so the
+      // grid never shifts and the anti-tamper restore still has its anchors.
+      const showDeductionValues = showDeductions !== false;
+      const lateCellValue = showDeductionValues ? lateDisplay : '';
+      const undertimeCellValue = showDeductionValues ? undertimeDisplay : '';
       return (
         <tr key={`${rowKeyPrefix}-${i}`} className="dtr-day-row">
           {renderDayNumberCell(dayLabel, styleObj, rowTint, partialSuspLabel)}
@@ -1459,7 +1477,7 @@ export default function DTRTemplate({
               printColorAdjust: 'exact',
             }}
           >
-            <span className="dtr-computed-late">{lateDisplay}</span>
+            <span className="dtr-computed-late">{lateCellValue}</span>
           </td>
           <td
             style={{
@@ -1469,7 +1487,7 @@ export default function DTRTemplate({
               printColorAdjust: 'exact',
             }}
           >
-            <span className="dtr-computed-undertime">{undertimeDisplay}</span>
+            <span className="dtr-computed-undertime">{undertimeCellValue}</span>
           </td>
         </tr>
       );

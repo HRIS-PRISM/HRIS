@@ -17,12 +17,20 @@ export default function useAttendanceWorkflow(moduleId, {
   startDate,
   endDate,
   onHydrate,
+  /**
+   * Set false for panels embedded in a host module's drawer. Those are seeded
+   * from the host's `initialContext`; re-hydrating them from location.state /
+   * sessionStorage would overwrite the freshly searched employee with whichever
+   * one the host page was opened with.
+   */
+  hydrate = true,
 } = {}) {
   const navigate = useNavigate();
   const location = useLocation();
   const hydrateSigRef = useRef('');
 
   useLayoutEffect(() => {
+    if (!hydrate) return;
     const isBack = location.state?.workflowNavDirection === 'back';
     registerWorkflowVisit(moduleId, { isBack });
     const payload = buildHydrationPayload(location.state, moduleId);
@@ -31,9 +39,10 @@ export default function useAttendanceWorkflow(moduleId, {
     if (hydrateSigRef.current === sig) return;
     hydrateSigRef.current = sig;
     onHydrate(payload);
-  }, [moduleId, location.key, location.state, onHydrate]);
+  }, [moduleId, location.key, location.state, onHydrate, hydrate]);
 
   useLayoutEffect(() => {
+    if (!hydrate) return;
     if (!employeeNumber || !startDate || !endDate) return;
     syncAttendanceWorkflow(moduleId, {
       employeeNumber,
@@ -41,7 +50,7 @@ export default function useAttendanceWorkflow(moduleId, {
       startDate,
       endDate,
     });
-  }, [moduleId, employeeNumber, fullName, startDate, endDate]);
+  }, [moduleId, employeeNumber, fullName, startDate, endDate, hydrate]);
 
   const workflowContext = useMemo(() => readAttendanceWorkflow(), [
     moduleId,

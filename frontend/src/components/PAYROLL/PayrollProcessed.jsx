@@ -527,7 +527,9 @@ const PayrollProcessed = () => {
           loading: false,
           count,
           available: Boolean(res.data?.available) && count > 0,
-          error: '',
+          // employees with payroll but no Budget Department — left out of the export
+          skippedNoBudget: Number(res.data?.skippedNoBudget || 0),
+          error: res.data?.error || '',
         });
       } catch (err) {
         if (cancelled) return;
@@ -995,10 +997,17 @@ const PayrollProcessed = () => {
       setSuccessAction('download');
       setSuccessOpen(true);
       const usedTemplate = response.headers['x-appendix33-template'];
-      if (usedTemplate) {
-        setActiveAppendix33Name(decodeURIComponent(usedTemplate));
-        setSnackbarSeverity('success');
-        setSnackbarMessage(`Exported using: ${decodeURIComponent(usedTemplate)}`);
+      const skipped = Number(response.headers['x-appendix33-skipped-no-budget'] || 0);
+      const skippedNote = skipped > 0
+        ? `${skipped} employee${skipped === 1 ? '' : 's'} left out (no Budget Department set).`
+        : '';
+      if (usedTemplate) setActiveAppendix33Name(decodeURIComponent(usedTemplate));
+      if (usedTemplate || skippedNote) {
+        setSnackbarSeverity(skippedNote ? 'warning' : 'success');
+        setSnackbarMessage([
+          usedTemplate ? `Exported using: ${decodeURIComponent(usedTemplate)}.` : '',
+          skippedNote,
+        ].filter(Boolean).join(' '));
         setSnackbarOpen(true);
       }
       setTimeout(() => setSuccessOpen(false), 2500);
@@ -2078,6 +2087,14 @@ const PayrollProcessed = () => {
                 </Typography>
                 <Typography sx={{ fontSize: '0.76rem', color: T.muted, fontFamily: T.font }}>
                   {monthOptions.find((m) => m.value === exportMonth)?.label} {exportYear} · {exportIncludeLabel(exportInclude)}
+                </Typography>
+              </Alert>
+            )}
+            {!exportAvailability.loading && exportAvailability.count > 0 && exportAvailability.skippedNoBudget > 0 && (
+              <Alert severity="warning" sx={{ mb: 2.5, mt: -1.5, borderRadius: 2, fontFamily: T.font }}>
+                <Typography sx={{ fontSize: '0.78rem', fontFamily: T.font }}>
+                  {exportAvailability.skippedNoBudget} employee{exportAvailability.skippedNoBudget === 1 ? '' : 's'} will be left out — no Budget Department set yet.
+                  Set it in Department Assignment to include them.
                 </Typography>
               </Alert>
             )}

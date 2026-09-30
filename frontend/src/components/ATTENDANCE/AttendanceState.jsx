@@ -43,6 +43,7 @@ import {
   Male as MaleIcon,
   Female as FemaleIcon,
   Download as DownloadIcon,
+  Print as PrintIcon,
 } from "@mui/icons-material";
 import { DeptBadge, EmpCatBadge } from "../LEAVE/EARNINGS/RecordsList";
 import {
@@ -402,6 +403,7 @@ const getAttendanceLabel = (state) => {
 };
 
 const ATTENDANCE_STATE_OPTIONS = [
+  { value: 0, label: "Uncategorized" },
   { value: 1, label: "Time IN" },
   { value: 2, label: "Breaktime OUT" },
   { value: 3, label: "Breaktime IN" },
@@ -409,6 +411,220 @@ const ATTENDANCE_STATE_OPTIONS = [
   { value: 5, label: "Special Time IN" },
   { value: 6, label: "Special Time OUT" },
 ];
+
+const escapeReportHtml = (value) =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+
+const enumerateReportDates = (from, to) => {
+  if (!from || !to || from > to) return [];
+  const start = new Date(`${from}T00:00:00Z`);
+  const end = new Date(`${to}T00:00:00Z`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return [];
+
+  const dates = [];
+  for (const cursor = new Date(start); cursor <= end; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
+    dates.push(cursor.toISOString().slice(0, 10));
+  }
+  return dates;
+};
+
+const formatReportDate = (value) => {
+  if (!value) return "—";
+  const [year, month, day] = String(value).split("-").map(Number);
+  if (!year || !month || !day) return String(value);
+  return new Date(year, month - 1, day, 12).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+};
+
+const formatReportWeekday = (value) => {
+  const [year, month, day] = String(value).split("-").map(Number);
+  if (!year || !month || !day) return "";
+  return new Date(year, month - 1, day, 12).toLocaleDateString("en-US", { weekday: "short" });
+};
+
+// ─── Calendar grid helpers (for the report date picker) ──────────────────
+const CALENDAR_WEEKDAY_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+
+const formatCalendarMonthLabel = (year, month) =>
+  new Date(year, month, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+const buildCalendarMonthsInRange = (startISO, endISO) => {
+  if (!startISO || !endISO) return [];
+  const [sy, sm] = startISO.split("-").map(Number);
+  const [ey, em] = endISO.split("-").map(Number);
+  if (!sy || !sm || !ey || !em) return [];
+  const months = [];
+  let year = sy;
+  let month = sm - 1;
+  const endYear = ey;
+  const endMonth = em - 1;
+  // Safety cap so a bad range can't spin forever
+  let guard = 0;
+  while ((year < endYear || (year === endYear && month <= endMonth)) && guard < 60) {
+    months.push({ year, month });
+    month += 1;
+    if (month > 11) { month = 0; year += 1; }
+    guard += 1;
+  }
+  return months;
+};
+
+const buildCalendarMonthGrid = (year, month) => {
+  const firstDay = new Date(year, month, 1);
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const startWeekday = firstDay.getDay();
+  const cells = Array.from({ length: startWeekday }, () => null);
+  for (let d = 1; d <= daysInMonth; d += 1) {
+    cells.push(`${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`);
+  }
+  while (cells.length % 7 !== 0) cells.push(null);
+  const weeks = [];
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+  return weeks;
+};
+
+const ATTENDANCE_REPORT_COLUMNS = [
+  { key: "employeeNumber", label: "Employee No.", width: 25 },
+  { key: "name", label: "Employee Name", width: 48 },
+  { key: "date", label: "Date", width: 42 },
+  { key: "time", label: "Time", width: 25 },
+  { key: "status", label: "Attendance State", width: 38 },
+  { key: "punch", label: "Punch Timestamp", width: 95 },
+];
+
+const buildAttendanceStateReportRows = (records, personID, employeeName) =>
+  records.map((record) => ({
+    employeeNumber: record.PersonID || personID || "—",
+    name: employeeName || "—",
+    date: record._dateLabel || record.Date || "—",
+    time: record.Time || "—",
+    status: getAttendanceLabel(Number(record.AttendanceState) || 0),
+    state: Number(record.AttendanceState) || 0,
+    punch: record.AttendanceDateTime || "—",
+  }));
+
+const formatReportDateShort = (value) => {
+  if (!value) return "—";
+  const [year, month, day] = String(value).split("-").map(Number);
+  if (!year || !month || !day) return String(value);
+  return new Date(year, month - 1, day, 12).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+};
+
+const printAttendanceStatesTable = ({
+  rows,
+  employeeName,
+  employeeNumber,
+  startDate,
+  endDate,
+  selectedDates = [],
+  sortOrder,
+}) => {
+  if (!rows.length) throw new Error("No attendance records to print.");
+
+  const generatedAt = excelTimestamp();
+  const exportedBy = excelExporterName(getUserInfo());
+  const selectedDateLabel = selectedDates.length
+    ? selectedDates.length === 1
+      ? formatReportDate(selectedDates[0])
+      : `${selectedDates.length} selected dates (${selectedDates.map(formatReportDateShort).join(", ")})`
+    : `${formatReportDate(startDate)} to ${formatReportDate(endDate)}`;
+  const employeeSummary = employeeName
+    ? `${employeeName}${employeeNumber ? ` (#${employeeNumber})` : ""}`
+    : employeeNumber
+      ? `#${employeeNumber}`
+      : "—";
+  const tableRows = rows
+    .map(
+      (row) => `
+        <tr>
+          ${ATTENDANCE_REPORT_COLUMNS.map(
+            (column) => `<td${column.key === "status" ? ` class="status" style="color:${getAttendanceColor(row.state)}"` : ""}>${escapeReportHtml(row[column.key] ?? "—")}</td>`,
+          ).join("")}
+        </tr>`,
+    )
+    .join("");
+  const documentHtml = `<!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8" />
+        <title>Attendance States</title>
+        <style>
+          * { box-sizing: border-box; }
+          @page { size: A4 landscape; margin: 10mm 12mm 14mm; }
+          body { margin: 0; color: #1a1a1a; font-family: Arial, Helvetica, sans-serif; font-size: 9px; }
+          .report-header { border-radius: 6px; background: #6d2323; color: #fff; padding: 10px 14px; }
+          .report-title { font-size: 19px; font-weight: 800; letter-spacing: 0.3px; }
+          .report-meta { display: grid; grid-template-columns: 1.4fr 2fr; gap: 3px 20px; margin-top: 9px; }
+          .report-meta div { color: rgba(255, 255, 255, 0.82); }
+          .report-meta strong { color: #fff; }
+          .report-note { margin: 7px 0; color: #777; font-size: 8px; }
+          table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+          thead { display: table-header-group; }
+          tr { break-inside: avoid; page-break-inside: avoid; }
+          th { padding: 7px 6px; border: 1px solid #6d2323; background: #6d2323; color: #fff; text-align: left; font-size: 8px; letter-spacing: 0.35px; }
+          td { padding: 5px 6px; border: 1px solid #d8c4c4; vertical-align: middle; overflow-wrap: anywhere; }
+          tbody tr:nth-child(even) td { background: #fbf8f8; }
+          td.status { font-weight: 700; }
+          .report-footer { margin-top: 7px; display: flex; justify-content: space-between; color: #777; font-size: 8px; }
+          @media print {
+            html, body { width: 100%; margin: 0; background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          }
+        </style>
+      </head>
+      <body>
+        <header class="report-header">
+          <div class="report-title">ATTENDANCE STATES</div>
+          <div class="report-meta">
+            <div><strong>Employee:</strong> ${escapeReportHtml(employeeSummary)}</div>
+            <div><strong>Period:</strong> ${escapeReportHtml(selectedDateLabel)}</div>
+            <div><strong>Sort:</strong> ${sortOrder === "asc" ? "Oldest first" : "Newest first"}</div>
+            <div><strong>Records:</strong> ${rows.length}</div>
+          </div>
+        </header>
+        <p class="report-note">Selected dates: ${escapeReportHtml(selectedDates.map(formatReportDate).join(", ") || "—")} · Exported by: ${escapeReportHtml(exportedBy)}</p>
+        <table>
+          <colgroup>${ATTENDANCE_REPORT_COLUMNS.map((column) => `<col style="width: ${column.width}mm" />`).join("")}</colgroup>
+          <thead><tr>${ATTENDANCE_REPORT_COLUMNS.map((column) => `<th>${escapeReportHtml(column.label.toUpperCase())}</th>`).join("")}</tr></thead>
+          <tbody>${tableRows}</tbody>
+        </table>
+        <footer class="report-footer"><span>EARIST HRIS · Confidential</span><span>Generated ${escapeReportHtml(generatedAt)}</span></footer>
+      </body>
+    </html>`;
+
+  const frame = document.createElement("iframe");
+  frame.setAttribute("title", "Attendance States print preview");
+  frame.setAttribute("aria-hidden", "true");
+  frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;";
+  document.body.appendChild(frame);
+  const printDocument = frame.contentDocument;
+  printDocument.open();
+  printDocument.write(documentHtml);
+  printDocument.close();
+
+  let cleanedUp = false;
+  const cleanup = () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    window.setTimeout(() => frame.remove(), 0);
+  };
+  frame.contentWindow.addEventListener("afterprint", cleanup, { once: true });
+  frame.contentWindow.focus();
+  frame.contentWindow.print();
+  window.setTimeout(() => {
+    if (frame.isConnected) frame.remove();
+  }, 60000);
+};
 
 const STATE_ROW_HEIGHT = 52;
 
@@ -954,6 +1170,11 @@ const AllAttendanceRecord = () => {
   const [successOverlayOpen, setSuccessOverlayOpen] = useState(false);
   const [statusSuccessDialog, setStatusSuccessDialog] = useState({ open: false, message: "" });
   const [savingStatusKey, setSavingStatusKey] = useState(null);
+  const [reportAction, setReportAction] = useState("");
+  const [reportDialog, setReportDialog] = useState({ open: false, action: "" });
+  const [reportStartDate, setReportStartDate] = useState("");
+  const [reportEndDate, setReportEndDate] = useState("");
+  const [selectedReportDates, setSelectedReportDates] = useState([]);
   const [listHeight, setListHeight]       = useState(420);
   const [departmentAssignmentsMap, setDepartmentAssignmentsMap] = useState({});
   const [empCatMap, setEmpCatMap] = useState({});
@@ -1048,6 +1269,12 @@ const AllAttendanceRecord = () => {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accessLoading, hasAccess]);
+
+  useEffect(() => {
+    setReportStartDate(startDate);
+    setReportEndDate(endDate);
+    setSelectedReportDates([]);
+  }, [startDate, endDate]);
 
   useEffect(() => {
     const handleScroll = () => setShowScrollTop(window.scrollY > 300);
@@ -1344,23 +1571,146 @@ const AllAttendanceRecord = () => {
     });
   }, [records, sortOrder, recordDateFilter]);
 
+  const handleReportStartDateChange = useCallback((event) => {
+    const rawValue = event.target.value;
+    const value = !rawValue
+      ? ""
+      : rawValue < startDate
+        ? startDate
+        : rawValue > endDate
+          ? endDate
+          : rawValue;
+    const nextEnd = value && reportEndDate && value > reportEndDate
+      ? value
+      : reportEndDate;
+    setReportStartDate(value);
+    setReportEndDate(nextEnd);
+    setSelectedReportDates((prev) =>
+      value && nextEnd ? prev.filter((d) => d >= value && d <= nextEnd) : [],
+    );
+  }, [endDate, reportEndDate, startDate]);
+
+  const handleReportEndDateChange = useCallback((event) => {
+    const rawValue = event.target.value;
+    const value = !rawValue
+      ? ""
+      : rawValue < startDate
+        ? startDate
+        : rawValue > endDate
+          ? endDate
+          : rawValue;
+    const nextStart = value && reportStartDate && value < reportStartDate
+      ? value
+      : reportStartDate;
+    setReportEndDate(value);
+    setReportStartDate(nextStart);
+    setSelectedReportDates((prev) =>
+      value && nextStart ? prev.filter((d) => d >= nextStart && d <= value) : [],
+    );
+  }, [endDate, reportStartDate, startDate]);
+
+  const resetReportDateRange = useCallback(() => {
+    setReportStartDate(startDate);
+    setReportEndDate(endDate);
+    setSelectedReportDates([]);
+  }, [startDate, endDate]);
+
+  const reportDateRangeError =
+    !reportStartDate || !reportEndDate
+      ? "Choose a start and end date for the report."
+      : reportStartDate > reportEndDate
+        ? "Report start date must be on or before the end date."
+        : "";
+  const reportDateSelectionError = !reportDateRangeError && selectedReportDates.length === 0
+    ? "Select at least one date to include."
+    : "";
+  const reportValidationError = reportDateRangeError || reportDateSelectionError;
+
+  const reportAvailableDates = useMemo(
+    () => enumerateReportDates(reportStartDate, reportEndDate),
+    [reportStartDate, reportEndDate],
+  );
+  const reportCalendarMonths = useMemo(
+    () => buildCalendarMonthsInRange(reportStartDate, reportEndDate),
+    [reportStartDate, reportEndDate],
+  );
+  const reportRecordCounts = useMemo(
+    () => records.reduce((counts, record) => {
+      const date = record?._isoDate;
+      if (!date) return counts;
+      counts[date] = (counts[date] || 0) + 1;
+      return counts;
+    }, {}),
+    [records],
+  );
+  const reportSelectedDateSet = useMemo(
+    () => new Set(selectedReportDates),
+    [selectedReportDates],
+  );
+  const reportAllDatesSelected =
+    reportAvailableDates.length > 0 && selectedReportDates.length === reportAvailableDates.length;
+  const toggleReportDate = useCallback((date) => {
+    setSelectedReportDates((previous) => {
+      if (previous.includes(date)) {
+        return previous.filter((selectedDate) => selectedDate !== date);
+      }
+      return [...previous, date].sort();
+    });
+  }, []);
+  const selectAllReportDates = useCallback(() => {
+    setSelectedReportDates(reportAvailableDates);
+  }, [reportAvailableDates]);
+  const clearReportDates = useCallback(() => {
+    setSelectedReportDates([]);
+  }, []);
+  const reportRecords = useMemo(() => {
+    if (reportValidationError || selectedReportDates.length === 0) return [];
+    return records
+      .filter((record) => reportSelectedDateSet.has(record._isoDate))
+      .sort((a, b) => {
+        const diff = (a._sortTs ?? 0) - (b._sortTs ?? 0);
+        return sortOrder === "asc" ? diff : -diff;
+      });
+  }, [
+    records,
+    reportValidationError,
+    reportSelectedDateSet,
+    selectedReportDates.length,
+    sortOrder,
+  ]);
+
+  const attendanceReportData = useMemo(() => {
+    const employeeName = selectedEmployee ? buildDisplayName(selectedEmployee) : "";
+    return {
+      rows: buildAttendanceStateReportRows(reportRecords, personID, employeeName),
+      employeeName,
+      employeeNumber: personID,
+      startDate: reportStartDate,
+      endDate: reportEndDate,
+      selectedDates: [...selectedReportDates],
+      sortOrder,
+    };
+  }, [
+    reportRecords,
+    personID,
+    reportStartDate,
+    reportEndDate,
+    selectedReportDates,
+    selectedEmployee,
+    sortOrder,
+  ]);
+
   const handleExportExcel = useCallback(() => {
     try {
-      const employeeName = selectedEmployee ? buildDisplayName(selectedEmployee) : "";
+      const { rows, employeeName, startDate: reportFrom, endDate: reportTo, selectedDates = [] } = attendanceReportData;
       const filterParts = [];
       if (personID) filterParts.push(`Employee: ${personID}`);
-      if (startDate && endDate) filterParts.push(`${startDate} to ${endDate}`);
-      if (recordDateFilter) filterParts.push(`Date: ${recordDateFilter}`);
+      if (selectedDates.length) {
+        filterParts.push(`Selected dates: ${selectedDates.map(formatReportDate).join(", ")}`);
+      } else if (reportFrom && reportTo) {
+        filterParts.push(`Report range: ${reportFrom} to ${reportTo}`);
+      }
       filterParts.push(`Sort: ${sortOrder === "asc" ? "oldest first" : "newest first"}`);
-
-      const rows = filteredRecords.map((record) => ({
-        employeeNumber: record.PersonID || personID || "—",
-        name: employeeName || "—",
-        date: record._dateLabel || record.Date || "—",
-        time: record.Time || "—",
-        status: getAttendanceLabel(Number(record.AttendanceState) || 0),
-        punch: record.AttendanceDateTime || "—",
-      }));
 
       const stamp = new Date().toISOString().slice(0, 10);
       const safeId = String(personID || "employee").replace(/[^\w.-]+/g, "_");
@@ -1389,7 +1739,62 @@ const AllAttendanceRecord = () => {
       console.error("Attendance state Excel export failed:", err);
       setError("Failed to generate Excel export.");
     }
-  }, [filteredRecords, personID, recordDateFilter, selectedEmployee, sortOrder, startDate, endDate]);
+  }, [attendanceReportData, personID, sortOrder]);
+
+  const handlePrint = useCallback(() => {
+    if (!attendanceReportData.rows.length || reportAction) return;
+    setReportAction("print");
+    setError("");
+    window.setTimeout(() => {
+      try {
+        printAttendanceStatesTable(attendanceReportData);
+      } catch (err) {
+        console.error("Attendance state print failed:", err);
+        setError("Failed to open the Attendance States print preview.");
+      } finally {
+        setReportAction("");
+      }
+    }, 0);
+  }, [attendanceReportData, reportAction]);
+
+  const openReportDialog = useCallback((action) => {
+    if (!records.length || reportAction) return;
+    setReportStartDate(startDate);
+    setReportEndDate(endDate);
+    setSelectedReportDates([]);
+    setReportDialog({ open: true, action });
+    setError("");
+  }, [endDate, records.length, reportAction, startDate]);
+
+  const closeReportDialog = useCallback(() => {
+    if (reportAction) return;
+    setReportDialog({ open: false, action: "" });
+  }, [reportAction]);
+
+  const confirmReportDialog = useCallback(() => {
+    if (reportValidationError || !attendanceReportData.rows.length || reportAction) return;
+    const action = reportDialog.action;
+    setReportDialog({ open: false, action: "" });
+    window.setTimeout(() => {
+      if (action === "excel") handleExportExcel();
+      if (action === "print") handlePrint();
+    }, 0);
+  }, [attendanceReportData.rows.length, handleExportExcel, handlePrint, reportAction, reportValidationError, reportDialog.action]);
+
+  const reportDialogMeta = {
+    excel: {
+      title: "Download Excel Report",
+      description: "Choose the attendance dates to include in the Excel file.",
+      confirmLabel: "Download Excel",
+      icon: <DownloadIcon sx={{ fontSize: 21 }} />,
+    },
+    print: {
+      title: "Print Attendance States",
+      description: "Choose the attendance dates to include in the printable table.",
+      confirmLabel: "Print",
+      icon: <PrintIcon sx={{ fontSize: 21 }} />,
+    },
+  }[reportDialog.action] || null;
 
   const virtualListRowProps = useMemo(
     () => ({
@@ -1690,30 +2095,60 @@ const AllAttendanceRecord = () => {
                       </Typography>
                     </Box>
                     {records.length > 0 && (
-                      <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 1, flexWrap: "wrap", justifyContent: "flex-end" }}>
                         <Typography sx={{ fontSize: "0.72rem", color: T.muted, fontWeight: 600 }}>
                           {filteredRecords.length.toLocaleString()} punch{filteredRecords.length === 1 ? "" : "es"}
                         </Typography>
-                        <AccentButton
-                          variant="outlined"
-                          size="small"
-                          startIcon={<DownloadIcon sx={{ fontSize: "13px !important" }} />}
-                          onClick={handleExportExcel}
-                          disabled={filteredRecords.length === 0}
-                          sx={{
-                            fontSize: "0.78rem",
-                            color: T.accent,
-                            borderColor: alpha(T.accent, 0.35),
-                            bgcolor: "#fff",
-                            boxShadow: "none",
-                            "&:hover": {
-                              bgcolor: T.accentFaint,
-                              borderColor: T.accent,
-                            },
-                          }}
-                        >
-                          Excel
-                        </AccentButton>
+                        <Tooltip title="Choose a date range and download the table as Excel">
+                          <AccentButton
+                            variant="outlined"
+                            size="small"
+                            startIcon={<DownloadIcon sx={{ fontSize: "13px !important" }} />}
+                            onClick={() => openReportDialog("excel")}
+                            disabled={Boolean(reportAction)}
+                            aria-label="Download Attendance States as Excel"
+                            sx={{
+                              fontSize: "0.78rem",
+                              color: T.accent,
+                              borderColor: alpha(T.accent, 0.35),
+                              bgcolor: "#fff",
+                              boxShadow: "none",
+                              "&:hover": {
+                                bgcolor: T.accentFaint,
+                                borderColor: T.accent,
+                              },
+                            }}
+                          >
+                            Excel
+                          </AccentButton>
+                        </Tooltip>
+                        <Tooltip title="Choose specific dates and print the table (the browser can also save it as PDF)">
+                          <span>
+                            <AccentButton
+                              variant="outlined"
+                              size="small"
+                              startIcon={reportAction === "print"
+                                ? <CircularProgress size={13} sx={{ color: T.accent }} />
+                                : <PrintIcon sx={{ fontSize: "14px !important" }} />}
+                              onClick={() => openReportDialog("print")}
+                              disabled={Boolean(reportAction)}
+                              aria-label="Print Attendance States table"
+                              sx={{
+                                fontSize: "0.78rem",
+                                color: T.accent,
+                                borderColor: alpha(T.accent, 0.35),
+                                bgcolor: "#fff",
+                                boxShadow: "none",
+                                "&:hover": {
+                                  bgcolor: T.accentFaint,
+                                  borderColor: T.accent,
+                                },
+                              }}
+                            >
+                              {reportAction === "print" ? "Preparing" : "Print"}
+                            </AccentButton>
+                          </span>
+                        </Tooltip>
                         <AccentButton
                           variant="contained"
                           size="small"
@@ -1733,7 +2168,7 @@ const AllAttendanceRecord = () => {
                           icon={sortOrder === "asc"
                             ? <KeyboardArrowUp sx={{ fontSize: 13 }} />
                             : <KeyboardArrowDown sx={{ fontSize: 13 }} />}
-                          label={`Sort ${sortOrder === "asc" ? "Newest First" : "Oldest First"}`}
+                          label={`Sort ${sortOrder === "asc" ? "Oldest First" : "Newest First"}`}
                           color={T.accent}
                           hoverBg={T.accentFaint}
                           onClick={handleSort}
@@ -1863,6 +2298,354 @@ const AllAttendanceRecord = () => {
                     </MenuItem>
                   ))}
                 </Menu>
+
+                <Dialog
+                  open={reportDialog.open && Boolean(reportDialogMeta)}
+                  onClose={closeReportDialog}
+                  maxWidth="xs"
+                  fullWidth
+                  PaperProps={{ sx: dialogPaperSx }}
+                >
+                  {reportDialogMeta && (
+                    <>
+                      <Box
+                        sx={{
+                          px: 2.5,
+                          py: 2,
+                          bgcolor: T.accent,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 1.25,
+                          color: "#FEF9E1",
+                        }}
+                      >
+                        <Box
+                          sx={{
+                            width: 38,
+                            height: 38,
+                            borderRadius: "9px",
+                            bgcolor: alpha("#fff", 0.13),
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            flexShrink: 0,
+                          }}
+                        >
+                          {reportDialogMeta.icon}
+                        </Box>
+                        <Box sx={{ minWidth: 0 }}>
+                          <Typography sx={{ color: "#FEF9E1", fontWeight: 800, fontSize: "0.98rem" }}>
+                            {reportDialogMeta.title}
+                          </Typography>
+                          <Typography sx={{ color: alpha("#FEF9E1", 0.8), fontSize: "0.72rem", mt: 0.25 }}>
+                            {reportDialogMeta.description}
+                          </Typography>
+                        </Box>
+                        <IconButton
+                          onClick={closeReportDialog}
+                          size="small"
+                          sx={{
+                            ml: "auto",
+                            color: alpha("#FEF9E1", 0.9),
+                            bgcolor: alpha("#fff", 0.1),
+                            "&:hover": { bgcolor: alpha("#fff", 0.18) },
+                          }}
+                        >
+                          <Close sx={{ fontSize: 18 }} />
+                        </IconButton>
+                      </Box>
+
+                      <DialogContent sx={{ px: 2.5, py: 2.5 }}>
+                        <Box
+                          sx={{
+                            p: 1.5,
+                            borderRadius: "10px",
+                            border: `1px solid ${T.accentBorder}`,
+                            bgcolor: T.accentFaint,
+                            mb: 2,
+                          }}
+                        >
+                          <Typography sx={{ fontSize: "0.64rem", fontWeight: 800, color: T.accent, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                            Loaded attendance period
+                          </Typography>
+                          <Typography sx={{ fontSize: "0.78rem", color: T.muted, mt: 0.4 }}>
+                            {formatReportDate(startDate)} to {formatReportDate(endDate)}
+                          </Typography>
+                        </Box>
+
+                        <Box sx={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 1 }}>
+                          <FieldInput
+                            label="From"
+                            type="date"
+                            size="small"
+                            value={reportStartDate}
+                            onChange={handleReportStartDateChange}
+                            InputLabelProps={{ shrink: true }}
+                            inputProps={{
+                              min: startDate || undefined,
+                              max: endDate || undefined,
+                              "aria-label": "Report range start date",
+                            }}
+                          />
+                          <Typography sx={{ fontSize: "0.75rem", color: T.muted, pt: 1.5 }}>to</Typography>
+                          <FieldInput
+                            label="To"
+                            type="date"
+                            size="small"
+                            value={reportEndDate}
+                            onChange={handleReportEndDateChange}
+                            InputLabelProps={{ shrink: true }}
+                            inputProps={{
+                              min: startDate || undefined,
+                              max: endDate || undefined,
+                              "aria-label": "Report range end date",
+                            }}
+                          />
+                        </Box>
+
+                        <Box sx={{ mt: 1.5 }}>
+                          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1, mb: 0.75 }}>
+                            <Typography sx={{ fontSize: "0.64rem", fontWeight: 800, color: T.accent, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                              Select dates
+                            </Typography>
+                            <Box sx={{ display: "flex", gap: 0.5 }}>
+                              <Button
+                                onClick={reportAllDatesSelected ? clearReportDates : selectAllReportDates}
+                                disabled={reportAvailableDates.length === 0}
+                                variant={reportAllDatesSelected ? "contained" : "outlined"}
+                                size="small"
+                                sx={{
+                                  textTransform: "none",
+                                  fontWeight: 700,
+                                  fontSize: "0.68rem",
+                                  py: 0.25,
+                                  px: 1,
+                                  borderRadius: "6px",
+                                  minWidth: 0,
+                                  ...(reportAllDatesSelected
+                                    ? {
+                                        color: "#fff",
+                                        bgcolor: T.accent,
+                                        boxShadow: "none",
+                                        "&:hover": { bgcolor: T.accentDark },
+                                        "&:active": { bgcolor: T.accentDark },
+                                      }
+                                    : {
+                                        color: T.accent,
+                                        borderColor: alpha(T.accent, 0.4),
+                                        "&:hover": { bgcolor: T.accentFaint, borderColor: T.accent },
+                                        "&:active": { bgcolor: T.accentHover },
+                                      }),
+                                }}
+                              >
+                                {reportAllDatesSelected ? "Selected All" : "Select All"}
+                              </Button>
+                              <Button
+                                onClick={clearReportDates}
+                                disabled={selectedReportDates.length === 0}
+                                variant="outlined"
+                                size="small"
+                                sx={{
+                                  color: T.muted,
+                                  borderColor: alpha(T.muted, 0.35),
+                                  textTransform: "none",
+                                  fontWeight: 700,
+                                  fontSize: "0.68rem",
+                                  py: 0.25,
+                                  px: 1,
+                                  minWidth: 0,
+                                  borderRadius: "6px",
+                                  "&:hover": { bgcolor: alpha(T.muted, 0.08), borderColor: T.muted },
+                                  "&:active": { bgcolor: alpha(T.muted, 0.14) },
+                                }}
+                              >
+                                Clear
+                              </Button>
+                            </Box>
+                          </Box>
+                          <Typography sx={{ fontSize: "0.68rem", color: T.muted, mb: 1 }}>
+                            Click on the calendar to pick the dates you want. Nothing is selected yet.
+                          </Typography>
+                          <Box
+                            sx={{
+                              maxHeight: 320,
+                              overflowY: "auto",
+                              border: `1px solid ${T.accentBorder}`,
+                              borderRadius: "10px",
+                              bgcolor: "#fafafa",
+                              p: 1.25,
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: 1.5,
+                            }}
+                          >
+                            {reportCalendarMonths.map(({ year, month }) => {
+                              const weeks = buildCalendarMonthGrid(year, month);
+                              return (
+                                <Box key={`${year}-${month}`}>
+                                  <Typography
+                                    sx={{
+                                      fontSize: "0.72rem",
+                                      fontWeight: 800,
+                                      color: T.accent,
+                                      textAlign: "center",
+                                      mb: 0.6,
+                                    }}
+                                  >
+                                    {formatCalendarMonthLabel(year, month)}
+                                  </Typography>
+                                  <Box sx={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 0.4, mb: 0.4 }}>
+                                    {CALENDAR_WEEKDAY_LABELS.map((wd) => (
+                                      <Typography
+                                        key={wd}
+                                        sx={{
+                                          textAlign: "center",
+                                          fontSize: "0.6rem",
+                                          fontWeight: 700,
+                                          color: T.faint,
+                                          textTransform: "uppercase",
+                                        }}
+                                      >
+                                        {wd}
+                                      </Typography>
+                                    ))}
+                                  </Box>
+                                  {weeks.map((week, wIdx) => (
+                                    <Box key={wIdx} sx={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 0.4, mb: 0.4 }}>
+                                      {week.map((date, dIdx) => {
+                                        if (!date) return <Box key={dIdx} />;
+                                        const isSelectable = date >= reportStartDate && date <= reportEndDate;
+                                        const selected = reportSelectedDateSet.has(date);
+                                        const count = reportRecordCounts[date] || 0;
+                                        const hasNoPunches = count === 0;
+                                        const dayNum = Number(date.split("-")[2]);
+                                        return (
+                                          <Tooltip
+                                            key={date}
+                                            title={
+                                              !isSelectable
+                                                ? "Outside the loaded period"
+                                                : `${formatReportDate(date)} · ${count} punch${count === 1 ? "" : "es"}`
+                                            }
+                                          >
+                                            <Box
+                                              component="button"
+                                              type="button"
+                                              disabled={!isSelectable}
+                                              onClick={() => isSelectable && toggleReportDate(date)}
+                                              aria-pressed={selected}
+                                              aria-label={`${selected ? "Deselect" : "Select"} ${formatReportDate(date)}`}
+                                              sx={{
+                                                position: "relative",
+                                                width: "100%",
+                                                aspectRatio: "1 / 1",
+                                                display: "flex",
+                                                flexDirection: "column",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                                borderRadius: "8px",
+                                                border: selected ? `1.5px solid ${T.accent}` : "1px solid transparent",
+                                                bgcolor: !isSelectable ? "transparent" : selected ? T.accent : "#fff",
+                                                cursor: isSelectable ? "pointer" : "default",
+                                                fontFamily: "inherit",
+                                                opacity: !isSelectable ? 0.3 : 1,
+                                                transition: "all 0.12s",
+                                                "&:hover": isSelectable
+                                                  ? { borderColor: T.accent, bgcolor: selected ? T.accentDark : T.accentFaint }
+                                                  : {},
+                                              }}
+                                            >
+                                              <Typography
+                                                sx={{
+                                                  fontSize: "0.78rem",
+                                                  fontWeight: 700,
+                                                  color: !isSelectable ? T.faint : selected ? "#fff" : T.text,
+                                                }}
+                                              >
+                                                {dayNum}
+                                              </Typography>
+                                              {isSelectable && (
+                                                <Box
+                                                  sx={{
+                                                    width: 4,
+                                                    height: 4,
+                                                    borderRadius: "50%",
+                                                    mt: 0.15,
+                                                    bgcolor: selected
+                                                      ? "rgba(255,255,255,0.85)"
+                                                      : hasNoPunches
+                                                        ? "transparent"
+                                                        : T.accent,
+                                                  }}
+                                                />
+                                              )}
+                                            </Box>
+                                          </Tooltip>
+                                        );
+                                      })}
+                                    </Box>
+                                  ))}
+                                </Box>
+                              );
+                            })}
+                          </Box>
+                        </Box>
+
+                        <Box sx={{ mt: 1.5, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1.5 }}>
+                          <Typography sx={{ fontSize: "0.72rem", color: reportDateRangeError ? "error.main" : T.muted, fontWeight: 600 }}>
+                            {reportValidationError || `${selectedReportDates.length} date${selectedReportDates.length === 1 ? "" : "s"} selected · ${reportRecords.length} matching punch${reportRecords.length === 1 ? "" : "es"}`}
+                          </Typography>
+                          <Button
+                            onClick={resetReportDateRange}
+                            disabled={reportStartDate === startDate && reportEndDate === endDate && selectedReportDates.length === 0}
+                            size="small"
+                            sx={{ color: T.accent, textTransform: "none", fontWeight: 700, fontSize: "0.7rem", flexShrink: 0 }}
+                          >
+                            Use full period
+                          </Button>
+                        </Box>
+                      </DialogContent>
+
+                      <DialogActions
+                        sx={{
+                          px: 2.5,
+                          py: 1.75,
+                          bgcolor: T.accentFaint,
+                          borderTop: `1px solid ${T.divider}`,
+                        }}
+                      >
+                        <Button
+                          onClick={closeReportDialog}
+                          variant="outlined"
+                          sx={{
+                            textTransform: "none",
+                            fontWeight: 700,
+                            borderRadius: "8px",
+                            color: T.accent,
+                            borderColor: alpha(T.accent, 0.35),
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          onClick={confirmReportDialog}
+                          variant="contained"
+                          disabled={Boolean(reportValidationError) || reportRecords.length === 0}
+                          startIcon={reportDialogMeta.icon}
+                          sx={{
+                            textTransform: "none",
+                            fontWeight: 700,
+                            borderRadius: "8px",
+                            bgcolor: T.accent,
+                            "&:hover": { bgcolor: T.accentDark },
+                          }}
+                        >
+                          {reportDialogMeta.confirmLabel}
+                        </Button>
+                      </DialogActions>
+                    </>
+                  )}
+                </Dialog>
 
                 <AttendanceStateDetailsDialog
                   record={detailsRecord}

@@ -1,62 +1,66 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link id="favicon" rel="icon" type="image/png" href="/Logo.png" />  <!-- add id="favicon" here -->
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>H R I S</title>
 
-<script>
-  (function () {
-    const hostname = window.location.hostname;
-    const isLocal = hostname === 'localhost' || hostname.startsWith('192.168.');
-    const base = isLocal
-      ? 'http://localhost:5000'
-      : window.location.origin;
+<head>
+  <meta charset="UTF-8" />
+  <link id="favicon" rel="icon" type="image/png" href="/Logo.png" /> <!-- add id="favicon" here -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>H R I S</title>
 
-    fetch(base + '/api/system-settings')
-      .then(res => res.json())
-      .then(data => {
-        if (data?.institutionLogo) {
-          const img = new Image();
-          img.crossOrigin = 'anonymous';
-          img.onload = function () {
-            const canvas = document.createElement('canvas');
-            canvas.width = 64;
-            canvas.height = 64;
-            const ctx = canvas.getContext('2d');
+  <script>
+    (function () {
+      const hostname = window.location.hostname;
+      const isLocal = hostname === 'localhost' || hostname.startsWith('192.168.');
+      const base = isLocal
+        ? 'http://localhost:5000'
+        : window.location.origin;
 
-            // Draw circle clip
-            ctx.beginPath();
-            ctx.arc(32, 32, 32, 0, Math.PI * 2);
-            ctx.closePath();
-            ctx.clip();
+      fetch(base + '/api/system-settings')
+        .then(res => res.json())
+        .then(data => {
+          if (data?.institutionLogo) {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = function () {
+              const canvas = document.createElement('canvas');
+              canvas.width = 64;
+              canvas.height = 64;
+              const ctx = canvas.getContext('2d');
 
-            // Draw image inside the circle
-            ctx.drawImage(img, 0, 0, 64, 64);
+              // Draw circle clip
+              ctx.beginPath();
+              ctx.arc(32, 32, 32, 0, Math.PI * 2);
+              ctx.closePath();
+              ctx.clip();
 
-            document.getElementById('favicon').href = canvas.toDataURL('image/png');
-          };
-          img.src = data.institutionLogo;
-        }
-      })
-      .catch(() => {});
-  })();
-</script>
+              // Draw image inside the circle
+              ctx.drawImage(img, 0, 0, 64, 64);
 
-    <script type="module" crossorigin src="/assets/index-CAh8KDR5.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-CmC4jhK6.css">
-  </head>
-  <body>
-    <style>
-      #root {
-        width: 100%;
-        display: flex;
-        color: black;
-        justify-content: center;
-        margin: -1.5%;       
-      }
-    </style>
-    <div id="root"></div>
-  </body>
+              document.getElementById('favicon').href = canvas.toDataURL('image/png');
+            };
+            img.src = data.institutionLogo;
+          }
+        })
+        .catch(() => { });
+    })();
+  </script>
+
+  <script type="module" crossorigin src="/assets/index-DCavcz5h.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-CmC4jhK6.css">
+</head>
+
+<body>
+  <style>
+    #root {
+      width: 100%;
+      display: flex;
+      color: black;
+      justify-content: center;
+      margin: -1.5%;
+    }
+  </style>
+  <div id="root"></div>
+
+</body>
+
 </html>

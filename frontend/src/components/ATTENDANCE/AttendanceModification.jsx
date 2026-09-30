@@ -1854,6 +1854,10 @@ const AttendanceSearch = ({
     startDate,
     endDate,
     onHydrate: handleWorkflowHydrate,
+    // Embedded in the DTR hub drawer: the host's initialContext is the source of
+    // truth. Workflow hydration would restore the employee the host page was
+    // opened with, showing the previous employee instead of the searched one.
+    hydrate: !embedded,
   });
 
   useAttendanceCompactPage();

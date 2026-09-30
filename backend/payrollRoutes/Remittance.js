@@ -18,9 +18,17 @@ const getFullNameSQL = () => {
 
 router.get('/employees/search', authenticateToken, requireAdmin, (req, res) => {
   const { q } = req.query;
+  // ?sort=surname lists by last name (and returns "Surname, First, Middle");
+  // other callers keep the original first-name order.
+  const bySurname = String(req.query.sort || '').toLowerCase() === 'surname';
 
   let sql = `
-    SELECT u.employeeNumber, ${getFullNameSQL()}
+    SELECT u.employeeNumber, ${getFullNameSQL()}${bySurname ? `,
+      CONCAT_WS(', ',
+        NULLIF(p.lastName, ''),
+        NULLIF(CONCAT_WS(' ', NULLIF(p.firstName, ''), NULLIF(p.nameExtension, '')), ''),
+        NULLIF(p.middleName, '')
+      ) AS surnameFirst` : ''}
     FROM users u
     LEFT JOIN person_table p ON u.employeeNumber = p.agencyEmployeeNum
     WHERE p.firstName IS NOT NULL
@@ -39,7 +47,10 @@ router.get('/employees/search', authenticateToken, requireAdmin, (req, res) => {
     queryParams = [searchTerm, searchTerm, searchTerm, searchTerm];
   }
 
-  sql += ` ORDER BY p.firstName, p.lastName ASC LIMIT 50`;
+  sql += bySurname
+    // blank surnames last, so the list starts at "A" surnames
+    ? ` ORDER BY (p.lastName IS NULL OR TRIM(p.lastName) = '') ASC, TRIM(p.lastName) ASC, p.firstName ASC LIMIT 50`
+    : ` ORDER BY p.firstName, p.lastName ASC LIMIT 50`;
 
   db.query(sql, queryParams, (err, result) => {
     if (err) {

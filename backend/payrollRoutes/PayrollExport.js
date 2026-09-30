@@ -39,6 +39,7 @@ const PAYROLL_SELECT = `
   SELECT
     pp.*,
     NULLIF(bd.budgetCode, '') AS budgetDepartment,
+    NULLIF(bd.budgetType, '') AS budgetType,
     etc.typeName AS employmentTypeName,
     etc.id AS employmentTypeId
   FROM payroll_processed pp
@@ -54,7 +55,7 @@ const PAYROLL_SELECT = `
   LEFT JOIN employment_type_config etc
     ON etc.id = ec.employmentCategory
   LEFT JOIN (
-    SELECT da1.employeeNumber, da1.budgetCode
+    SELECT da1.employeeNumber, da1.budgetCode, da1.budgetType
     FROM department_assignment da1
     INNER JOIN (
       SELECT employeeNumber, MAX(id) AS max_id
@@ -63,6 +64,15 @@ const PAYROLL_SELECT = `
     ) da_latest ON da_latest.max_id = da1.id
   ) bd ON CAST(bd.employeeNumber AS CHAR) = CAST(pp.employeeNumber AS CHAR)
 `;
+
+/**
+ * Only employees whose Budget Department (payroll charge) has been set in Department
+ * Assignment go into the Appendix 33 export. A blank budget means the employee is
+ * not ready yet, so they are left out — even if their department is enabled — and
+ * the download reports how many were skipped.
+ */
+const hasBudgetTarget = (row) => String(row?.budgetDepartment ?? '').trim() !== '';
+const HAS_BUDGET_SQL = "NULLIF(TRIM(scoped.budgetDepartment), '') IS NOT NULL";
 
 function parseExportPeriod(source = {}) {
   const month = Number(source.month);
@@ -98,29 +108,62 @@ function parseExportPeriod(source = {}) {
   const params = [periodPrefix];
   let where = 'LEFT(pp.startDate, 7) = ?';
 
-  // Only an enabled budget code overrides the employee's real department.
-  // Older records may contain a code that was later disabled; those rows fall
+  // Only an enabled budget target overrides the employee's real department. The
+  // target is either a department code or an employment category name, and the two
+  // axes are kept apart: a row charged to an enabled department becomes that
+  // department, while a row charged to an enabled employment category becomes a
+  // marker no department filter can match — it belongs to that category's block.
+  // Older records may contain a target that was later disabled; those rows fall
   // back to their real department instead of disappearing from a scoped export.
-  const effectiveDepartmentSql = allowedDepartments.length
-    ? `CASE WHEN bd.budgetCode IN (${allowedDepartments.map(() => '?').join(',')}) THEN bd.budgetCode ELSE pp.department END`
+  const budgetKindSql = "COALESCE(bd.budgetType, 'department')";
+  const isCategoryTargetSql = `${budgetKindSql} = 'employment_category'`;
+  const effectiveDepartmentCases = [];
+  const effectiveDepartmentParams = [];
+  if (allowedEmploymentTypes.length) {
+    // A category target is stored as the module's label "Group | Type", so it
+    // matches the layout either whole or by the type name after the last " | ".
+    const empMarks = allowedEmploymentTypes.map(() => '?').join(',');
+    effectiveDepartmentCases.push(
+      `WHEN ${isCategoryTargetSql} AND (bd.budgetCode IN (${empMarks}) `
+        + `OR SUBSTRING_INDEX(bd.budgetCode, ' | ', -1) IN (${empMarks})) `
+        + "THEN CONCAT('@emp:', bd.budgetCode)",
+    );
+    effectiveDepartmentParams.push(...allowedEmploymentTypes, ...allowedEmploymentTypes);
+  }
+  if (allowedDepartments.length) {
+    effectiveDepartmentCases.push(
+      `WHEN NOT (${isCategoryTargetSql}) AND bd.budgetCode IN (${allowedDepartments.map(() => '?').join(',')}) `
+        + 'THEN bd.budgetCode',
+    );
+    effectiveDepartmentParams.push(...allowedDepartments);
+  }
+  const effectiveDepartmentSql = effectiveDepartmentCases.length
+    ? `CASE ${effectiveDepartmentCases.join(' ')} ELSE pp.department END`
     : 'pp.department';
 
   if (department && department.toLowerCase() !== 'all') {
     where += ` AND ${effectiveDepartmentSql} = ?`;
-    params.push(...allowedDepartments, department);
+    params.push(...effectiveDepartmentParams, department);
   } else if (employmentType) {
-    where += ' AND etc.typeName = ?';
-    params.push(employmentType);
+    // The category's own employees, plus anyone whose pay is charged to it
+    // (stored as "Group | Type", so match the whole label or its type name).
+    where += ` AND (etc.typeName = ? OR (${isCategoryTargetSql} AND `
+      + `(bd.budgetCode = ? OR SUBSTRING_INDEX(bd.budgetCode, ' | ', -1) = ?)))`;
+    params.push(employmentType, employmentType, employmentType);
   } else if (includeAll) {
-    // Only employees under an enabled department or employment category.
+    // Only employees under an enabled department, employment category, or charge target.
     const parts = [];
     if (allowedDepartments.length) {
       parts.push(`${effectiveDepartmentSql} IN (${allowedDepartments.map(() => '?').join(',')})`);
-      params.push(...allowedDepartments, ...allowedDepartments);
+      params.push(...effectiveDepartmentParams, ...allowedDepartments);
     }
     if (allowedEmploymentTypes.length) {
-      parts.push(`etc.typeName IN (${allowedEmploymentTypes.map(() => '?').join(',')})`);
-      params.push(...allowedEmploymentTypes);
+      const marks = allowedEmploymentTypes.map(() => '?').join(',');
+      parts.push(
+        `(etc.typeName IN (${marks}) OR (${isCategoryTargetSql} AND `
+          + `(bd.budgetCode IN (${marks}) OR SUBSTRING_INDEX(bd.budgetCode, ' | ', -1) IN (${marks}))))`,
+      );
+      params.push(...allowedEmploymentTypes, ...allowedEmploymentTypes, ...allowedEmploymentTypes);
     }
     where += ` AND (${parts.join(' OR ')})`;
   }
@@ -209,18 +252,24 @@ router.get('/export-appendix33/scopes', authenticateToken, requireAdmin, (req, r
           return res.status(500).json({ error: 'Could not read employment categories' });
         }
 
+        // Categories are mapped by typeName alone, so one entry can cover the same
+        // subcategory in several groups (e.g. "Tempo" under Academic 30 and
+        // Academic 40). Keep every group so the menu says who is included.
         const empMeta = new Map();
         (empRows || []).forEach((row) => {
-          if (!empMeta.has(row.typeName)) {
-            empMeta.set(row.typeName, row.parentGroup || '');
-          }
+          const groups = empMeta.get(row.typeName) || [];
+          const group = row.parentGroup || '';
+          if (group && !groups.includes(group)) groups.push(group);
+          empMeta.set(row.typeName, groups);
         });
 
         const employmentTypes = empNames.map((typeName) => {
           const scope = resolveScopeTemplate(maps.employmentTypes[typeName], typeName);
+          const groups = empMeta.get(typeName) || [];
           return {
             typeName,
-            parentGroup: empMeta.get(typeName) || '',
+            parentGroup: groups.join(' + '),
+            parentGroups: groups,
             templateKey: scope?.key || '',
             generated: Boolean(scope?.blueprintKey),
           };
@@ -248,7 +297,9 @@ router.get('/export-appendix33/availability', authenticateToken, requireAdmin, (
   }
 
   db.query(
-    `SELECT COUNT(*) AS count FROM (${PAYROLL_SELECT} WHERE ${parsed.where}) AS scoped`,
+    `SELECT COUNT(*) AS total,
+            COALESCE(SUM(CASE WHEN ${HAS_BUDGET_SQL} THEN 1 ELSE 0 END), 0) AS count
+     FROM (${PAYROLL_SELECT} WHERE ${parsed.where}) AS scoped`,
     parsed.params,
     (err, rows) => {
       if (err) {
@@ -261,9 +312,15 @@ router.get('/export-appendix33/availability', authenticateToken, requireAdmin, (
       }
 
       const count = Number(rows?.[0]?.count || 0);
+      const skippedNoBudget = Math.max(0, Number(rows?.[0]?.total || 0) - count);
       res.json({
         available: count > 0,
         count,
+        skippedNoBudget,
+        error: count === 0 && skippedNoBudget > 0
+          ? `${skippedNoBudget} employee${skippedNoBudget === 1 ? ' has' : 's have'} finalized payroll for ${parsed.periodName} `
+            + 'but no Budget Department yet. Set it in Department Assignment to include them.'
+          : undefined,
         month: parsed.month,
         year: parsed.year,
         department: parsed.department || null,
@@ -312,14 +369,25 @@ router.post('/export-appendix33', authenticateToken, requireAdmin, (req, res) =>
     }
   }
 
-  db.query(query, params, (err, rows) => {
+  db.query(query, params, (err, scopedRows) => {
     if (err) {
       console.error('Appendix 33 export: query failed', err);
       return res.status(500).json({ error: 'Could not read finalized payroll' });
     }
 
-    if (!rows.length) {
+    if (!scopedRows.length) {
       return res.status(404).json({ error: emptyFilterMessage(parsed) });
+    }
+
+    // Employees with no Budget Department yet are not exported
+    const rows = scopedRows.filter(hasBudgetTarget);
+    const skippedNoBudget = scopedRows.length - rows.length;
+    if (!rows.length) {
+      return res.status(404).json({
+        error: `${skippedNoBudget} employee${skippedNoBudget === 1 ? ' has' : 's have'} finalized payroll for ${periodName} `
+          + 'but no Budget Department yet. Set it in Department Assignment to include them.',
+        skippedNoBudget,
+      });
     }
 
     let built;
@@ -402,6 +470,7 @@ router.post('/export-appendix33', authenticateToken, requireAdmin, (req, res) =>
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
       res.setHeader('Content-Length', buffer.length);
       res.setHeader('X-Appendix33-Employees', String(rows.length));
+      res.setHeader('X-Appendix33-Skipped-No-Budget', String(skippedNoBudget));
       if (active) {
         res.setHeader('X-Appendix33-Template', encodeURIComponent(active.name));
         res.setHeader('X-Appendix33-Template-Id', active.id);

@@ -23,6 +23,7 @@ import {
   Schedule,
   ExpandMore,
   CheckCircle,
+  Timelapse,
 } from '@mui/icons-material';
 import PrintIcon from '@mui/icons-material/Print';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
@@ -135,6 +136,8 @@ import {
   DTR_INDICATOR_OPTIONS,
   defaultDtrIndicatorVisibility,
   isDtrCellWatermarkText,
+  loadDtrDeductionsVisible,
+  persistDtrDeductionsVisible,
   formatDtrPdfFileName,
   formatDtrBulkPdfFileName,
 } from '../../utils/dtrFormatHelpers';
@@ -175,15 +178,6 @@ const T = {
   surface: '#ffffff',
   divider: 'rgba(0,0,0,0.08)',
 };
-
-const EMPLOYMENT_CATEGORY_OPTIONS = [
-  { value: 0, label: 'JO Graduate', color: '#F57C00', shortLabel: 'JO Graduate' },
-  { value: 1, label: 'JO UnderGrad', color: '#E64A19', shortLabel: 'JO UnderGrad' },
-  { value: 2, label: 'Regular Non-Teaching', color: '#2E7D32', shortLabel: 'Non-Teaching' },
-  { value: 3, label: 'Regular Teaching (30Hrs)', color: '#1565C0', shortLabel: 'Teaching' },
-  { value: 4, label: 'Regular Designated (40Hrs)', color: '#7B1FA2', shortLabel: 'Designated' },
-  { value: 5, label: 'Other', color: '#00796B', shortLabel: 'Other' },
-];
 
 /**
  * Map an employee's computed attendance module type to the same coarse
@@ -645,6 +639,11 @@ const DailyTimeRecordFaculty = ({
     loadDtrIndicatorVisibility,
   );
   const [indicatorMenuAnchor, setIndicatorMenuAnchor] = useState(null);
+  /** Late / U-time deduction values on the form. Display only, persisted. */
+  const [showDeductions, setShowDeductions] = useState(
+    loadDtrDeductionsVisible,
+  );
+  const [computationMenuAnchor, setComputationMenuAnchor] = useState(null);
   const dtrRef = useRef(null);
 
   const fetchRecordsRef = useRef(null);
@@ -674,6 +673,9 @@ const DailyTimeRecordFaculty = ({
   const abortControllerRef = useRef(null);
   /** Monotonic id so aborted batch fetches do not leave loading flags stuck. */
   const batchFetchGenRef = useRef(0);
+  /** Finished batches per (period + load scope) — see "Batch cache" below. */
+  const batchCacheRef = useRef(new Map());
+  const currentBatchKeyRef = useRef('');
   /** Last time batch/single data was fully loaded — used to skip tab-focus spam. */
   const lastDataFreshAtRef = useRef(0);
 
@@ -781,6 +783,13 @@ const DailyTimeRecordFaculty = ({
   const [singlePrintStatus, setSinglePrintStatus] = useState('');
   const [employeeSearchLoading, setEmployeeSearchLoading] = useState(false);
   const [departmentAssignmentsMap, setDepartmentAssignmentsMap] = useState({});
+  // Batch Printing load scope — chosen before a month is loaded, so only these
+  // employees are fetched and hydrated (same filters as Attendance Device → All Users).
+  const [batchScopeDept, setBatchScopeDept] = useState('');
+  const [batchScopeCat, setBatchScopeCat] = useState('');
+  const [batchScopeStatus, setBatchScopeStatus] = useState('Active'); // 'Active' | '' | '__NOT_ACTIVE__'
+  // employeeNumber -> users.status ('Active', 'Inactive', 'Default', …)
+  const [userStatusMap, setUserStatusMap] = useState(null);
   const [empCatMap, setEmpCatMap] = useState({});
   const [sexMap, setSexMap] = useState({});
 
@@ -805,12 +814,26 @@ const DailyTimeRecordFaculty = ({
     let cancelled = false;
     (async () => {
       try {
-        const [assignRes, empCatRes, personsRes] = await Promise.allSettled([
+        const [assignRes, empCatRes, personsRes, usersRes] = await Promise.allSettled([
           axios.get(`${API_BASE_URL}/api/department-assignment`, getAuthHeaders()),
           axios.get(`${API_BASE_URL}/EmploymentCategoryRoutes/employment-category`, getAuthHeaders()),
           axios.get(`${API_BASE_URL}/personalinfo/person_table`, getAuthHeaders()),
+          axios.get(`${API_BASE_URL}/users`, getAuthHeaders()),
         ]);
         if (cancelled) return;
+        // Employee status for the Batch Printing "Employee Status" scope; {} on
+        // failure so the batch never waits on it forever.
+        {
+          const statusMap = {};
+          if (usersRes.status === 'fulfilled') {
+            const list = Array.isArray(usersRes.value.data) ? usersRes.value.data : usersRes.value.data?.data || [];
+            list.forEach((u) => {
+              const num = String(u?.employeeNumber ?? '').trim();
+              if (num) statusMap[num] = u.status || 'Default';
+            });
+          }
+          setUserStatusMap(statusMap);
+        }
         if (assignRes.status === 'fulfilled') {
           const map = {};
           (Array.isArray(assignRes.value.data) ? assignRes.value.data : []).forEach((a) => {
@@ -1187,7 +1210,7 @@ const DailyTimeRecordFaculty = ({
       isRestoringRef.current = false;
     }, 350);
     return () => clearTimeout(t);
-  }, [showOfficialTimeOnDtr, dtrType, printQuincena, printRangeStart, printRangeEnd, indicatorVisibility]);
+  }, [showOfficialTimeOnDtr, dtrType, printQuincena, printRangeStart, printRangeEnd, indicatorVisibility, showDeductions]);
 
   useEffect(() => () => stopObserver(), [stopObserver]);
 
@@ -1970,6 +1993,12 @@ const DailyTimeRecordFaculty = ({
           fetchRecordsRef.current?.({ quiet: true });
         return;
       }
+      // Attendance changed: cached batches for other months/scopes may be stale.
+      if (changedIDs.length > 0 || isBulk) {
+        const keep = batchCacheRef.current.get(currentBatchKeyRef.current);
+        batchCacheRef.current.clear();
+        if (keep) batchCacheRef.current.set(currentBatchKeyRef.current, keep);
+      }
       if (!startDate || !endDate || allUsersDTR.length === 0) return;
       if (changedIDs.length === 0 && !isBulk) return;
       if (debounceTimer) clearTimeout(debounceTimer);
@@ -2089,14 +2118,55 @@ const DailyTimeRecordFaculty = ({
       ]);
       if (signal.aborted || !isLatest()) return;
 
-      const empList = empRes.data || [];
+      // Status lookup normally arrives with the page; fetch it now if a month was
+      // picked before it finished, so the "Active" scope never empties the batch.
+      let statusMap = userStatusMap;
+      if (batchScopeStatus && statusMap == null) {
+        try {
+          const uRes = await axios.get(`${API_BASE_URL}/users`, cfg());
+          const list = Array.isArray(uRes.data) ? uRes.data : uRes.data?.data || [];
+          statusMap = {};
+          list.forEach((u) => {
+            const num = String(u?.employeeNumber ?? '').trim();
+            if (num) statusMap[num] = u.status || 'Default';
+          });
+          setUserStatusMap(statusMap);
+        } catch {
+          statusMap = null; // unknown — skip the status scope rather than drop everyone
+        }
+        if (signal.aborted || !isLatest()) return;
+      }
+
+      // Load scope (Department / Employment Category / Employee Status chosen in
+      // the left panel): only these employees are hydrated, which is what makes
+      // a filtered batch fast.
+      const inBatchScope = (emp) => {
+        const key = String(emp.personID ?? '').trim();
+        if (batchScopeStatus && statusMap) {
+          const isActive = statusMap[key] === 'Active';
+          if (batchScopeStatus === 'Active' ? !isActive : isActive) return false;
+        }
+        if (batchScopeDept) {
+          const dc = departmentAssignmentsMap[key] || '';
+          if (batchScopeDept === '__UNASSIGNED__' ? dc : dc !== batchScopeDept) return false;
+        }
+        if (batchScopeCat) {
+          const label = empCatMap[key]?.label || '';
+          if (batchScopeCat === '__UNASSIGNED__' ? label : label !== batchScopeCat) return false;
+        }
+        return true;
+      };
+      const fullList = empRes.data || [];
+      const empList = fullList.filter(inBatchScope);
       if (empList.length === 0) {
         if (!quiet) {
           setAllUsersDTR([]);
           setBatchOfficialTimesMap({});
           showAlert(
             'No Records Found',
-            'No attendance records found for the selected date range.',
+            fullList.length
+              ? 'No employees match the selected Department / Employment Category / Employee Status for this date range.'
+              : 'No attendance records found for the selected date range.',
           );
         }
         return;
@@ -2377,12 +2447,76 @@ const DailyTimeRecordFaculty = ({
     departmentAssignmentsMap,
     empCatMap,
     refreshHolidaysAndSuspensions,
+    batchScopeDept,
+    batchScopeCat,
+    batchScopeStatus,
+    userStatusMap,
   ]);
 
+  // ─── Batch cache ───────────────────────────────────────────────────────
+  // A finished batch is kept per (period + load scope), so switching back to a
+  // month / scope you already loaded — or Individual ↔ Batch — is instant
+  // instead of re-downloading every employee. Live changes still arrive through
+  // the socket quiet refresh, which also drops the other cached batches.
+  const BATCH_CACHE_TTL_MS = 10 * 60 * 1000;
+  const BATCH_CACHE_MAX = 6;
+  const batchKey = `${startDate}|${endDate}|${batchScopeDept}|${batchScopeCat}|${batchScopeStatus}`;
+
+  // Snapshot the batch once every row has finished loading
   useEffect(() => {
-    if (viewMode === 'multiple' && startDate && endDate) fetchAllUsersDTR();
+    const key = currentBatchKeyRef.current;
+    if (viewMode !== 'multiple' || !key || key !== batchKey) return;
+    if (!allUsersDTR.length || allUsersDTR.some((u) => u._loading)) return;
+    const cache = batchCacheRef.current;
+    cache.delete(key); // re-insert = most recent
+    cache.set(key, {
+      at: Date.now(),
+      users: allUsersDTR,
+      officialTimes: batchOfficialTimesMap,
+      computedLate: computedLateByEmployee,
+      halfDays: halfDayDatesByEmployee,
+      printStatus: printStatusMap,
+    });
+    while (cache.size > BATCH_CACHE_MAX) cache.delete(cache.keys().next().value);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [startDate, endDate, viewMode]);
+  }, [allUsersDTR, batchOfficialTimesMap, computedLateByEmployee, halfDayDatesByEmployee, printStatusMap]);
+
+  // Load when the month or the load scope (Department / Employment Category /
+  // Employee Status) changes — from the cache when that batch was loaded recently.
+  useEffect(() => {
+    if (viewMode !== 'multiple' || !startDate || !endDate) return;
+    // Already showing this batch (e.g. Individual → Batch and back): keep it.
+    if (currentBatchKeyRef.current === batchKey && allUsersDTR.length) return;
+    const cached = batchCacheRef.current.get(batchKey);
+    currentBatchKeyRef.current = batchKey;
+    if (cached && Date.now() - cached.at < BATCH_CACHE_TTL_MS) {
+      if (abortControllerRef.current) abortControllerRef.current.abort();
+      batchFetchGenRef.current += 1; // any in-flight load for another month is now stale
+      setAllUsersDTR(cached.users);
+      setBatchOfficialTimesMap(cached.officialTimes);
+      setComputedLateByEmployee(cached.computedLate);
+      setHalfDayDatesByEmployee(cached.halfDays);
+      setPrintStatusMap(cached.printStatus);
+      setSelectedUsers(new Set());
+      setCurrentPage(1);
+      setLoadingAllUsers(false);
+      setLoadPhase('');
+      return;
+    }
+    fetchAllUsersDTR();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batchKey, viewMode]);
+
+  // Employment categories in use (Employment Category module labels) for the scope picker
+  const batchScopeCatOptions = useMemo(() => {
+    const seen = new Map();
+    Object.values(empCatMap || {}).forEach((c) => {
+      if (c?.label && !seen.has(c.label)) seen.set(c.label, c.colorHex || '#757575');
+    });
+    return [...seen.entries()]
+      .map(([label, colorHex]) => ({ label, colorHex }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [empCatMap]);
 
   // ─── Month click ────────────────────────────────────────────────────────
   const handleMonthClick = (idx) => {
@@ -2617,11 +2751,13 @@ const DailyTimeRecordFaculty = ({
           (u.departmentCode || u.rawUser?.departmentCode || '') ===
           departmentFilter,
       );
+    // Employment Category module label ("Group | Type"), not the old numeric id
     if (employmentCategoryFilter !== '')
       filtered = filtered.filter((u) => {
-        const cat =
-          u.rawUser?.employmentCategory ?? u.employmentCategory ?? null;
-        return cat !== null && cat === parseInt(employmentCategoryFilter);
+        const label = empCatMap[String(u.employeeNumber)]?.label || '';
+        return employmentCategoryFilter === '__UNASSIGNED__'
+          ? !label
+          : label === employmentCategoryFilter;
       });
     if (registrationStatusFilter)
       filtered = filtered.filter(
@@ -2669,7 +2805,10 @@ const DailyTimeRecordFaculty = ({
         ).toLowerCase();
         const emp = String(u.employeeNumber || '').toLowerCase();
         const device = (u.devicePersonName || '').toLowerCase();
-        return full.includes(q) || emp.includes(q) || device.includes(q);
+        const category = (empCatMap[String(u.employeeNumber)]?.label || '').toLowerCase();
+        const dept = String(u.departmentCode || u.rawUser?.departmentCode || '').toLowerCase();
+        return full.includes(q) || emp.includes(q) || device.includes(q)
+          || category.includes(q) || dept.includes(q);
       });
     }
     return sortEmployeesByLastName(filtered, (u) => u.fullName || u.lastName || u);
@@ -2680,6 +2819,7 @@ const DailyTimeRecordFaculty = ({
     printStatusMap,
     departmentFilter,
     employmentCategoryFilter,
+    empCatMap,
     registrationStatusFilter,
     dtrType,
     batchSearchTrimmed,
@@ -2777,25 +2917,19 @@ const DailyTimeRecordFaculty = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode, startDate, endDate, pageNeedsHydrateKey, dtrType]);
 
-  const getCategoryLabel = (id) =>
-    EMPLOYMENT_CATEGORY_OPTIONS.find(
-      (option) => String(option.value) === String(id),
-    )?.label || 'Unknown';
-  const getCategoryShortLabel = (id) =>
-    EMPLOYMENT_CATEGORY_OPTIONS.find(
-      (option) => String(option.value) === String(id),
-    )?.shortLabel || getCategoryLabel(id);
-  const getCategoryColor = (id) =>
-    EMPLOYMENT_CATEGORY_OPTIONS.find(
-      (option) => String(option.value) === String(id),
-    )?.color || '#757575';
+  /** An employee's category from the Employment Category module: { label, colorHex } or null. */
+  const employmentCategoryOf = (empNum) => {
+    const c = empCatMap[String(empNum ?? '').trim()];
+    return c?.label ? c : null;
+  };
+  const safeCategoryColor = (hex) => (/^#[0-9A-Fa-f]{3,8}$/.test(String(hex || '').trim()) ? hex : '#757575');
 
   const resolveBulkPdfFilterLabels = () => ({
     department: departmentFilter || '',
     employmentCategory:
-      employmentCategoryFilter !== ''
-        ? getCategoryShortLabel(employmentCategoryFilter)
-        : '',
+      employmentCategoryFilter === '__UNASSIGNED__'
+        ? 'No category'
+        : employmentCategoryFilter || '',
   });
 
   const resolvePdfFileName = (users) => {
@@ -3444,6 +3578,7 @@ const DailyTimeRecordFaculty = ({
       records: rangedRecords,
       officialTime: officialTimesForUser,
       showOfficialTimeOnDtr,
+      showDeductions,
       indicatorVisibility,
       startDate: displayPeriod.startDate || startDate,
       endDate: displayPeriod.endDate || endDate,
@@ -3582,6 +3717,53 @@ const DailyTimeRecordFaculty = ({
           }}
         >
           {indicatorButtonLabel}
+        </AccentButton>
+      </span>
+    </Tooltip>
+  );
+
+  const toggleDeductions = () => {
+    setShowDeductions((prev) => {
+      const next = !prev;
+      persistDtrDeductionsVisible(next);
+      return next;
+    });
+  };
+
+  const renderDeductionsButton = () => (
+    <Tooltip
+      title={
+        showDeductions
+          ? 'Deductions (Late / U-time) are shown. Click to hide them.'
+          : 'Deductions (Late / U-time) are hidden. Click to show them.'
+      }
+      placement="top"
+    >
+      <span>
+        <AccentButton
+          variant={showDeductions ? 'outlined' : 'contained'}
+          size="small"
+          aria-label="Toggle DTR deductions"
+          aria-pressed={showDeductions}
+          startIcon={<Timelapse sx={{ fontSize: '15px !important' }} />}
+          onClick={toggleDeductions}
+          className="no-print"
+          sx={{
+            height: 32,
+            fontSize: '0.75rem',
+            fontWeight: 700,
+            px: 1.5,
+            color: showDeductions ? T.accent : '#fff',
+            bgcolor: showDeductions ? '#fff' : T.accent,
+            borderColor: T.accent,
+            boxShadow: showDeductions ? 'none' : `0 2px 8px ${alpha(T.accent, 0.3)}`,
+            '&:hover': {
+              bgcolor: showDeductions ? T.accentFaint : T.accentDark,
+              borderColor: T.accent,
+            },
+          }}
+        >
+          {showDeductions ? 'Deductions' : 'Deductions off'}
         </AccentButton>
       </span>
     </Tooltip>
@@ -3773,6 +3955,141 @@ const DailyTimeRecordFaculty = ({
                 {opt.label}
               </Typography>
             </Box>
+          );
+        })}
+      </Box>
+    </Popover>
+  );
+
+  const getComputationOptionState = (btn) => {
+    const drawerOpen =
+      activeComputationDrawer === btn.drawer || moduleDrawer === btn.drawer;
+    const isOnDtr = appliedLateUtModuleType === btn.moduleType;
+    const isExpected = expectedModuleType === btn.moduleType;
+    const categoryColor = btn.categoryColor || T.accent;
+    const statusLabel = isOnDtr
+      ? 'Using on this DTR'
+      : isExpected
+        ? 'Matches employment category'
+        : drawerOpen
+          ? 'Panel is open'
+          : 'Open computation';
+    return { drawerOpen, isOnDtr, isExpected, categoryColor, statusLabel };
+  };
+
+  const renderComputationMenu = () => (
+    <Popover
+      open={Boolean(computationMenuAnchor)}
+      anchorEl={computationMenuAnchor}
+      onClose={() => setComputationMenuAnchor(null)}
+      anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+      marginThreshold={8}
+      className="no-print"
+      sx={{ zIndex: (theme) => theme.zIndex.modal + 2 }}
+      PaperProps={{
+        sx: {
+          mt: 0.5,
+          minWidth: { xs: 230, sm: 260 },
+          maxWidth: 'calc(100vw - 24px)',
+          borderRadius: 2,
+          border: `1px solid ${T.accentBorder}`,
+          boxShadow: '0 8px 28px rgba(0,0,0,0.14)',
+          '& .MuiMenuItem-root': {
+            borderRadius: 1.25,
+            mx: 0.5,
+            width: 'calc(100% - 8px)',
+          },
+        },
+      }}
+    >
+      <Box sx={{ py: 0.5 }}>
+        {HUB_COMPUTATION_BUTTONS.map((btn) => {
+          const {
+            drawerOpen,
+            isOnDtr,
+            isExpected,
+            categoryColor,
+            statusLabel,
+          } = getComputationOptionState(btn);
+          return (
+            <MenuItem
+              key={`compute-menu-${btn.drawer}`}
+              selected={isOnDtr || drawerOpen}
+              onClick={() => {
+                setComputationMenuAnchor(null);
+                openComputationDrawer(btn.drawer);
+              }}
+              sx={{
+                minHeight: 48,
+                px: 1,
+                py: 0.7,
+                color: isOnDtr || isExpected ? categoryColor : T.text,
+                bgcolor: isOnDtr
+                  ? alpha(categoryColor, 0.12)
+                  : isExpected || drawerOpen
+                    ? alpha(categoryColor, 0.07)
+                    : 'transparent',
+                '&:hover': { bgcolor: alpha(categoryColor, 0.1) },
+                '&.Mui-selected': {
+                  bgcolor: alpha(categoryColor, 0.14),
+                  '&:hover': { bgcolor: alpha(categoryColor, 0.18) },
+                },
+              }}
+            >
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1,
+                  width: '100%',
+                  minWidth: 0,
+                }}
+              >
+                {isOnDtr || isExpected ? (
+                  <CheckCircle sx={{ fontSize: 16, color: categoryColor, flexShrink: 0 }} />
+                ) : (
+                  <AccessTime sx={{ fontSize: 16, color: T.faint, flexShrink: 0 }} />
+                )}
+                <Box sx={{ minWidth: 0, flex: 1 }}>
+                  <Typography
+                    sx={{
+                      fontSize: '0.76rem',
+                      fontWeight: isOnDtr || isExpected ? 800 : 600,
+                      lineHeight: 1.2,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {btn.label}
+                  </Typography>
+                  <Typography
+                    sx={{
+                      mt: 0.15,
+                      fontSize: '0.64rem',
+                      color: T.muted,
+                      lineHeight: 1.2,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {statusLabel}
+                  </Typography>
+                </Box>
+                {isOnDtr && (
+                  <Chip
+                    label="Using"
+                    size="small"
+                    sx={{
+                      height: 19,
+                      flexShrink: 0,
+                      fontSize: '0.6rem',
+                      fontWeight: 800,
+                      color: '#fff',
+                      bgcolor: categoryColor,
+                    }}
+                  />
+                )}
+              </Box>
+            </MenuItem>
           );
         })}
       </Box>
@@ -4025,6 +4342,83 @@ const DailyTimeRecordFaculty = ({
           Show official time on DTR
         </Typography>
       </Box>
+
+      {/* Batch load scope — only these employees are loaded for the month.
+          Compact 2-column layout so the filter panel fits without scrolling. */}
+      {viewMode === 'multiple' && (() => {
+        const scopeLabelSx = {
+          fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.08em',
+          textTransform: 'uppercase', color: alpha(T.accent, 0.5), mb: 0.4,
+        };
+        const scopeSelectSx = {
+          ...selectSx,
+          fontSize: '0.76rem',
+          '& .MuiSelect-select': { py: '6px', pl: 1.25, display: 'flex', alignItems: 'center', gap: 0.75 },
+        };
+        const itemSx = { fontSize: '0.78rem' };
+        return (
+          <Box sx={{ mt: 1.75 }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, mb: 1 }}>
+              <Box sx={{ minWidth: 0 }}>
+                <Typography sx={scopeLabelSx}>Department</Typography>
+                <FormControl fullWidth size="small">
+                  <Select value={batchScopeDept} onChange={(e) => setBatchScopeDept(e.target.value)}
+                    displayEmpty sx={scopeSelectSx}
+                    renderValue={(v) => (v === '' ? 'All' : v === '__UNASSIGNED__' ? 'Unassigned' : v)}>
+                    <MenuItem value="" sx={itemSx}>All Departments</MenuItem>
+                    <MenuItem value="__UNASSIGNED__" sx={itemSx}>Unassigned</MenuItem>
+                    {departments.map((d) => (
+                      <MenuItem key={d.code} value={d.code} sx={itemSx}>
+                        {d.code}{d.description ? ` — ${d.description}` : ''}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Box>
+              <Box sx={{ minWidth: 0 }}>
+                <Typography sx={scopeLabelSx}>Employee Status</Typography>
+                <FormControl fullWidth size="small">
+                  <Select value={batchScopeStatus} onChange={(e) => setBatchScopeStatus(e.target.value)}
+                    displayEmpty sx={scopeSelectSx}
+                    renderValue={(v) => (v === 'Active' ? 'Active' : v === '__NOT_ACTIVE__' ? 'Not active' : 'All')}>
+                    <MenuItem value="Active" sx={itemSx}>Active employees</MenuItem>
+                    <MenuItem value="" sx={itemSx}>All employees</MenuItem>
+                    <MenuItem value="__NOT_ACTIVE__" sx={itemSx}>Not active</MenuItem>
+                  </Select>
+                </FormControl>
+              </Box>
+            </Box>
+            <Typography sx={scopeLabelSx}>Employment Category</Typography>
+            <FormControl fullWidth size="small">
+              <Select value={batchScopeCat} onChange={(e) => setBatchScopeCat(e.target.value)}
+                displayEmpty sx={scopeSelectSx}
+                renderValue={(v) => {
+                  if (v === '') return 'All Employment Categories';
+                  if (v === '__UNASSIGNED__') return 'Unassigned';
+                  const c = batchScopeCatOptions.find((o) => o.label === v);
+                  return (
+                    <>
+                      <Box component="span" sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: c?.colorHex || T.muted, flexShrink: 0 }} />
+                      <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v}</Box>
+                    </>
+                  );
+                }}>
+                <MenuItem value="" sx={itemSx}>All Employment Categories</MenuItem>
+                <MenuItem value="__UNASSIGNED__" sx={itemSx}>Unassigned</MenuItem>
+                {batchScopeCatOptions.map((c) => (
+                  <MenuItem key={c.label} value={c.label} sx={{ ...itemSx, gap: 0.75 }}>
+                    <Box component="span" sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: c.colorHex, flexShrink: 0, display: 'inline-block' }} />
+                    {c.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <Typography sx={{ fontSize: '0.64rem', color: T.muted, mt: 0.5, lineHeight: 1.35 }}>
+              Only these employees are loaded; changing a filter reloads the batch.
+            </Typography>
+          </Box>
+        );
+      })()}
 
       {viewMode === 'multiple' && (
         <Box
@@ -4376,7 +4770,7 @@ const DailyTimeRecordFaculty = ({
                               >
                                 DTR Preview
                               </Typography>
-                              {selectedMonth !== null && employeeName && (
+                              {/* {selectedMonth !== null && employeeName && (
                                 <Box
                                   sx={{
                                     display: 'flex',
@@ -4416,7 +4810,7 @@ const DailyTimeRecordFaculty = ({
                                     {monthsShort[selectedMonth]}
                                   </Box>
                                 </Box>
-                              )}
+                              )} */}
                             </Box>
                             <Box
                               sx={{
@@ -4506,147 +4900,48 @@ const DailyTimeRecordFaculty = ({
                                   display: { xs: 'none', md: 'block' },
                                 }}
                               />
-                              <Typography
-                                sx={{
-                                  fontSize: '0.7rem',
-                                  color: T.faint,
-                                  display: { xs: 'none', lg: 'block' },
-                                  whiteSpace: 'nowrap',
-                                }}
+                              <Tooltip
+                                title="Choose a computation type to open and save"
+                                placement="top"
                               >
-                                Compute &amp; save:
-                              </Typography>
-                              {HUB_COMPUTATION_BUTTONS.map((btn) => {
-                                const drawerOpen =
-                                  activeComputationDrawer === btn.drawer ||
-                                  moduleDrawer === btn.drawer;
-                                const isOnDtr =
-                                  appliedLateUtModuleType === btn.moduleType;
-                                const isExpected =
-                                  expectedModuleType === btn.moduleType;
-                                const categoryColor =
-                                  btn.categoryColor || T.accent;
-                                const disabled =
-                                  !personID || !hasSearchedSingle;
-                                return (
-                                  <Tooltip
-                                    key={`compute-${btn.drawer}`}
-                                    title={
-                                      isOnDtr
-                                        ? `${btn.label} is currently on this DTR — open to review or Save to Summary again`
-                                        : isExpected
-                                          ? `${btn.label} matches this employee's employment category`
-                                          : drawerOpen
-                                            ? `${btn.label} panel is open`
-                                            : expectedModuleType
-                                              ? `This employee is ${HUB_COMPUTATION_BUTTONS.find((b) => b.moduleType === expectedModuleType)?.label || 'a different type'}. Opening ${btn.label} uses a different formula.`
-                                              : `No employment category assigned. Opening ${btn.label} will still compute with this formula.`
+                                <span>
+                                  <AccentButton
+                                    variant="outlined"
+                                    size="small"
+                                    disabled={!personID || !hasSearchedSingle}
+                                    aria-label="Compute and save"
+                                    aria-haspopup="menu"
+                                    aria-expanded={
+                                      computationMenuAnchor ? 'true' : 'false'
                                     }
-                                    placement="top"
+                                    endIcon={
+                                      <ExpandMore
+                                        sx={{ fontSize: '16px !important' }}
+                                      />
+                                    }
+                                    onClick={(event) =>
+                                      setComputationMenuAnchor(event.currentTarget)
+                                    }
+                                    sx={{
+                                      height: 32,
+                                      fontSize: '0.72rem',
+                                      fontWeight: 700,
+                                      px: 1.25,
+                                      color: T.accent,
+                                      borderColor: T.accentBorder,
+                                      bgcolor: '#fff',
+                                      '&:hover': {
+                                        bgcolor: T.accentFaint,
+                                        borderColor: T.accent,
+                                      },
+                                      '&.Mui-disabled': { opacity: 0.55 },
+                                    }}
                                   >
-                                    <span>
-                                      <AccentButton
-                                        variant="outlined"
-                                        size="small"
-                                        disabled={disabled}
-                                        aria-pressed={isOnDtr || drawerOpen || isExpected}
-                                        startIcon={
-                                          isOnDtr || isExpected ? (
-                                            <CheckCircle
-                                              sx={{
-                                                fontSize: '15px !important',
-                                              }}
-                                            />
-                                          ) : (
-                                            <AccessTime
-                                              sx={{
-                                                fontSize: '15px !important',
-                                              }}
-                                            />
-                                          )
-                                        }
-                                        onClick={() =>
-                                          openComputationDrawer(btn.drawer)
-                                        }
-                                        sx={{
-                                          height: 32,
-                                          fontSize: '0.72rem',
-                                          fontWeight: 700,
-                                          px: 1.25,
-                                          ...(isOnDtr
-                                            ? {
-                                                bgcolor: categoryColor,
-                                                color: '#fff',
-                                                borderColor: categoryColor,
-                                                borderWidth: 2,
-                                                boxShadow: `0 0 0 2px ${alpha(
-                                                  categoryColor,
-                                                  0.28,
-                                                )}, 0 2px 8px ${alpha(
-                                                  categoryColor,
-                                                  0.35,
-                                                )}`,
-                                                '&:hover': {
-                                                  bgcolor: categoryColor,
-                                                  filter: 'brightness(0.92)',
-                                                  borderColor: categoryColor,
-                                                  borderWidth: 2,
-                                                },
-                                                '&.Mui-focusVisible': {
-                                                  bgcolor: categoryColor,
-                                                  borderColor: categoryColor,
-                                                },
-                                              }
-                                            : isExpected || drawerOpen
-                                              ? {
-                                                  color: categoryColor,
-                                                  borderColor: categoryColor,
-                                                  borderWidth: 2,
-                                                  bgcolor: alpha(
-                                                    categoryColor,
-                                                    0.16,
-                                                  ),
-                                                  boxShadow: `inset 0 0 0 1px ${alpha(
-                                                    categoryColor,
-                                                    0.35,
-                                                  )}`,
-                                                  '&:hover': {
-                                                    bgcolor: alpha(
-                                                      categoryColor,
-                                                      0.22,
-                                                    ),
-                                                    borderColor: categoryColor,
-                                                    borderWidth: 2,
-                                                  },
-                                                }
-                                              : {
-                                                  color: categoryColor,
-                                                  borderColor: alpha(
-                                                    categoryColor,
-                                                    0.35,
-                                                  ),
-                                                  bgcolor: '#fff',
-                                                  '&:hover': {
-                                                    bgcolor: alpha(
-                                                      categoryColor,
-                                                      0.08,
-                                                    ),
-                                                    borderColor: categoryColor,
-                                                  },
-                                                }),
-                                          '&.Mui-disabled': { opacity: 0.55 },
-                                        }}
-                                      >
-                                        {isOnDtr
-                                          ? `Using · ${btn.label}`
-                                          : isExpected
-                                            ? `Category · ${btn.label}`
-                                            : btn.label}
-                                      </AccentButton>
-                                    </span>
-                                  </Tooltip>
-                                );
-                              })}
+                                    Compute &amp; Save
+                                  </AccentButton>
+                                </span>
+                              </Tooltip>
+                              {renderComputationMenu()}
                             </Box>
                           </Box>
                         </Box>
@@ -4834,6 +5129,7 @@ const DailyTimeRecordFaculty = ({
                               }}
                             >
                               {renderIndicatorsButton()}
+                              {renderDeductionsButton()}
                               <Tooltip
                                 placement="top"
                                 title={
@@ -4939,14 +5235,14 @@ const DailyTimeRecordFaculty = ({
                                   ?
                                 </AccentButton>
                               </Tooltip>
-                              <PictureAsPdfIcon
+                              {/* <PictureAsPdfIcon
                                 sx={{
                                   fontSize: 13,
                                   color: alpha(T.accent, 0.45),
                                   flexShrink: 0,
                                 }}
-                              />
-                              <Typography
+                              /> */}
+                              {/* <Typography
                                 sx={{ fontSize: '0.7rem', color: T.faint }}
                               >
                                 Download generates a PDF of the DTR for{' '}
@@ -4955,7 +5251,7 @@ const DailyTimeRecordFaculty = ({
                                 {printQuincena !== 'full'
                                   ? ` · ${printPeriodCaption}`
                                   : ''}
-                              </Typography>
+                              </Typography> */}
                             </Box>
                             <Box
                               sx={{
@@ -5358,13 +5654,19 @@ const DailyTimeRecordFaculty = ({
                                       );
                                       setCurrentPage(1);
                                     }}
-                                    sx={selectSx}
+                                    sx={{ ...selectSx, maxWidth: 260 }}
                                     displayEmpty
-                                    renderValue={(v) =>
-                                      v !== ''
-                                        ? getCategoryLabel(v)
-                                        : 'All Categories'
-                                    }
+                                    renderValue={(v) => {
+                                      if (v === '') return 'All Categories';
+                                      if (v === '__UNASSIGNED__') return 'No category';
+                                      const c = batchScopeCatOptions.find((o) => o.label === v);
+                                      return (
+                                        <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75, maxWidth: '100%' }}>
+                                          <Box component="span" sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: safeCategoryColor(c?.colorHex), flexShrink: 0 }} />
+                                          <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v}</Box>
+                                        </Box>
+                                      );
+                                    }}
                                   >
                                     <MenuItem
                                       value=""
@@ -5372,17 +5674,23 @@ const DailyTimeRecordFaculty = ({
                                     >
                                       All Categories
                                     </MenuItem>
-                                    {EMPLOYMENT_CATEGORY_OPTIONS.map(
-                                      (option) => (
-                                        <MenuItem
-                                          key={option.value}
-                                          value={option.value}
-                                          sx={{ fontSize: '0.82rem' }}
-                                        >
-                                          {option.label}
-                                        </MenuItem>
-                                      ),
-                                    )}
+                                    <MenuItem
+                                      value="__UNASSIGNED__"
+                                      sx={{ fontSize: '0.82rem' }}
+                                    >
+                                      No category
+                                    </MenuItem>
+                                    {/* Employment Category module labels */}
+                                    {batchScopeCatOptions.map((option) => (
+                                      <MenuItem
+                                        key={option.label}
+                                        value={option.label}
+                                        sx={{ fontSize: '0.82rem', gap: 0.75 }}
+                                      >
+                                        <Box component="span" sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: safeCategoryColor(option.colorHex), flexShrink: 0, display: 'inline-block' }} />
+                                        {option.label}
+                                      </MenuItem>
+                                    ))}
                                   </Select>
                                 </FormControl>
                               </Box>
@@ -5786,36 +6094,35 @@ const DailyTimeRecordFaculty = ({
                                         <TableCell>
                                           {isLoading ? (
                                             '—'
-                                          ) : (
-                                            <Chip
-                                              label={getCategoryLabel(
-                                                user.rawUser
-                                                  ?.employmentCategory ??
-                                                  user.employmentCategory ??
-                                                  null,
-                                              )}
-                                              size="small"
-                                              sx={{
-                                                bgcolor: alpha(
-                                                  getCategoryColor(
-                                                    user.rawUser
-                                                      ?.employmentCategory ??
-                                                      user.employmentCategory,
-                                                  ),
-                                                  0.1,
-                                                ),
-                                                color: getCategoryColor(
-                                                  user.rawUser
-                                                    ?.employmentCategory ??
-                                                    user.employmentCategory,
-                                                ),
-                                                border: `1px solid ${getCategoryColor(user.rawUser?.employmentCategory ?? user.employmentCategory)}`,
-                                                fontWeight: 600,
-                                                fontSize: '0.68rem',
-                                                height: 20,
-                                              }}
-                                            />
-                                          )}
+                                          ) : (() => {
+                                            // Employment Category module (label + colour)
+                                            const cat = employmentCategoryOf(user.employeeNumber);
+                                            if (!cat) {
+                                              return (
+                                                <Typography sx={{ fontSize: '0.72rem', color: T.faint, fontStyle: 'italic' }}>
+                                                  Not set
+                                                </Typography>
+                                              );
+                                            }
+                                            const color = safeCategoryColor(cat.colorHex);
+                                            return (
+                                              <Tooltip title={cat.label}>
+                                                <Chip
+                                                  label={cat.label}
+                                                  size="small"
+                                                  sx={{
+                                                    bgcolor: alpha(color, 0.1),
+                                                    color,
+                                                    border: `1px solid ${alpha(color, 0.5)}`,
+                                                    fontWeight: 600,
+                                                    fontSize: '0.68rem',
+                                                    height: 20,
+                                                    maxWidth: 220,
+                                                  }}
+                                                />
+                                              </Tooltip>
+                                            );
+                                          })()}
                                         </TableCell>
                                         <TableCell>
                                           {isLoading ? (
@@ -5960,6 +6267,7 @@ const DailyTimeRecordFaculty = ({
                                 }}
                               >
                                 {renderIndicatorsButton()}
+                                {renderDeductionsButton()}
                                 <FormControl
                                   size="small"
                                   sx={{ minWidth: 130, bgcolor: '#fff' }}
@@ -6337,6 +6645,7 @@ const DailyTimeRecordFaculty = ({
               >
                 <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
                   {renderIndicatorsButton()}
+                  {renderDeductionsButton()}
                   <AccentButton
                     variant="contained"
                     onClick={handlePrintAllSelected}
