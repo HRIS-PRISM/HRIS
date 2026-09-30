@@ -60,6 +60,7 @@ import {
   useAttendanceCompactPage,
 } from "./attendanceFilterLayout";
 import AttendanceEmployeeSearchField from "./AttendanceEmployeeSearchField";
+import AttendanceBranchSource, { punchSourceText } from "./AttendanceBranchSource";
 import { Grid } from "@mui/material";
 import usePageAccess from "../../hooks/usePageAccess";
 import AccessDenied from "../AccessDenied";
@@ -87,6 +88,8 @@ import {
   DialogContent,
   DialogActions,
   Tooltip,
+  Pagination,
+  Select,
 } from "@mui/material";
 import { List as VirtualList } from "react-window";
 
@@ -186,15 +189,15 @@ const AllAttendanceWireframe = () => (
                 </Box>
               ) : (
                 <Box sx={{ p: 0, display: "flex", flexDirection: "column", gap: 0 }}>
-                  <Box sx={{ px: 2.5, py: 1.1, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accent, display: "grid", gridTemplateColumns: "2fr 1fr 1.5fr 1fr", gap: 1 }}>
-                    {Array.from({ length: 4 }).map((_, i) => (
+                  <Box sx={{ px: 2.5, py: 1.1, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accent, display: "grid", gridTemplateColumns: "1.8fr 0.9fr 1.3fr 1.3fr 0.9fr", gap: 1 }}>
+                    {Array.from({ length: 5 }).map((_, i) => (
                       <Box key={i} sx={{ height: 9, borderRadius: 4, bgcolor: "rgba(255,255,255,0.36)" }} />
                     ))}
                   </Box>
                   <Box sx={{ px: 2.5, py: 1.2, display: "flex", flexDirection: "column", gap: 0.8 }}>
                     {Array.from({ length: 9 }).map((_, i) => (
-                      <Box key={i} sx={{ display: "grid", gridTemplateColumns: "2fr 1fr 1.5fr 1fr", gap: 1, py: 0.45 }}>
-                        {Array.from({ length: 4 }).map((__, j) => <Bone key={j} h={10} />)}
+                      <Box key={i} sx={{ display: "grid", gridTemplateColumns: "1.8fr 0.9fr 1.3fr 1.3fr 0.9fr", gap: 1, py: 0.45 }}>
+                        {Array.from({ length: 5 }).map((__, j) => <Bone key={j} h={10} />)}
                       </Box>
                     ))}
                   </Box>
@@ -497,7 +500,8 @@ const ATTENDANCE_REPORT_COLUMNS = [
   { key: "date", label: "Date", width: 42 },
   { key: "time", label: "Time", width: 25 },
   { key: "status", label: "Attendance State", width: 38 },
-  { key: "punch", label: "Punch Timestamp", width: 95 },
+  { key: "branch", label: "Branch (Device)", width: 42 },
+  { key: "punch", label: "Punch Timestamp", width: 55 },
 ];
 
 const buildAttendanceStateReportRows = (records, personID, employeeName) =>
@@ -508,6 +512,7 @@ const buildAttendanceStateReportRows = (records, personID, employeeName) =>
     time: record.Time || "—",
     status: getAttendanceLabel(Number(record.AttendanceState) || 0),
     state: Number(record.AttendanceState) || 0,
+    branch: punchSourceText(record),
     punch: record.AttendanceDateTime || "—",
   }));
 
@@ -758,6 +763,19 @@ const AttendanceStateDetailsDialog = ({ record, open, onClose, onStatusMenuOpen,
                 onOpenMenu={(e) => onStatusMenuOpen?.(e, record)}
               />
             </DetailField>
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <DetailField label="Branch (source)">
+              <AttendanceBranchSource record={record} />
+            </DetailField>
+          </Grid>
+          <Grid item xs={12} sm={6}>
+            <DetailField
+              label="Device"
+              value={record.DeviceName
+                ? record.DeviceName
+                : "—"}
+            />
           </Grid>
         </Grid>
         {canEditStatus && (
@@ -1079,7 +1097,7 @@ const AttendanceStateRow = React.memo(function AttendanceStateRow({
     <Box
       sx={{
         display: "grid",
-        gridTemplateColumns: "2fr 1fr 1.5fr 1fr",
+        gridTemplateColumns: "1.8fr 0.9fr 1.3fr 1.3fr 0.9fr",
         px: 2.5,
         py: 1.5,
         gap: 2,
@@ -1115,6 +1133,7 @@ const AttendanceStateRow = React.memo(function AttendanceStateRow({
           onOpenMenu={(e) => onStatusMenuOpen?.(e, record)}
         />
       </Box>
+      <AttendanceBranchSource record={record} />
       <DetailsActionButton
         onClick={(e) => {
           e.stopPropagation();
@@ -1165,6 +1184,8 @@ const AllAttendanceRecord = () => {
   const [selectedYear, setSelectedYear]   = useState(new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(null);
   const [recordDateFilter, setRecordDateFilter] = useState("");
+  const [tablePage, setTablePage] = useState(1);
+  const [tablePageSize, setTablePageSize] = useState(50);
   const [pageLoading, setPageLoading]     = useState(true);
   const [hasSearched, setHasSearched]     = useState(false);
   const [successOverlayOpen, setSuccessOverlayOpen] = useState(false);
@@ -1731,6 +1752,7 @@ const AllAttendanceRecord = () => {
           { key: "date", header: "Date", width: 160 },
           { key: "time", header: "Time", width: 90, kind: "mono" },
           { key: "status", header: "Status", width: 150, kind: "status" },
+          { key: "branch", header: "Branch (device)", width: 170 },
           { key: "punch", header: "Punch timestamp", width: 180, kind: "mono" },
         ],
         rows,
@@ -1796,14 +1818,27 @@ const AllAttendanceRecord = () => {
     },
   }[reportDialog.action] || null;
 
+  // Table pages — the table shows one page at a time; Excel / Print / the
+  // Search Date filter still work on the whole loaded range.
+  const tablePageCount = Math.max(1, Math.ceil(filteredRecords.length / tablePageSize));
+  const safeTablePage = Math.min(tablePage, tablePageCount);
+  const tablePageStart = (safeTablePage - 1) * tablePageSize;
+  const pagedRecords = useMemo(
+    () => filteredRecords.slice(tablePageStart, tablePageStart + tablePageSize),
+    [filteredRecords, tablePageStart, tablePageSize],
+  );
+  useEffect(() => {
+    setTablePage(1);
+  }, [personID, startDate, endDate, recordDateFilter, sortOrder, tablePageSize]);
+
   const virtualListRowProps = useMemo(
     () => ({
-      records: filteredRecords,
+      records: pagedRecords,
       savingStatusKey,
       onStatusMenuOpen: handleStatusMenuOpen,
       onDetailsOpen: handleDetailsOpen,
     }),
-    [filteredRecords, savingStatusKey, handleStatusMenuOpen, handleDetailsOpen],
+    [pagedRecords, savingStatusKey, handleStatusMenuOpen, handleDetailsOpen],
   );
 
   useEffect(() => {
@@ -2224,7 +2259,7 @@ const AllAttendanceRecord = () => {
                       <Box
                         sx={{
                           display: "grid",
-                          gridTemplateColumns: "2fr 1fr 1.5fr 1fr",
+                          gridTemplateColumns: "1.8fr 0.9fr 1.3fr 1.3fr 0.9fr",
                           px: 2.5,
                           py: 1.25,
                           bgcolor: T.accent,
@@ -2236,6 +2271,7 @@ const AllAttendanceRecord = () => {
                           { label: "DATE", sortable: true },
                           { label: "TIME" },
                           { label: "STATUS" },
+                          { label: "BRANCH" },
                           { label: "DETAILS" },
                         ].map(({ label, sortable }) => (
                           <Typography
@@ -2267,12 +2303,51 @@ const AllAttendanceRecord = () => {
 
                       <Box ref={listViewportRef} sx={{ flex: 1, minHeight: 0 }}>
                         <VirtualList
-                          rowCount={filteredRecords.length}
+                          key={`page-${safeTablePage}-${tablePageSize}`}
+                          rowCount={pagedRecords.length}
                           rowHeight={STATE_ROW_HEIGHT}
                           rowComponent={AttendanceStateVirtualRow}
                           rowProps={virtualListRowProps}
                           overscanCount={12}
                           style={{ height: listHeight, width: "100%" }}
+                        />
+                      </Box>
+
+                      {/* Pager */}
+                      <Box sx={{ px: 2.5, py: 1, borderTop: `1px solid ${T.divider}`, bgcolor: T.accentFaint, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1.5, flexWrap: "wrap" }}>
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                          <Typography sx={{ fontSize: "0.72rem", color: T.muted, fontWeight: 600, fontVariantNumeric: "tabular-nums" }}>
+                            {tablePageStart + 1}–{tablePageStart + pagedRecords.length} of {filteredRecords.length.toLocaleString()}
+                          </Typography>
+                          <Select
+                            size="small"
+                            value={tablePageSize}
+                            onChange={(e) => setTablePageSize(Number(e.target.value))}
+                            inputProps={{ "aria-label": "Rows per page" }}
+                            sx={{
+                              fontSize: "0.72rem",
+                              bgcolor: "#fff",
+                              borderRadius: "6px",
+                              "& .MuiSelect-select": { py: "3px", pl: 1 },
+                              "& .MuiOutlinedInput-notchedOutline": { borderColor: T.accentBorder },
+                              "&:hover .MuiOutlinedInput-notchedOutline": { borderColor: T.accent },
+                            }}
+                          >
+                            {[25, 50, 100].map((n) => (
+                              <MenuItem key={n} value={n} sx={{ fontSize: "0.76rem" }}>{n} / page</MenuItem>
+                            ))}
+                          </Select>
+                        </Box>
+                        <Pagination
+                          count={tablePageCount}
+                          page={safeTablePage}
+                          onChange={(_, p) => setTablePage(p)}
+                          size="small"
+                          siblingCount={1}
+                          sx={{
+                            "& .MuiPaginationItem-root": { fontSize: "0.74rem", fontWeight: 600, color: T.muted },
+                            "& .MuiPaginationItem-root.Mui-selected": { bgcolor: T.accent, color: "#fff", "&:hover": { bgcolor: T.accentDark } },
+                          }}
                         />
                       </Box>
                     </Box>

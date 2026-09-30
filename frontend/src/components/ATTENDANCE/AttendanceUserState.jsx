@@ -1,231 +1,243 @@
 import API_BASE_URL from '../../apiConfig';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import axios from 'axios';
 import {
-  Button,
-  TextField,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  Container,
   Box,
   Typography,
-  Paper,
   Alert,
-  Card,
-  CardContent,
-  Chip,
-  Avatar,
-  IconButton,
-  Tooltip,
-  LinearProgress,
+  Collapse,
   Fade,
   Grid,
-  InputAdornment,
-  Badge,
-  Divider,
-  Menu,
+  Card,
+  Button,
+  TextField,
+  IconButton,
+  Tooltip,
+  Pagination,
   MenuItem,
-  ListItemIcon,
-  ListItemText,
-  Fab,
-  Zoom,
+  Select,
+  LinearProgress,
+  CircularProgress,
   alpha,
   styled,
-  CardHeader,
-  FormControl,
-  InputLabel,
-  Select,
 } from '@mui/material';
 import {
-  EventNote,
-  CalendarToday,
   Person,
   AccessTime,
   CheckCircle,
   Cancel,
   Info,
   Refresh,
-  MoreVert,
-  Today,
-  ArrowBackIos,
-  ArrowForwardIos,
-  Clear,
   KeyboardArrowUp,
   KeyboardArrowDown,
-  FilterList,
+  CalendarToday,
+  EventNote,
+  Assignment,
+  Download as DownloadIcon,
 } from '@mui/icons-material';
-import { useSystemSettings } from '../../hooks/useSystemSettings';
+import {
+  AttendanceFilterHeader,
+  AttendanceFilterSectionLabel,
+  AttendanceFilterYearQuickRow,
+  AttendanceFilterMonthHeader,
+  AttendanceFilterMonthGrid,
+  AttendanceFilterSummaryBox,
+  applyQuickDateRange,
+  filterPanelScrollSx,
+  filterSidebarCardSx,
+  attendanceMainPanelHeightSx,
+  ATTENDANCE_COMPACT_PAGE_SX,
+  MONTHS_SHORT,
+  useAttendanceCompactPage,
+} from './attendanceFilterLayout';
+import AttendanceBranchSource, { punchBranchLabel, punchSourceText } from './AttendanceBranchSource';
+import AttendanceExcelReportDialog, { formatReportDate } from './AttendanceExcelReportDialog';
 import usePageAccess from '../../hooks/usePageAccess';
 import AccessDenied from '../AccessDenied';
-import CircularProgress from '@mui/material/CircularProgress';
+import { downloadStyledExcel, excelTimestamp, excelExporterName } from '../../utils/styledExcelExport';
+import { getUserInfo } from '../../utils/auth';
 
-// Helper function to convert hex to rgb
-const hexToRgb = (hex) => {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}` : '109, 35, 35';
+// ─── Theme tokens (same as AttendanceState) ────────────────────────────────
+const T = {
+  accent:       '#6d2323',
+  accentDark:   '#5a1d1d',
+  accentMid:    '#8B4545',
+  accentFaint:  'rgba(109,35,35,0.06)',
+  accentBorder: 'rgba(109,35,35,0.14)',
+  rowOdd:       'rgba(109,35,35,0.025)',
+  rowHover:     'rgba(109,35,35,0.055)',
+  text:         '#1a1a1a',
+  muted:        '#6b6b6b',
+  faint:        '#a0a0a0',
+  divider:      'rgba(0,0,0,0.08)',
 };
 
-// Styled components - colors will be applied via sx prop
-const GlassCard = styled(Card)(({ theme }) => ({
-  borderRadius: 20,
-  backdropFilter: 'blur(10px)',
-  overflow: 'hidden',
-  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-  '&:hover': {
-    transform: 'translateY(-4px)',
-  },
-}));
-
-const ProfessionalButton = styled(Button)(({ theme, variant, color = 'primary' }) => ({
+// ─── Styled components (same as AttendanceState) ───────────────────────────
+const SectionCard = styled(Card)({
   borderRadius: 12,
-  fontWeight: 600,
-  padding: '12px 24px',
-  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-  textTransform: 'none',
-  fontSize: '0.95rem',
-  letterSpacing: '0.025em',
-  boxShadow: variant === 'contained' ? '0 4px 14px rgba(254, 249, 225, 0.25)' : 'none',
-  '&:hover': {
-    transform: 'translateY(-2px)',
-    boxShadow: variant === 'contained' ? '0 6px 20px rgba(254, 249, 225, 0.35)' : 'none',
-  },
-  '&:active': {
-    transform: 'translateY(0)',
-  },
-}));
+  boxShadow: '0 1px 4px rgba(0,0,0,0.07), 0 4px 24px rgba(0,0,0,0.04)',
+  border: '0.5px solid rgba(0,0,0,0.09)',
+  overflow: 'hidden',
+  background: '#fff',
+});
 
-const ModernTextField = styled(TextField)(({ theme }) => ({
+const FieldInput = styled(TextField)({
   '& .MuiOutlinedInput-root': {
-    borderRadius: 12,
-    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
-    '&:hover': {
-      transform: 'translateY(-1px)',
-      backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    },
-    '&.Mui-focused': {
-      transform: 'translateY(-1px)',
-      boxShadow: '0 4px 20px rgba(254, 249, 225, 0.25)',
-      backgroundColor: 'rgba(255, 255, 255, 1)',
-    },
+    borderRadius: 8,
+    fontSize: '0.8rem',
+    backgroundColor: '#fff',
+    '& fieldset': { borderColor: T.accentBorder },
+    '&:hover fieldset': { borderColor: T.accent },
+    '&.Mui-focused fieldset': { borderColor: T.accent, borderWidth: 1.5 },
   },
-  '& .MuiInputLabel-root': {
-    fontWeight: 500,
-  },
-}));
+  '& .MuiOutlinedInput-input': { py: '6px' },
+  '& .MuiInputLabel-root.Mui-focused': { color: T.accent },
+});
 
-const PremiumTableContainer = styled(TableContainer)(({ theme }) => ({
-  borderRadius: 16,
-  overflow: 'auto', // Enable both horizontal and vertical scrolling
-  boxShadow: '0 4px 24px rgba(109, 35, 35, 0.06)',
-  border: '1px solid rgba(109, 35, 35, 0.08)',
-  maxHeight: '600px', // Set max height for vertical scrolling
-  '&::-webkit-scrollbar': {
-    width: '8px',
-    height: '8px',
-  },
-  '&::-webkit-scrollbar-track': {
-    background: 'rgba(254, 249, 225, 0.3)',
-    borderRadius: '4px',
-  },
-  '&::-webkit-scrollbar-thumb': {
-    background: 'rgba(109, 35, 35, 0.4)',
-    borderRadius: '4px',
-    '&:hover': {
-      background: 'rgba(109, 35, 35, 0.6)',
-    },
-  },
-}));
+const SortButton = styled(Button)({
+  borderRadius: 6,
+  textTransform: 'none',
+  fontWeight: 700,
+  fontSize: '0.72rem',
+  padding: '3px 10px',
+  color: T.accent,
+  border: `1px solid ${alpha(T.accent, 0.25)}`,
+  '&:hover': { backgroundColor: T.accentFaint, borderColor: T.accent },
+});
 
-const PremiumTableCell = styled(TableCell)(({ theme, isHeader = false }) => ({
-  fontWeight: isHeader ? 600 : 500,
-  padding: '18px 20px',
-  borderBottom: isHeader ? '2px solid rgba(254, 249, 225, 0.5)' : '1px solid rgba(109, 35, 35, 0.06)',
-  fontSize: '0.95rem',
-  letterSpacing: '0.025em',
-  minWidth: '120px', // Ensure minimum width for cells
-  whiteSpace: 'nowrap', // Prevent text wrapping
-}));
+// ─── Attendance state helpers (same colours/labels as AttendanceState) ─────
+const getAttendanceColor = (state) => {
+  switch (state) {
+    case 1: return '#4caf50';
+    case 2: return '#ff9800';
+    case 3: return '#ff9800';
+    case 4: return '#4caf50';
+    default: return '#f44336';
+  }
+};
 
+const getAttendanceIcon = (state) => {
+  const color = getAttendanceColor(state);
+  switch (state) {
+    case 1:
+    case 4: return <CheckCircle sx={{ fontSize: 14, color }} />;
+    case 2:
+    case 3: return <AccessTime sx={{ fontSize: 14, color }} />;
+    default: return <Cancel sx={{ fontSize: 14, color }} />;
+  }
+};
+
+const getAttendanceLabel = (state) => {
+  switch (state) {
+    case 1: return 'Time IN';
+    case 2: return 'Break OUT';
+    case 3: return 'Break IN';
+    case 4: return 'Time OUT';
+    default: return 'Uncategorized';
+  }
+};
+
+/** Read-only status pill — the same look as AttendanceState's status chip. */
+const StatusChip = ({ value }) => {
+  const state = Number(value) || 0;
+  const color = getAttendanceColor(state);
+  return (
+    <Box
+      sx={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 0.6,
+        px: 1.25,
+        py: 0.4,
+        borderRadius: '12px',
+        bgcolor: alpha(color, 0.1),
+        border: `1px solid ${alpha(color, 0.25)}`,
+      }}
+    >
+      {getAttendanceIcon(state)}
+      <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color }}>
+        {getAttendanceLabel(state)}
+      </Typography>
+    </Box>
+  );
+};
+
+// "M/D/YYYY" (API format) → sortable timestamp + readable label
+const toISODateFromRecord = (rawDate) => {
+  const [month, day, year] = String(rawDate || '').split('/');
+  if (!month || !day || !year) return '';
+  return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+};
+
+const recordSortTimestamp = (record) => {
+  const iso = toISODateFromRecord(record?.Date);
+  if (iso) {
+    const ts = new Date(`${iso}T${record?.Time || '00:00:00'}`).getTime();
+    if (!Number.isNaN(ts)) return ts;
+  }
+  const fallback = new Date(`${record?.Date || ''} ${record?.Time || ''}`).getTime();
+  return Number.isNaN(fallback) ? 0 : fallback;
+};
+
+const formatDateLabel = (record) => {
+  const iso = toISODateFromRecord(record?.Date);
+  const d = iso ? new Date(`${iso}T12:00:00`) : null;
+  return d && !Number.isNaN(d.getTime())
+    ? d.toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })
+    : String(record?.Date || '');
+};
+
+const COLUMNS = '1.8fr 0.9fr 1.3fr 1.3fr 0.9fr';
+
+const DetailField = ({ label, value }) => (
+  <Box>
+    <Typography sx={{ fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: T.faint, mb: 0.25 }}>
+      {label}
+    </Typography>
+    <Typography sx={{ fontSize: '0.8rem', fontWeight: 600, color: T.text }}>{value}</Typography>
+  </Box>
+);
+
+// ─── Main Component ────────────────────────────────────────────────────────
 const AttendanceUserState = () => {
-  const { settings } = useSystemSettings();
-  
-  // Get colors from system settings
-  const primaryColor = settings.accentColor || '#FEF9E1'; // Cards color
-  const secondaryColor = settings.backgroundColor || '#FFF8E7'; // Background
-  const accentColor = settings.primaryColor || '#6D2323'; // Primary accent
-  const accentDark = settings.secondaryColor || '#8B3333'; // Darker accent
-  const textPrimaryColor = settings.textPrimaryColor || '#6D2323';
-  const textSecondaryColor = settings.textSecondaryColor || '#FEF9E1';
-  const hoverColor = settings.hoverColor || '#6D2323';
-  const blackColor = '#1a1a1a';
-  const whiteColor = '#FFFFFF';
-  const grayColor = '#6c757d';
+  useAttendanceCompactPage();
+
   const loggedInEmployeeNumber = localStorage.getItem('employeeNumber') || '';
   const today = new Date();
-  // Use local date instead of UTC
-  const year = today.getFullYear();
-  const month = String(today.getMonth() + 1).padStart(2, '0');
-  const day = String(today.getDate()).padStart(2, '0');
-  const formattedToday = `${year}-${month}-${day}`;
+  // Local date (not UTC)
+  const formattedToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
-  //ACCESSING
-  // Dynamic page access control using component identifier
-  // The identifier 'attendance-user-state' should match the component_identifier in the pages table
-  const {
-    hasAccess,
-    loading: accessLoading,
-    error: accessError,
-  } = usePageAccess('attendance-user-state');
-  // ACCESSING END
+  // Dynamic page access control — 'attendance-user-state' matches pages.component_identifier
+  const { hasAccess, loading: accessLoading } = usePageAccess('attendance-user-state');
 
-  const [personID, setPersonID] = useState(loggedInEmployeeNumber);
+  const [personID] = useState(loggedInEmployeeNumber);
+  // Signed-in employee's name ("Surname, First Middle Ext") from their own PDS record
+  const [employeeName, setEmployeeName] = useState('');
   const [startDate, setStartDate] = useState(formattedToday);
   const [endDate, setEndDate] = useState(formattedToday);
   const [records, setRecords] = useState([]);
   const [submittedID, setSubmittedID] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [filterAnchorEl, setFilterAnchorEl] = useState(null);
-  const [moreAnchorEl, setMoreAnchorEl] = useState(null);
   const [expandedRow, setExpandedRow] = useState(null);
   const [sortOrder, setSortOrder] = useState('desc');
-  const [showScrollTop, setShowScrollTop] = useState(false);
+  // Server-side paging — only one page of punches is loaded at a time
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [total, setTotal] = useState(0);
+  const lastFilterKeyRef = useRef('');
 
-  // Year / month selector (mirrors AttendanceState)
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  // Year / month selector (same controls as AttendanceState)
+  const [selectedYear, setSelectedYear] = useState(today.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(null);
-  const currentYear = new Date().getFullYear();
-  const yearOptions = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);
+  const yearOptions = Array.from({ length: 11 }, (_, i) => today.getFullYear() - 5 + i);
 
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem('token');
-    return {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    };
-  };
-
-  const months = [
-    'JAN',
-    'FEB',
-    'MAR',
-    'APR',
-    'MAY',
-    'JUN',
-    'JUL',
-    'AUG',
-    'SEP',
-    'OCT',
-    'NOV',
-    'DEC',
-  ];
+  const getAuthHeaders = () => ({
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem('token')}`,
+      'Content-Type': 'application/json',
+    },
+  });
 
   const handleMonthClick = (monthIndex) => {
     const start = new Date(Date.UTC(selectedYear, monthIndex, 1));
@@ -235,84 +247,106 @@ const AttendanceUserState = () => {
     setSelectedMonth(monthIndex);
   };
 
-  const handleFilterClick = (event) => {
-    setFilterAnchorEl(event.currentTarget);
-  };
-
-  const handleFilterClose = () => {
-    setFilterAnchorEl(null);
-  };
-
-  const handleMoreClick = (event) => {
-    setMoreAnchorEl(event.currentTarget);
-  };
-
-  const handleMoreClose = () => {
-    setMoreAnchorEl(null);
-  };
-
-  const handleRowExpand = (index) => {
-    setExpandedRow(expandedRow === index ? null : index);
-  };
-
-  const handleSort = () => {
-    setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-  };
-
-  const handleClearFilters = () => {
+  const resetToToday = () => {
     setStartDate(formattedToday);
     setEndDate(formattedToday);
+    setSelectedMonth(null);
+  };
+
+  // ── Excel report (same dialog + file layout as Attendance State) ──
+  // The table is paged, so the report loads every punch of the period first.
+  const [excelOpen, setExcelOpen] = useState(false);
+  const [excelLoading, setExcelLoading] = useState(false);
+  const [excelRecords, setExcelRecords] = useState([]);
+
+  const openExcelDialog = async () => {
+    if (!personID || !startDate || !endDate) return;
+    setExcelOpen(true);
+    setExcelLoading(true);
+    try {
+      // Unpaged request: widen a day each side, then keep the period's Manila days
+      const from = new Date(startDate);
+      from.setDate(from.getDate() - 1);
+      const to = new Date(endDate);
+      to.setDate(to.getDate() + 1);
+      const res = await axios.post(
+        `${API_BASE_URL}/attendance/api/attendance`,
+        { personID, startDate: from.toISOString().substring(0, 10), endDate: to.toISOString().substring(0, 10) },
+        getAuthHeaders(),
+      );
+      const all = (Array.isArray(res.data) ? res.data : [])
+        .map((r) => ({ ...r, _isoDate: toISODateFromRecord(r.Date), _sortTs: recordSortTimestamp(r) }))
+        .filter((r) => r._isoDate && r._isoDate >= startDate && r._isoDate <= endDate);
+      setExcelRecords(all);
+    } catch (err) {
+      console.error('Loading punches for Excel failed:', err);
+      setError('Failed to load attendance records for the Excel report.');
+      setExcelOpen(false);
+    } finally {
+      setExcelLoading(false);
+    }
+  };
+
+  const handleDownloadExcel = (chosen, { fromDate, toDate, selectedDates }) => {
+    try {
+      const rows = chosen.map((record) => ({
+        employeeNumber: record.PersonID || personID || '—',
+        name: employeeName || '—',
+        date: formatDateLabel(record),
+        time: record.Time || '—',
+        status: getAttendanceLabel(Number(record.AttendanceState) || 0),
+        branch: punchSourceText(record),
+        punch: record.AttendanceDateTime || '—',
+      }));
+      const filterParts = [`Employee: ${personID}`];
+      if (selectedDates.length) filterParts.push(`Selected dates: ${selectedDates.map(formatReportDate).join(', ')}`);
+      else filterParts.push(`Report range: ${fromDate} to ${toDate}`);
+      filterParts.push(`Sort: ${sortOrder === 'asc' ? 'oldest first' : 'newest first'}`);
+
+      const stamp = new Date().toISOString().slice(0, 10);
+      const safeId = String(personID || 'employee').replace(/[^\w.-]+/g, '_');
+      downloadStyledExcel({
+        filename: `My-Attendance-Records_${safeId}_${stamp}.xlsx`,
+        sheetName: 'Attendance States',
+        title: 'My Attendance Records',
+        subtitle: [employeeName, personID ? `#${personID}` : ''].filter(Boolean).join(' · ') || 'Attendance punches',
+        generatedAt: excelTimestamp(),
+        exportedBy: excelExporterName(getUserInfo()),
+        recordCount: rows.length,
+        filtersLabel: filterParts.join(' | '),
+        columns: [
+          { key: 'employeeNumber', header: 'Employee No.', width: 110, kind: 'mono' },
+          { key: 'name', header: 'Name', width: 200 },
+          { key: 'date', header: 'Date', width: 160 },
+          { key: 'time', header: 'Time', width: 90, kind: 'mono' },
+          { key: 'status', header: 'Status', width: 150, kind: 'status' },
+          { key: 'branch', header: 'Branch (device)', width: 170 },
+          { key: 'punch', header: 'Punch timestamp', width: 180, kind: 'mono' },
+        ],
+        rows,
+      });
+      setExcelOpen(false);
+    } catch (err) {
+      console.error('Attendance Excel export failed:', err);
+      setError('Failed to generate Excel export.');
+    }
   };
 
   const fetchRecords = async (showLoading = true) => {
     if (!personID || !startDate || !endDate) return;
     if (showLoading) setLoading(true);
     try {
-      console.log('=== FETCH RECORDS DEBUG ===');
-      console.log('Selected startDate:', startDate);
-      console.log('Selected endDate:', endDate);
-      
-      const adjustedStartDate = new Date(startDate);
-      adjustedStartDate.setDate(adjustedStartDate.getDate() - 1);
-      const adjustedStart = adjustedStartDate.toISOString().substring(0, 10);
-      
-      const adjustedEndDate = new Date(endDate);
-      adjustedEndDate.setDate(adjustedEndDate.getDate() + 1);
-      const adjustedEnd = adjustedEndDate.toISOString().substring(0, 10);
-      
-      console.log('Adjusted startDate sent to API:', adjustedStart);
-      console.log('Adjusted endDate sent to API:', adjustedEnd);
-      
+      // One page of punches for the exact Manila days of the range, sorted by
+      // the server; `total` drives the pager.
       const response = await axios.post(
         `${API_BASE_URL}/attendance/api/attendance`,
-        { personID, startDate: adjustedStart, endDate: adjustedEnd },
-        getAuthHeaders()
+        { personID, startDate, endDate, page, pageSize, sort: sortOrder },
+        getAuthHeaders(),
       );
-      
-      console.log('Raw API response:', response.data);
-      
-      const filteredData = response.data.filter(record => {
-        const dateParts = record.Date.split('/');
-        if (dateParts.length === 3) {
-          const recordMonth = dateParts[0].padStart(2, '0');
-          const recordDay = dateParts[1].padStart(2, '0');
-          const recordYear = dateParts[2];
-          const recordDate = `${recordYear}-${recordMonth}-${recordDay}`;
-          
-          console.log(`Checking record: ${recordDate} >= ${startDate} && ${recordDate} <= ${endDate}`);
-          
-          const isInRange = recordDate >= startDate && recordDate <= endDate;
-          console.log(`Record ${recordDate} is in range:`, isInRange);
-          
-          return isInRange;
-        }
-        return false;
-      });
-      
-      console.log('Filtered data:', filteredData);
-      console.log('=== END DEBUG ===');
-      
-      setRecords(filteredData);
+
+      const body = response.data || {};
+      setRecords(Array.isArray(body.data) ? body.data : []);
+      setTotal(Number(body.total) || 0);
       setSubmittedID(personID);
       setError('');
     } catch (err) {
@@ -324,103 +358,83 @@ const AttendanceUserState = () => {
   };
 
   useEffect(() => {
+    // A new range, sort or page size starts again at page 1 (without first
+    // fetching the old page number for the new range).
+    const filterKey = `${startDate}|${endDate}|${sortOrder}|${pageSize}`;
+    if (lastFilterKeyRef.current !== filterKey) {
+      lastFilterKeyRef.current = filterKey;
+      setExpandedRow(null);
+      if (page !== 1) {
+        setPage(1);
+        return undefined;
+      }
+    }
+
     fetchRecords();
 
-    // Smart refresh: only when tab is active, every 30 seconds
+    // Smart refresh: only while the tab is visible, every 30 seconds
     const intervalId = setInterval(() => {
-      if (!document.hidden) {
-        fetchRecords(false); // Don't show loading for auto-refresh
-      }
-    }, 30000); // 30 seconds
+      if (!document.hidden) fetchRecords(false);
+    }, 30000);
 
-    // Refresh when user returns to the tab
+    // Refresh when the user returns to the tab
     const handleVisibilityChange = () => {
-      if (!document.hidden) {
-        fetchRecords(false);
-      }
+      if (!document.hidden) fetchRecords(false);
     };
-
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       clearInterval(intervalId);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [personID, startDate, endDate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [personID, startDate, endDate, page, pageSize, sortOrder]);
 
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+  const firstShown = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const lastShown = Math.min(page * pageSize, total);
+
+  // Same lookup the employee Home page uses for the signed-in user's own name
   useEffect(() => {
-    const handleScroll = () => {
-      setShowScrollTop(window.scrollY > 300);
-    };
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
+    if (!personID) return undefined;
+    let cancelled = false;
+    axios
+      .get(`${API_BASE_URL}/personalinfo/person_table/${encodeURIComponent(personID)}`, getAuthHeaders())
+      .then((res) => {
+        if (cancelled) return;
+        const p = Array.isArray(res.data) ? (res.data[0] ?? {}) : (res.data ?? {});
+        const given = [p.firstName, p.middleName, p.nameExtension]
+          .map((v) => String(v || '').trim())
+          .filter(Boolean)
+          .join(' ');
+        const last = String(p.lastName || '').trim();
+        setEmployeeName(last && given ? `${last}, ${given}` : (last || given));
+      })
+      .catch(() => { /* keep showing the employee number */ });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [personID]);
 
-  const getAttendanceIcon = (state) => {
-    switch(state) {
-      case 1: return <CheckCircle sx={{ fontSize: 16, color: '#4caf50' }} />;
-      case 2: return <AccessTime sx={{ fontSize: 16, color: '#ff9800' }} />;
-      case 3: return <AccessTime sx={{ fontSize: 16, color: '#ff9800' }} />;
-      case 4: return <CheckCircle sx={{ fontSize: 16, color: '#4caf50' }} />;
-      default: return <Cancel sx={{ fontSize: 16, color: '#f44336' }} />;
-    }
-  };
+  // The server already sorts; this keeps the page in order if punches share a second
+  const sortedRecords = useMemo(
+    () => [...records].sort((a, b) => {
+      const diff = recordSortTimestamp(a) - recordSortTimestamp(b);
+      return sortOrder === 'asc' ? diff : -diff;
+    }),
+    [records, sortOrder],
+  );
 
-  const getAttendanceColor = (state) => {
-    switch(state) {
-      case 1: return '#4caf50';
-      case 2: return '#ff9800';
-      case 3: return '#ff9800';
-      case 4: return '#4caf50';
-      default: return '#f44336';
-    }
-  };
-
-  const getAttendanceLabel = (state) => {
-    switch(state) {
-      case 1: return 'Time IN';
-      case 2: return 'Break OUT';
-      case 3: return 'Break IN';
-      case 4: return 'Time OUT';
-      default: return 'Uncategorized';
-    }
-  };
-
-  const filteredRecords = records
-    .sort((a, b) => {
-      const dateA = new Date(a.Date + ' ' + a.Time);
-      const dateB = new Date(b.Date + ' ' + b.Time);
-      return sortOrder === 'asc' ? dateA - dateB : dateB - dateA;
-    });
-
-  const filterOpen = Boolean(filterAnchorEl);
-  const moreOpen = Boolean(moreAnchorEl);
-
-  const scrollToTop = () => {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  // ACCESSING 2
-  // Loading state
+  // ── Guards ──
   if (accessLoading) {
     return (
-      <Container maxWidth="md" sx={{ py: 8 }}>
-        <Box
-          sx={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-          }}
-        >
-          <CircularProgress sx={{ color: '#6d2323', mb: 2 }} />
-          <Typography variant="h6" sx={{ color: '#6d2323' }}>
-            Loading access information...
-          </Typography>
-        </Box>
-      </Container>
+      <Box sx={{ py: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1.5 }}>
+        <CircularProgress size={28} sx={{ color: T.accent }} />
+        <Typography sx={{ fontSize: '0.85rem', color: T.accent, fontWeight: 600 }}>
+          Loading access information...
+        </Typography>
+      </Box>
     );
   }
-  // Access denied state - Now using the reusable component
   if (hasAccess === false) {
     return (
       <AccessDenied
@@ -431,582 +445,419 @@ const AttendanceUserState = () => {
       />
     );
   }
-  //ACCESSING END2
 
+  // ─── Left panel ────────────────────────────────────────────────────────
+  const renderLeftPanel = () => (
+    <Box sx={filterPanelScrollSx}>
+      {/* Whose records — always the signed-in employee */}
+      <Box
+        sx={{
+          mb: 1.25,
+          p: 1.25,
+          borderRadius: '12px',
+          border: `2px solid ${T.accent}`,
+          bgcolor: alpha(T.accent, 0.04),
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1.25,
+        }}
+      >
+        <Box sx={{ width: 36, height: 36, borderRadius: '50%', bgcolor: T.accent, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Person sx={{ fontSize: 20 }} />
+        </Box>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography sx={{ fontSize: '0.6rem', fontWeight: 800, letterSpacing: '0.07em', textTransform: 'uppercase', color: alpha(T.accent, 0.65) }}>
+            Your Records
+          </Typography>
+          <Tooltip title={employeeName || ''} disableHoverListener={!employeeName}>
+            <Typography noWrap sx={{ fontSize: '0.88rem', fontWeight: 800, color: T.text, lineHeight: 1.25 }}>
+              {employeeName || `#${personID || '—'}`}
+            </Typography>
+          </Tooltip>
+          {employeeName && (
+            <Typography sx={{ fontSize: '0.7rem', color: T.muted, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+              #{personID}
+            </Typography>
+          )}
+        </Box>
+      </Box>
+
+      <AttendanceFilterYearQuickRow
+        selectedYear={selectedYear}
+        onYearChange={(e) => {
+          setSelectedYear(parseInt(e.target.value, 10));
+          setSelectedMonth(null);
+        }}
+        yearOptions={yearOptions}
+        onQuickDate={(value) => applyQuickDateRange(value, setStartDate, setEndDate, setSelectedMonth)}
+      />
+      <AttendanceFilterMonthHeader
+        onClear={resetToToday}
+        showClear={selectedMonth !== null}
+      />
+      <AttendanceFilterMonthGrid
+        months={MONTHS_SHORT}
+        selectedMonth={selectedMonth}
+        onMonthClick={handleMonthClick}
+      />
+
+      <AttendanceFilterSectionLabel icon={CalendarToday}>Date Range</AttendanceFilterSectionLabel>
+      <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', mb: 1.25 }}>
+        <FieldInput
+          size="small"
+          type="date"
+          label="From"
+          value={startDate}
+          onChange={(e) => { setStartDate(e.target.value); setSelectedMonth(null); }}
+          InputLabelProps={{ shrink: true }}
+          inputProps={{ max: endDate || undefined }}
+        />
+        <FieldInput
+          size="small"
+          type="date"
+          label="To"
+          value={endDate}
+          onChange={(e) => { setEndDate(e.target.value); setSelectedMonth(null); }}
+          InputLabelProps={{ shrink: true }}
+          inputProps={{ min: startDate || undefined }}
+        />
+      </Box>
+
+      <AttendanceFilterSummaryBox
+        title="Record Summary"
+        primary={
+          loading
+            ? 'Loading records...'
+            : `${total} ${total === 1 ? 'record' : 'records'} found`
+        }
+        secondary={startDate && endDate ? `${startDate} → ${endDate}` : 'Choose a month or date range.'}
+      />
+      {(startDate !== formattedToday || endDate !== formattedToday) && (
+        <Typography
+          onClick={resetToToday}
+          sx={{ fontSize: '0.68rem', color: T.accent, fontWeight: 700, mt: 0.75, cursor: 'pointer', width: 'fit-content', '&:hover': { textDecoration: 'underline' } }}
+        >
+          Back to today
+        </Typography>
+      )}
+    </Box>
+  );
+
+  // ─── Render ────────────────────────────────────────────────────────────
   return (
-    <Box sx={{ 
-      py: 4,
-      borderRadius: '14px',
-      width: '100vw', // Full viewport width
-      mx: 'auto', // Center horizontally
-      maxWidth: '100%', // Ensure it doesn't exceed viewport
-      overflow: 'hidden', // Prevent horizontal scroll
-      position: 'relative',
-      left: '50%',
-      transform: 'translateX(-50%)', // Center the element
-      
-    }}>
-      {/* Wider Container */}
-      <Box sx={{ px: 6, mx: 'auto', maxWidth: '1600px' }}>
-        {/* Header */}
-        <Fade in timeout={500}>
-          <Box sx={{ mb: 4 }}>
-            <GlassCard sx={{border: `1px solid ${alpha(accentColor, 0.1)}`}}>
-              <Box
-                sx={{
-                  p: 5,
-                  background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`,
-                  color: accentColor,
-                  position: 'relative',
-                  overflow: 'hidden',
-                  
-                }}
-              >
-                {/* Decorative elements */}
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    top: -50,
-                    right: -50,
-                    width: 200,
-                    height: 200,
-                    background: 'radial-gradient(circle, rgba(109,35,35,0.1) 0%, rgba(109,35,35,0) 70%)',
-                  }}
-                />
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    bottom: -30,
-                    left: '30%',
-                    width: 150,
-                    height: 150,
-                    background: 'radial-gradient(circle, rgba(109,35,35,0.08) 0%, rgba(109,35,35,0) 70%)',
-                  }}
-                />
-                
-                <Box display="flex" alignItems="center" justifyContent="space-between" position="relative" zIndex={1}>
-                  <Box display="flex" alignItems="center">
-                    <Avatar 
-                      sx={{ 
-                        bgcolor: 'rgba(109,35,35,0.15)', 
-                        mr: 4, 
-                        width: 64, 
-                        height: 64,
-                        boxShadow: '0 8px 24px rgba(109,35,35,0.15)',
-                      }}
-                    >
-                      <EventNote sx={{ color: accentColor, fontSize: 32 }} />
-                    </Avatar>
-                    <Box>
-                      <Typography variant="h4" component="h1" sx={{ fontWeight: 700, mb: 1, lineHeight: 1.2, color: accentColor }}>
-                        Attendance Records
-                      </Typography>
-                      <Typography variant="body1" sx={{ opacity: 0.8, fontWeight: 400, color: accentDark }}>
-                        View and manage your attendance history
-                      </Typography>
-                    </Box>
-                  </Box>
-                  <Box display="flex" alignItems="center" gap={2}>
-                    <Chip 
-                      label="System Generated" 
-                      size="small" 
-                      sx={{ 
-                        bgcolor: 'rgba(109,35,35,0.15)', 
-                        color: accentColor,
-                        fontWeight: 500,
-                        '& .MuiChip-label': { px: 1 }
-                      }} 
-                    />
-                    <Tooltip title="Refresh Data">
-                      <IconButton 
-                        onClick={() => fetchRecords(true)}
-                        sx={{ 
-                          bgcolor: 'rgba(109,35,35,0.1)', 
-                          '&:hover': { bgcolor: 'rgba(109,35,35,0.2)' },
-                          color: accentColor,
-                          width: 48,
-                          height: 48,
-                        }}
-                      >
-                        <Refresh />
-                      </IconButton>
-                    </Tooltip>
-                  </Box>
-                </Box>
-              </Box>
-            </GlassCard>
-          </Box>
-        </Fade>
-
-        {/* Controls */}
-        <Fade in timeout={700}>
-          <GlassCard sx={{ mb: 4, border: `1px solid ${alpha(accentColor, 0.1)}` }}>
-            <CardContent sx={{ p: 4 }}>
-              <Grid container spacing={4}>
-                <Grid item xs={12} md={4}>
-                  <ModernTextField
-                    fullWidth
-                    label="Employee Number"
-                    value={personID}
-                    disabled
-                    variant="outlined"
-                    InputProps={{
-                      startAdornment: (
-                        <InputAdornment position="start">
-                          <Person sx={{ color: accentColor }} />
-                        </InputAdornment>
-                      ),
-                    }}
-                  />
-                </Grid>
-                <Grid item xs={12} md={4}>
-                  <ModernTextField
-                    fullWidth
-                    label="Start Date"
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                    InputLabelProps={{ shrink: true }}
-                    InputProps={{
-                      startAdornment: (
-                        <InputAdornment position="start">
-                          <CalendarToday sx={{ color: accentColor }} />
-                        </InputAdornment>
-                      ),
-                    }}
-                  />
-                </Grid>
-                <Grid item xs={12} md={4}>
-                  <ModernTextField
-                    fullWidth
-                    label="End Date"
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                    InputLabelProps={{ shrink: true }}
-                    InputProps={{
-                      startAdornment: (
-                        <InputAdornment position="start">
-                          <CalendarToday sx={{ color: accentColor }} />
-                        </InputAdornment>
-                      ),
-                    }}
-                  />
-                </Grid>
-              </Grid>
-
-              <Divider sx={{ my: 3, borderColor: 'rgba(109,35,35,0.1)' }} />
-
-              {/* Month & Year Selection - single row, year at end */}
-              <Box sx={{ mb: 2 }}>
-                <Typography
-                  variant="h6"
-                  gutterBottom
-                  sx={{
-                    color: accentColor,
-                    display: 'flex',
-                    alignItems: 'center',
-                    mb: 2,
-                  }}
-                >
-                  <CalendarToday sx={{ mr: 2, fontSize: 24 }} />
-                  <b>Month & Year:</b>{' '}
-                  <i>(select year and month to search your records)</i>
+    <Fade in timeout={150}>
+      <Box sx={ATTENDANCE_COMPACT_PAGE_SX}>
+        {/* ── Page Header (same as AttendanceState) ── */}
+        <SectionCard sx={{ mb: 2 }}>
+          <Box
+            sx={{
+              px: 4, py: 3,
+              background: 'linear-gradient(135deg,#fdf5f5 0%,#f0dede 100%)',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              position: 'relative', overflow: 'hidden',
+            }}
+          >
+            <Box sx={{ position: 'absolute', top: -50, right: -50, width: 200, height: 200, borderRadius: '50%', background: 'radial-gradient(circle,rgba(109,35,35,0.10) 0%,transparent 70%)' }} />
+            <Box sx={{ position: 'absolute', bottom: -30, left: '30%', width: 150, height: 150, borderRadius: '50%', background: 'radial-gradient(circle,rgba(109,35,35,0.07) 0%,transparent 70%)' }} />
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 3, position: 'relative', zIndex: 1 }}>
+              <EventNote sx={{ fontSize: 32, color: T.accent }} />
+              <Box>
+                <Typography sx={{ fontSize: '1.25rem', fontWeight: 900, color: T.accent, lineHeight: 1.2, mb: 0.3 }}>
+                  My Attendance Records
                 </Typography>
-
-                <Box
-                  sx={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(13, minmax(0, 1fr))', // 12 months + Year
-                    gap: 1.25,
-                    width: '100%',
-                    alignItems: 'stretch',
-                  }}
-                >
-                         {/* Year selector placed at the end of the months row */}
-                  <FormControl size="small" sx={{ width: '100%', minWidth: 0 }}>
-                    <InputLabel sx={{ fontWeight: 600 }}>Year</InputLabel>
-                    <Select
-                      value={selectedYear}
-                      label="Year"
-                      onChange={(e) => setSelectedYear(e.target.value)}
-                      sx={{
-                        backgroundColor: 'white',
-                        '& .MuiOutlinedInput-notchedOutline': {
-                          borderColor: accentColor,
-                        },
-                        borderRadius: 2,
-                        fontWeight: 600,
-                      }}
-                    >
-                      {yearOptions.map((yearOption) => (
-                        <MenuItem key={yearOption} value={yearOption}>
-                          {yearOption}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                  {months.map((monthLabel, index) => {
-                    const isSelected = selectedMonth === index;
-                    return (
-                      <ProfessionalButton
-                        key={monthLabel}
-                        variant={isSelected ? 'contained' : 'outlined'}
-                        size="small"
-                        onClick={() => handleMonthClick(index)}
-                        sx={{
-                          borderColor: accentColor,
-                          backgroundColor: isSelected
-                            ? accentColor
-                            : 'transparent',
-                          color: isSelected ? textSecondaryColor : accentColor,
-                          width: '100%',
-                          minWidth: 0,
-                          fontSize: '0.875rem',
-                          fontWeight: 500,
-                          py: 1,
-                          px: 0.5,
-                          '&:hover': {
-                            backgroundColor: isSelected
-                              ? alpha(accentColor, 0.9)
-                              : alpha(accentColor, 0.1),
-                          },
-                        }}
-                      >
-                        {monthLabel}
-                      </ProfessionalButton>
-                    );
-                  })}
-                </Box>
+                <Typography sx={{ fontSize: '0.82rem', color: T.accentMid, fontWeight: 700, opacity: 0.9 }}>
+                  View your attendance punches and their states
+                </Typography>
               </Box>
-           
-                           {/* Quick Select */}
-                           <Box>
-                             <Typography
-                               variant="h6"
-                               gutterBottom
-                               sx={{
-                                 color: accentColor,
-                                 display: "flex",
-                                 alignItems: "center",
-                               }}
-                             >
-                               <FilterList sx={{ mr: 2, fontSize: 24 }} />
-                               <b>Filters:</b>
-                             </Typography>
-                             <Box
-                               sx={{
-                                 display: "flex",
-                                 flexWrap: "wrap",
-                                 gap: 1,
-                               }}
-                             >
-                               <ProfessionalButton
-                                 variant="outlined"
-                                 startIcon={<Today />}
-                                 onClick={() => {
-                                   setStartDate(formattedToday);
-                                   setEndDate(formattedToday);
-                                 }}
-                                 sx={{
-                                   fontWeight: "normal",
-                                   fontSize: "small",
-                                   borderColor: accentColor,
-                                   color: accentColor,
-                                   "&:hover": {
-                                     backgroundColor: alpha(accentColor, 0.1),
-                                   },
-                                 }}
-                               >
-                                 TODAY
-                               </ProfessionalButton>
-                               <ProfessionalButton
-                                 variant="outlined"
-                                 startIcon={<ArrowBackIos />}
-                                 onClick={() => {
-                                   const yesterday = new Date(today);
-                                   yesterday.setDate(yesterday.getDate() - 1);
-                                   const yesterdayFormatted = yesterday
-                                     .toISOString()
-                                     .substring(0, 10);
-                                   setStartDate(yesterdayFormatted);
-                                   setEndDate(yesterdayFormatted);
-                                 }}
-                                 sx={{
-                                   fontWeight: "normal",
-                                   fontSize: "small",
-                                   borderColor: accentColor,
-                                   color: accentColor,
-                                   "&:hover": { backgroundColor: alpha(accentColor, 0.1) },
-                                 }}
-                               >
-                                 YESTERDAY
-                               </ProfessionalButton>
-                               <ProfessionalButton
-                                 variant="outlined"
-                                 onClick={() => {
-                                   const lastWeek = new Date(today);
-                                   lastWeek.setDate(lastWeek.getDate() - 7);
-                                   const lastWeekFormatted = lastWeek
-                                     .toISOString()
-                                     .substring(0, 10);
-                                   setStartDate(lastWeekFormatted);
-                                   setEndDate(formattedToday);
-                                 }}
-                                 sx={{
-                                   fontWeight: "normal",
-                                   fontSize: "small",
-                                   borderColor: accentColor,
-                                   color: accentColor,
-                                   "&:hover": { backgroundColor: alpha(accentColor, 0.1) },
-                                 }}
-                               >
-                                 LAST 7 DAYS
-                                 {
-                                   <ArrowForwardIos
-                                     sx={{ marginLeft: "10px", fontSize: "large" }}
-                                   />
-                                 }
-                               </ProfessionalButton>
-                               <ProfessionalButton
-                                 variant="outlined"
-                                 onClick={() => {
-                                   const fifteenDaysAgo = new Date(today);
-                                   fifteenDaysAgo.setDate(fifteenDaysAgo.getDate() - 15);
-                                   const fifteenDaysAgoFormatted = fifteenDaysAgo
-                                     .toISOString()
-                                     .substring(0, 10);
-                                   setStartDate(fifteenDaysAgoFormatted);
-                                   setEndDate(formattedToday);
-                                 }}
-                                 sx={{
-                                   fontWeight: "normal",
-                                   fontSize: "small",
-                                   borderColor: accentColor,
-                                   color: accentColor,
-                                   "&:hover": { backgroundColor: alpha(accentColor, 0.1) },
-                                 }}
-                               >
-                                 LAST 15 DAYS
-                               </ProfessionalButton>
-                               <ProfessionalButton
-                                 variant="outlined"
-                                 startIcon={<Clear />}
-                                 onClick={handleClearFilters}
-                                 sx={{
-                                   fontWeight: "normal",
-                                   fontSize: "small",
-                                   borderColor: accentColor,
-                                   color: accentColor,
-                                   "&:hover": { backgroundColor: alpha(accentColor, 0.1) },
-                                 }}
-                               >
-                                 CLEAR ALL
-                               </ProfessionalButton>
-                             </Box>
-                           </Box>
-            </CardContent>
-          </GlassCard>
-        </Fade>
-
-        {loading && <LinearProgress sx={{ mb: 2, borderRadius: 1, bgcolor: alpha(accentColor, 0.1), '& .MuiLinearProgress-bar': { bgcolor: accentColor } }} />}
-
-        {error && (
-          <Fade in timeout={300}>
-            <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }}>
-              {error}
-            </Alert>
-          </Fade>
-        )}
-
-        {/* Results */}
-        {submittedID && (
-          <Fade in={!loading} timeout={500}>
-            <GlassCard sx={{ mb: 4, border: `1px solid ${alpha(accentColor, 0.1)}` }}>
-              <Box sx={{ 
-                p: 4, 
-                background: `linear-gradient(135deg, ${primaryColor} 0%, ${secondaryColor} 100%)`, 
-                color: accentColor,
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                
-              }}>
-                <Box>
-                  <Typography variant="body2" sx={{ opacity: 0.8, mb: 1, textTransform: 'uppercase', letterSpacing: '0.1em', color: accentDark }}>
-                    Employee Number
-                  </Typography>
-                  <Typography variant="h4" sx={{ fontWeight: 600, mb: 1, color: accentColor }}>
-                    {submittedID}
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, position: 'relative', zIndex: 1 }}>
+              <Box sx={{ px: 2, py: 0.6, borderRadius: 5, bgcolor: alpha(T.accent, 0.1), border: `1px solid ${alpha(T.accent, 0.18)}` }}>
+                <Typography sx={{ fontSize: '0.72rem', color: T.accent, fontWeight: 700 }}>System Generated</Typography>
+              </Box>
+              {total > 0 && (
+                <Box sx={{ px: 2.5, py: 0.75, borderRadius: 6, bgcolor: alpha(T.accent, 0.1), border: `1px solid ${alpha(T.accent, 0.2)}` }}>
+                  <Typography sx={{ fontSize: '0.8rem', color: T.accent, fontWeight: 700 }}>
+                    {total} records
                   </Typography>
                 </Box>
-                <Box sx={{ textAlign: 'right' }}>
-                  <Badge badgeContent={filteredRecords.length} color="secondary" sx={{ '& .MuiBadge-badge': { fontSize: '0.8rem', height: 24, minWidth: 24 } }}>
-                    <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                      Records Found
+              )}
+              <Tooltip title="Refresh Data">
+                <IconButton
+                  onClick={() => fetchRecords(true)}
+                  sx={{ bgcolor: alpha(T.accent, 0.08), color: T.accent, width: 36, height: 36, '&:hover': { bgcolor: alpha(T.accent, 0.15) } }}
+                >
+                  <Refresh sx={{ fontSize: 18 }} />
+                </IconButton>
+              </Tooltip>
+            </Box>
+          </Box>
+        </SectionCard>
+
+        <Collapse in={!!error}>
+          <Alert severity="error" onClose={() => setError('')} sx={{ mb: 1.5, borderRadius: 2, fontSize: '0.82rem' }}>
+            {error}
+          </Alert>
+        </Collapse>
+
+        {/* ── Two-column layout ── */}
+        <Grid container spacing={2}>
+          {/* LEFT: Sidebar */}
+          <Grid item xs={12} lg={3}>
+            <SectionCard sx={filterSidebarCardSx}>
+              <AttendanceFilterHeader />
+              {renderLeftPanel()}
+            </SectionCard>
+          </Grid>
+
+          {/* RIGHT: Records */}
+          <Grid item xs={12} lg={9}>
+            <SectionCard sx={{ ...attendanceMainPanelHeightSx, display: 'flex', flexDirection: 'column', position: 'relative' }}>
+              {/* Toolbar */}
+              <Box sx={{ px: 3, py: 2, borderBottom: `1px solid ${T.divider}`, bgcolor: T.accentFaint, flexShrink: 0 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                    <Assignment sx={{ fontSize: 15, color: T.accent }} />
+                    <Typography sx={{ fontSize: '0.88rem', fontWeight: 700, color: T.text }}>
+                      Attendance States
                     </Typography>
-                  </Badge>
-                  <Typography variant="caption" sx={{ opacity: 0.8, display: 'block', mt: 0.5, color: accentDark }}>
-                    {startDate} to {endDate}
-                  </Typography>
+                  </Box>
+                  {total > 0 && (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Typography sx={{ fontSize: '0.72rem', color: T.muted, fontWeight: 600 }}>
+                        {total.toLocaleString()} punch{total === 1 ? '' : 'es'}
+                      </Typography>
+                      <Tooltip title="Choose dates and download your attendance as Excel">
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          startIcon={<DownloadIcon sx={{ fontSize: '13px !important' }} />}
+                          onClick={openExcelDialog}
+                          disabled={excelLoading}
+                          aria-label="Download attendance as Excel"
+                          sx={{
+                            borderRadius: '8px',
+                            textTransform: 'none',
+                            fontWeight: 600,
+                            fontSize: '0.78rem',
+                            color: T.accent,
+                            borderColor: alpha(T.accent, 0.35),
+                            bgcolor: '#fff',
+                            boxShadow: 'none',
+                            '&:hover': { bgcolor: T.accentFaint, borderColor: T.accent },
+                          }}
+                        >
+                          Excel
+                        </Button>
+                      </Tooltip>
+                      <SortButton
+                        size="small"
+                        onClick={() => setSortOrder((s) => (s === 'asc' ? 'desc' : 'asc'))}
+                        startIcon={sortOrder === 'asc' ? <KeyboardArrowUp sx={{ fontSize: 14 }} /> : <KeyboardArrowDown sx={{ fontSize: 14 }} />}
+                      >
+                        Sort {sortOrder === 'asc' ? 'Oldest First' : 'Newest First'}
+                      </SortButton>
+                    </Box>
+                  )}
                 </Box>
               </Box>
+              {loading && (
+                <LinearProgress sx={{ flexShrink: 0, height: 2, bgcolor: T.accentFaint, '& .MuiLinearProgress-bar': { bgcolor: T.accent } }} />
+              )}
 
-              <PremiumTableContainer>
-                <Table 
-                  stickyHeader 
-                  sx={{ 
-                    minWidth: '800px', // Set minimum width to ensure horizontal scrolling
-                  }}
-                >
-                  <TableHead>
-                    <TableRow sx={{ bgcolor: 'rgba(254, 249, 225, 0.7)' }}>
-                      <PremiumTableCell isHeader sx={{ color: accentColor, cursor: 'pointer', userSelect: 'none', '&:hover': { bgcolor: alpha(accentColor, 0.05) } }}
-                        onClick={handleSort}
-                      >
-                        <Box display="flex" alignItems="center" gap={1}>
-                          Date
-                          {sortOrder === 'asc' ? <KeyboardArrowUp fontSize="small" /> : <KeyboardArrowDown fontSize="small" />}
-                        </Box>
-                      </PremiumTableCell>
-                      <PremiumTableCell isHeader sx={{ color: accentColor }}>Time</PremiumTableCell>
-                      <PremiumTableCell isHeader sx={{ color: accentColor }}>Status</PremiumTableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {filteredRecords.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={3} align="center" sx={{ py: 6 }}>
-                          <Box sx={{ textAlign: 'center' }}>
-                            <Info sx={{ fontSize: 64, color: alpha(accentColor, 0.3), mb: 2 }} />
-                            <Typography variant="h5" color={alpha(accentColor, 0.6)} gutterBottom sx={{ fontWeight: 600 }}>
-                              No records found
-                            </Typography>
-                            <Typography variant="body1" color={alpha(accentColor, 0.4)}>
-                              Try adjusting your date range
-                            </Typography>
-                          </Box>
-                        </TableCell>
-                      </TableRow>
-                    ) : (
-                      filteredRecords.map((record, idx) => (
-                        <React.Fragment key={idx}>
-                          <TableRow 
-                            sx={{ 
-                              '&:nth-of-type(even)': { bgcolor: alpha(primaryColor, 0.3) },
-                              '&:hover': { bgcolor: alpha(accentColor, 0.05) },
-                              cursor: 'pointer',
-                              transition: 'all 0.2s ease'
-                            }}
-                            onClick={() => handleRowExpand(idx)}
-                          >
-                            <PremiumTableCell>
-                              <Typography variant="body2" sx={{ fontWeight: 500, color: blackColor }}>
-                                {new Date(record.Date).toLocaleDateString('en-US', {
-                                  weekday: 'short',
-                                  year: 'numeric',
-                                  month: 'short',
-                                  day: 'numeric'
-                                })}
+              {/* Records area */}
+              <Box sx={{ flexGrow: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                {!submittedID ? (
+                  <Box sx={{ py: 10, textAlign: 'center' }}>
+                    <Box sx={{ width: 72, height: 72, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
+                      <Person sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
+                    </Box>
+                    <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted, mb: 0.5 }}>
+                      {loading ? 'Loading your records…' : 'Select a Period'}
+                    </Typography>
+                    <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>
+                      Choose a month or date range from the left panel.
+                    </Typography>
+                  </Box>
+                ) : sortedRecords.length === 0 && !loading ? (
+                  <Box sx={{ py: 10, textAlign: 'center' }}>
+                    <Box sx={{ width: 72, height: 72, borderRadius: '50%', bgcolor: T.accentFaint, display: 'flex', alignItems: 'center', justifyContent: 'center', mx: 'auto', mb: 2 }}>
+                      <Info sx={{ fontSize: 32, color: alpha(T.accent, 0.3) }} />
+                    </Box>
+                    <Typography sx={{ fontSize: '0.9rem', fontWeight: 600, color: T.muted, mb: 0.5 }}>
+                      No records found
+                    </Typography>
+                    <Typography sx={{ fontSize: '0.78rem', color: T.faint }}>
+                      Try adjusting your date range.
+                    </Typography>
+                  </Box>
+                ) : (
+                  <>
+                    {/* Column headers */}
+                    <Box sx={{ display: 'grid', gridTemplateColumns: COLUMNS, px: 2.5, py: 1.25, bgcolor: T.accent, gap: 2, flexShrink: 0 }}>
+                      {[
+                        { label: 'DATE', sortable: true },
+                        { label: 'TIME' },
+                        { label: 'STATUS' },
+                        { label: 'BRANCH' },
+                        { label: 'DETAILS' },
+                      ].map(({ label, sortable }) => (
+                        <Typography
+                          key={label}
+                          onClick={sortable ? () => setSortOrder((s) => (s === 'asc' ? 'desc' : 'asc')) : undefined}
+                          sx={{
+                            color: '#fff',
+                            fontSize: '0.6rem',
+                            fontWeight: 700,
+                            letterSpacing: '0.07em',
+                            cursor: sortable ? 'pointer' : 'default',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 0.5,
+                            userSelect: 'none',
+                            '&:hover': sortable ? { opacity: 0.8 } : {},
+                          }}
+                        >
+                          {label}
+                          {sortable && (sortOrder === 'asc'
+                            ? <KeyboardArrowUp sx={{ fontSize: 14 }} />
+                            : <KeyboardArrowDown sx={{ fontSize: 14 }} />)}
+                        </Typography>
+                      ))}
+                    </Box>
+
+                    {/* Rows */}
+                    <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', '&::-webkit-scrollbar': { width: 4 }, '&::-webkit-scrollbar-thumb': { bgcolor: T.accentBorder, borderRadius: 2 } }}>
+                      {sortedRecords.map((record, idx) => {
+                        const isOpen = expandedRow === idx;
+                        return (
+                          <Box key={`${record.Date}|${record.Time}|${idx}`}>
+                            <Box
+                              onClick={() => setExpandedRow(isOpen ? null : idx)}
+                              sx={{
+                                display: 'grid',
+                                gridTemplateColumns: COLUMNS,
+                                px: 2.5,
+                                py: 1.5,
+                                gap: 2,
+                                alignItems: 'center',
+                                minHeight: 52,
+                                boxSizing: 'border-box',
+                                cursor: 'pointer',
+                                bgcolor: isOpen ? T.rowHover : (idx % 2 === 0 ? '#fff' : T.rowOdd),
+                                borderBottom: `1px solid ${T.divider}`,
+                                transition: 'background 0.12s',
+                                '&:hover': { bgcolor: T.rowHover },
+                              }}
+                            >
+                              <Typography sx={{ fontWeight: 600, fontSize: '0.82rem', color: T.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {formatDateLabel(record)}
                               </Typography>
-                            </PremiumTableCell>
-                            <PremiumTableCell>
-                              <Typography variant="body2" sx={{ fontWeight: 500, color: blackColor }}>
+                              <Typography sx={{ fontSize: '0.8rem', color: T.muted, fontWeight: 500 }}>
                                 {record.Time}
                               </Typography>
-                            </PremiumTableCell>
-                            <PremiumTableCell>
-                              <Chip
-                                icon={getAttendanceIcon(record.AttendanceState)}
-                                label={getAttendanceLabel(record.AttendanceState)}
-                                size="small"
+                              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                                <StatusChip value={record.AttendanceState} />
+                              </Box>
+                              <AttendanceBranchSource record={record} />
+                              <Box
+                                component="span"
                                 sx={{
-                                  bgcolor: alpha(getAttendanceColor(record.AttendanceState), 0.1),
-                                  color: getAttendanceColor(record.AttendanceState),
-                                  fontWeight: 600,
-                                  '& .MuiChip-icon': {
-                                    color: getAttendanceColor(record.AttendanceState)
-                                  }
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 0.5,
+                                  width: 'fit-content',
+                                  px: 1.25,
+                                  py: 0.4,
+                                  borderRadius: '6px',
+                                  border: `1px solid ${alpha(T.accent, 0.25)}`,
+                                  color: T.accent,
+                                  fontSize: '0.72rem',
+                                  fontWeight: 700,
                                 }}
-                              />
-                            </PremiumTableCell>
-                          </TableRow>
-                          {expandedRow === idx && (
-                            <TableRow>
-                              <TableCell colSpan={3} sx={{ p: 0, bgcolor: alpha(primaryColor, 0.5) }}>
-                                <Box sx={{ p: 3 }}>
-                                  <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 600, color: blackColor }}>
-                                    Record Details
-                                  </Typography>
-                                  <Grid container spacing={2}>
-                                    <Grid item xs={6} md={4}>
-                                      <Typography variant="body2" color="text.secondary">
-                                        Employee ID
-                                      </Typography>
-                                      <Typography variant="body1" sx={{ fontWeight: 500, color: blackColor }}>
-                                        {record.PersonID}
-                                      </Typography>
-                                    </Grid>
-                                    <Grid item xs={6} md={4}>
-                                      <Typography variant="body2" color="text.secondary">
-                                        Date
-                                      </Typography>
-                                      <Typography variant="body1" sx={{ fontWeight: 500, color: blackColor }}>
-                                        {record.Date}
-                                      </Typography>
-                                    </Grid>
-                                    <Grid item xs={6} md={4}>
-                                      <Typography variant="body2" color="text.secondary">
-                                        Time
-                                      </Typography>
-                                      <Typography variant="body1" sx={{ fontWeight: 500, color: blackColor }}>
-                                        {record.Time}
-                                      </Typography>
-                                    </Grid>
-                                    <Grid item xs={6} md={4}>
-                                      <Typography variant="body2" color="text.secondary">
-                                        Status
-                                      </Typography>
-                                      <Typography variant="body1" sx={{ fontWeight: 500, color: blackColor }}>
-                                        {getAttendanceLabel(record.AttendanceState)}
-                                      </Typography>
-                                    </Grid>
-                                  </Grid>
-                                </Box>
-                              </TableCell>
-                            </TableRow>
-                          )}
-                        </React.Fragment>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </PremiumTableContainer>
-            </GlassCard>
-          </Fade>
-        )}
+                              >
+                                {isOpen ? 'Hide' : 'View'}
+                                {isOpen ? <KeyboardArrowUp sx={{ fontSize: 14 }} /> : <KeyboardArrowDown sx={{ fontSize: 14 }} />}
+                              </Box>
+                            </Box>
+                            <Collapse in={isOpen} unmountOnExit>
+                              <Box sx={{ px: 2.5, py: 1.5, bgcolor: T.accentFaint, borderBottom: `1px solid ${T.divider}`, display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 2 }}>
+                                <DetailField label="Employee ID" value={record.PersonID || personID} />
+                                <DetailField label="Date" value={record.Date} />
+                                <DetailField label="Time" value={record.Time} />
+                                <DetailField label="Status" value={getAttendanceLabel(record.AttendanceState)} />
+                                <DetailField label="Branch" value={punchBranchLabel(record.Branch)} />
+                                <DetailField
+                                  label="Device"
+                                  value={record.DeviceName
+                                    ? record.DeviceName
+                                    : '—'}
+                                />
+                              </Box>
+                            </Collapse>
+                          </Box>
+                        );
+                      })}
+                    </Box>
+                  </>
+                )}
+              </Box>
 
-        {/* Scroll to Top Button */}
-        <Zoom in={showScrollTop}>
-          <Fab
-            sx={{
-              position: 'fixed',
-              bottom: 24,
-              right: 24,
-              zIndex: 1000,
-              bgcolor: accentColor,
-              color: primaryColor,
-              '&:hover': {
-                bgcolor: accentDark,
-              }
-            }}
-            onClick={scrollToTop}
-          >
-            <KeyboardArrowUp />
-          </Fab>
-        </Zoom>
+              {/* Pager — the server sends one page at a time */}
+              {total > 0 && (
+                <Box sx={{ px: 2.5, py: 1, borderTop: `1px solid ${T.divider}`, bgcolor: T.accentFaint, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1.5, flexWrap: 'wrap' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Typography sx={{ fontSize: '0.72rem', color: T.muted, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                      {firstShown}–{lastShown} of {total.toLocaleString()}
+                    </Typography>
+                    <Select
+                      size="small"
+                      value={pageSize}
+                      onChange={(e) => setPageSize(Number(e.target.value))}
+                      inputProps={{ 'aria-label': 'Rows per page' }}
+                      sx={{
+                        fontSize: '0.72rem',
+                        bgcolor: '#fff',
+                        borderRadius: '6px',
+                        '& .MuiSelect-select': { py: '3px', pl: 1 },
+                        '& .MuiOutlinedInput-notchedOutline': { borderColor: T.accentBorder },
+                        '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: T.accent },
+                      }}
+                    >
+                      {[25, 50, 100].map((n) => (
+                        <MenuItem key={n} value={n} sx={{ fontSize: '0.76rem' }}>{n} / page</MenuItem>
+                      ))}
+                    </Select>
+                  </Box>
+                  <Pagination
+                    count={pageCount}
+                    page={Math.min(page, pageCount)}
+                    onChange={(_, p) => { setPage(p); setExpandedRow(null); }}
+                    size="small"
+                    siblingCount={1}
+                    disabled={loading}
+                    sx={{
+                      '& .MuiPaginationItem-root': { fontSize: '0.74rem', fontWeight: 600, color: T.muted },
+                      '& .MuiPaginationItem-root.Mui-selected': { bgcolor: T.accent, color: '#fff', '&:hover': { bgcolor: T.accentDark } },
+                    }}
+                  />
+                </Box>
+              )}
+            </SectionCard>
+          </Grid>
+        </Grid>
+
+        <AttendanceExcelReportDialog
+          open={excelOpen}
+          onClose={() => setExcelOpen(false)}
+          periodStart={startDate}
+          periodEnd={endDate}
+          records={excelRecords}
+          loading={excelLoading}
+          sortOrder={sortOrder}
+          onDownload={handleDownloadExcel}
+        />
       </Box>
-    </Box>
+    </Fade>
   );
 };
 

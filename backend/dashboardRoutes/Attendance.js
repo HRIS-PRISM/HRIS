@@ -56,6 +56,19 @@
   }
 
   /**
+   * Campus a biometric device belongs to, in users.branch codes (0 = Manila,
+   * 1 = Cavite). Devices are identified by name: the Cavite campus device is
+   * "ETIVAC"; every other device (Back Gate, HR, MIS - MANILA, …) is in Manila.
+   * Add a keyword here when a new campus device is installed.
+   */
+  const CAVITE_DEVICE_PATTERN = /cavite|etivac/i;
+  function deviceBranchCode(deviceName) {
+    const name = String(deviceName || '').trim();
+    if (!name) return null;
+    return CAVITE_DEVICE_PATTERN.test(name) ? 1 : 0;
+  }
+
+  /**
    * Optional employee filter from a request body: null when not given (= everyone),
    * otherwise the de-duplicated, trimmed IDs (an empty array means "nobody").
    */
@@ -733,16 +746,41 @@
   router.post('/api/attendance', authenticateToken, (req, res) => {
     const { personID, startDate, endDate } = req.body;
 
+    // Optional paging: send { page, pageSize, sort } to get one page back as
+    // { data, total, page, pageSize }. Paged requests use the exact Manila days
+    // of startDate..endDate; without `page` the old behaviour (plain array,
+    // caller-widened range) is unchanged.
+    const paged = req.body?.page != null;
+    const pageSize = Math.min(Math.max(parseInt(req.body?.pageSize, 10) || 25, 1), 200);
+    const page = Math.max(parseInt(req.body?.page, 10) || 1, 1);
+    const sortDir = String(req.body?.sort || '').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
+
+    const { startTimestamp, endTimestamp } = paged
+      ? manilaDayRangeMs(startDate, endDate)
+      : { startTimestamp: new Date(startDate).getTime(), endTimestamp: new Date(endDate).getTime() };
+
+    const where = 'WHERE PersonID = ? AND AttendanceDateTime BETWEEN ? AND ?';
     const query = `
-      SELECT PersonID, AttendanceDateTime, AttendanceState
+      SELECT PersonID, AttendanceDateTime, AttendanceState, DeviceName
       FROM AttendanceRecordInfo
-      WHERE PersonID = ?
-      AND AttendanceDateTime BETWEEN ? AND ?`;
+      ${where}${paged ? ` ORDER BY AttendanceDateTime ${sortDir} LIMIT ? OFFSET ?` : ''}`;
+    const params = paged
+      ? [personID, startTimestamp, endTimestamp, pageSize, (page - 1) * pageSize]
+      : [personID, startTimestamp, endTimestamp];
 
-    const startTimestamp = new Date(startDate).getTime();
-    const endTimestamp = new Date(endDate).getTime();
+    // Paged: count the whole range at the same time as the page is read
+    const countPromise = paged
+      ? new Promise((resolve, reject) => {
+        db.query(
+          `SELECT COUNT(*) AS total FROM AttendanceRecordInfo ${where}`,
+          [personID, startTimestamp, endTimestamp],
+          (countErr, countRows) => (countErr ? reject(countErr) : resolve(Number(countRows?.[0]?.total || 0))),
+        );
+      })
+      : null;
+    if (countPromise) countPromise.catch(() => {}); // handled below; avoid an unhandled rejection
 
-    db.query(query, [personID, startTimestamp, endTimestamp], (err, results) => {
+    db.query(query, params, (err, results) => {
       if (err) {
         return res.status(500).json({ error: err.message });
       }
@@ -766,10 +804,17 @@
           Time: manilaDate.split(',')[1].trim(),
           AttendanceState: record.AttendanceState,
           AttendanceDateTime: record.AttendanceDateTime,
+          // Where the punch was recorded — lets the employee check it is theirs
+          DeviceName: record.DeviceName || null,
+          Branch: deviceBranchCode(record.DeviceName),
         };
       });
 
-      res.json(records);
+      if (!paged) return res.json(records);
+
+      countPromise
+        .then((total) => res.json({ data: records, total, page, pageSize }))
+        .catch((countErr) => res.status(500).json({ error: countErr.message }));
     });
   });
 
