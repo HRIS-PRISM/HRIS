@@ -342,13 +342,25 @@ const PayrollJO = () => {
   // of it, so e.g. 21:54 rendered is paid as 21.9 h rather than 21 h.
   const renderedHoursOf = (row) =>
     (parseFloat(row?.rh) || 0) + (parseFloat(row?.rm) || 0) / 60 + (parseFloat(row?.rs) || 0) / 3600;
-  const renderedLabel = (row) => {
+  // One rendered "day" is the employee's official hours for a day — time out minus
+  // time in minus the break (e.g. 7AM–6PM with a 12–1 break = 10 h). Falls back to
+  // 8 h when the official time is missing or can't be read.
+  const hoursPerDayOf = (row) => {
+    const h = parseFloat(row?.dailyHours);
+    return h > 0 ? h : 8;
+  };
+  const renderedSplit = (row) => {
+    const dayMin = Math.round(hoursPerDayOf(row) * 60);
     const totalMin = Math.round(renderedHoursOf(row) * 60);
-    const days = Math.floor(totalMin / 480);
-    const hours = Math.floor((totalMin % 480) / 60);
-    const mins = totalMin % 60;
+    const days = Math.floor(totalMin / dayMin);
+    const restMin = totalMin % dayMin;
+    return { days, hours: Math.floor(restMin / 60), mins: restMin % 60 };
+  };
+  const renderedLabel = (row) => {
+    const { days, hours, mins } = renderedSplit(row);
     return `${days}d ${hours}h${mins ? ` ${mins}m` : ''}`;
   };
+  const formatHours = (h) => `${Number.isInteger(h) ? h : Number(h.toFixed(2))}h`;
 
   const computeHourDeduction = (ratePerDay, hours) =>
     !ratePerDay || !hours ? 0 : (ratePerDay / 8) * hours;
@@ -437,15 +449,21 @@ const PayrollJO = () => {
               );
               renderedDays = `${monthName} ${uniqueDays.join(', ')}`;
             }
-            if (!officialTimeCache[row.employeeNumber]) {
-              const officialTimeRes = await axios.get(
-                `${API_BASE_URL}/PayrollJORoutes/official-time/${row.employeeNumber}`,
-                getAuthHeaders(),
-              );
-              officialTimeCache[row.employeeNumber] = officialTimeRes.data;
+            // Official time for the schedule covering this payroll period.
+            const periodStart = String(row.startDate || '').slice(0, 10);
+            const periodEnd = String(row.endDate || '').slice(0, 10);
+            const officialTimeKey = `${row.employeeNumber}|${periodStart}|${periodEnd}`;
+            if (!officialTimeCache[officialTimeKey]) {
+              officialTimeCache[officialTimeKey] = axios
+                .get(
+                  `${API_BASE_URL}/PayrollJORoutes/official-time/${row.employeeNumber}`,
+                  { ...getAuthHeaders(), params: { start: periodStart, end: periodEnd } },
+                )
+                .then((r) => r.data);
             }
-            const { daysCovered, numberOfDays, timeRange } =
-              officialTimeCache[row.employeeNumber];
+            const {
+              daysCovered, numberOfDays, timeRange, dailyHours, breakTimeIN, breakTimeOUT,
+            } = await officialTimeCache[officialTimeKey];
             const ratePerDay = row.ratePerDay || 0;
             const grossAmount = (ratePerDay / 8) * renderedHoursOf(row);
             return {
@@ -455,6 +473,11 @@ const PayrollJO = () => {
               days: daysCovered,
               numberOfDays,
               officialTime: timeRange,
+              dailyHours: dailyHours || null,
+              breakTime:
+                breakTimeIN && breakTimeOUT && !/^0?0:/.test(breakTimeIN) && !/^0?0:/.test(breakTimeOUT)
+                  ? `${breakTimeIN} - ${breakTimeOUT}`
+                  : '',
               status: row.status || 0,
             };
           } catch (err) {
@@ -465,6 +488,8 @@ const PayrollJO = () => {
               days: '—',
               numberOfDays: 0,
               officialTime: '—',
+              dailyHours: null,
+              breakTime: '',
               status: row.status || 0,
               pagibigContribution: row.pagibigContribution || 0,
             };
@@ -796,9 +821,12 @@ const PayrollJO = () => {
       'Days Covered': row.days || '',
       'No. of Days': row.numberOfDays || '',
       'Official Time': row.officialTime || '',
+      'Hours per Day': hoursPerDayOf(row),
       Period: row.renderedDays || '',
-      'No. of Days (Rendered)': renderedHoursOf(row) ? Math.floor(renderedHoursOf(row) / 8) : '',
-      'No. of Hours (Rendered)': renderedHoursOf(row) ? Number((renderedHoursOf(row) % 8).toFixed(2)) : '',
+      'No. of Days (Rendered)': renderedHoursOf(row) ? renderedSplit(row).days : '',
+      'No. of Hours (Rendered)': renderedHoursOf(row)
+        ? Number((renderedSplit(row).hours + renderedSplit(row).mins / 60).toFixed(2))
+        : '',
       'Gross Amount': row.grossAmount || 0,
       'Deduction (Hrs)': row.h || 0,
       'Deduction (Mins)': row.m || 0,
@@ -2235,23 +2263,41 @@ const PayrollJO = () => {
                             sx={{ borderBottom: 'none', minWidth: 160 }}
                           >
                             {row.officialTime || '—'}
+                            {row.officialTime && row.officialTime !== '—' && (
+                              <Typography
+                                sx={{ fontSize: '0.66rem', color: T.muted, fontFamily: T.font, lineHeight: 1.3, mt: 0.25 }}
+                              >
+                                {row.breakTime ? `Break ${row.breakTime}` : 'No break'}
+                                {' · '}
+                                {row.dailyHours ? `${formatHours(row.dailyHours)}/day` : 'hours unreadable — using 8h/day'}
+                              </Typography>
+                            )}
                           </ExcelTableCell>
                           <ExcelTableCell
                             sx={{ borderBottom: 'none', minWidth: 90 }}
                           >
                             {renderedHoursOf(row) ? (
-                              <Box>
-                                <Typography
-                                  sx={{
-                                    fontSize: '0.78rem',
-                                    fontWeight: 700,
-                                    fontFamily: T.font,
-                                    lineHeight: 1.2,
-                                  }}
-                                >
-                                  {renderedLabel(row)}
-                                </Typography>
-                              </Box>
+                              <Tooltip
+                                title={`${formatHours(Number(renderedHoursOf(row).toFixed(2)))} rendered ÷ ${formatHours(hoursPerDayOf(row))} per day${row.dailyHours ? ' (from official time)' : ' (default — no readable official time)'}`}
+                              >
+                                <Box>
+                                  <Typography
+                                    sx={{
+                                      fontSize: '0.78rem',
+                                      fontWeight: 700,
+                                      fontFamily: T.font,
+                                      lineHeight: 1.2,
+                                    }}
+                                  >
+                                    {renderedLabel(row)}
+                                  </Typography>
+                                  <Typography
+                                    sx={{ fontSize: '0.64rem', color: row.dailyHours ? (T.muted) : '#b45309', fontFamily: T.font, lineHeight: 1.3 }}
+                                  >
+                                    at {formatHours(hoursPerDayOf(row))}/day
+                                  </Typography>
+                                </Box>
+                              </Tooltip>
                             ) : (
                               '—'
                             )}

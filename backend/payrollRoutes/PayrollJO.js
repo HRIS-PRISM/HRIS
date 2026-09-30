@@ -528,12 +528,19 @@ router.put('/payroll-jo/:id/contributions', authenticateToken, requireAdmin, (re
 // GET official time schedule with smart day formatting
 router.get('/official-time/:employeeNumber', authenticateToken, requireSelfOrAdmin('employeeNumber'), (req, res) => {
   const { employeeNumber } = req.params;
+  // Optional payroll period (YYYY-MM-DD) — picks the schedule block covering it.
+  const periodStart = /^\d{4}-\d{2}-\d{2}/.test(String(req.query.start || '')) ? String(req.query.start).slice(0, 10) : null;
+  const periodEnd = /^\d{4}-\d{2}-\d{2}/.test(String(req.query.end || '')) ? String(req.query.end).slice(0, 10) : null;
 
   const sql = `
-    SELECT 
+    SELECT
       day,
       officialTimeIN,
-      officialTimeOUT
+      officialTimeOUT,
+      officialBreaktimeIN,
+      officialBreaktimeOUT,
+      startDate,
+      endDate
     FROM officialtime
     WHERE employeeID = ?
       AND officialTimeIN IS NOT NULL 
@@ -546,11 +553,26 @@ router.get('/official-time/:employeeNumber', authenticateToken, requireSelfOrAdm
       FIELD(day, 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday')
   `;
 
-  db.query(sql, [employeeNumber], (err, result) => {
+  db.query(sql, [employeeNumber], (err, allRows) => {
     if (err) {
       console.error('Error fetching official time:', err);
       return res.status(500).json({ message: 'Error fetching official time' });
     }
+
+    // An employee can have several schedule blocks (one per date range). Use the
+    // block overlapping the payroll period (latest start wins); otherwise the latest block.
+    const blockKey = (r) => `${r.startDate || ''}|${r.endDate || ''}`;
+    const blocks = [...new Set(allRows.map(blockKey))]
+      .map((key) => {
+        const [start, end] = key.split('|');
+        return { key, start, end };
+      })
+      .sort((a, b) => String(b.start).localeCompare(String(a.start)));
+    const overlapping = periodStart && periodEnd
+      ? blocks.find((b) => (!b.start || b.start <= periodEnd) && (!b.end || b.end >= periodStart))
+      : null;
+    const chosen = overlapping || blocks[0];
+    const result = chosen ? allRows.filter((r) => blockKey(r) === chosen.key) : [];
 
     if (result.length === 0) {
       return res.json({
@@ -558,10 +580,39 @@ router.get('/official-time/:employeeNumber', authenticateToken, requireSelfOrAdm
         daysCovered: '—',
         numberOfDays: 0,
         timeRange: '—',
+        dailyHours: null,
+        hoursByDay: {},
       });
     }
 
-    const days = result.map((row) => row.day);
+    // "hh:mm:ss AM" → minutes after midnight; hour "00" is the blank placeholder.
+    const toMinutes = (value) => {
+      const m = String(value || '').trim().match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)$/i);
+      if (!m || Number(m[1]) === 0) return null;
+      const h = Number(m[1]) % 12 + (m[3].toUpperCase() === 'PM' ? 12 : 0);
+      return h * 60 + Number(m[2]);
+    };
+    // Hours per day = (time out − time in) − the part of the break inside that span.
+    const hoursByDay = {};
+    for (const r of result) {
+      const tin = toMinutes(r.officialTimeIN);
+      const tout = toMinutes(r.officialTimeOUT);
+      if (tin == null || tout == null || tout <= tin) continue;
+      const bin = toMinutes(r.officialBreaktimeIN);
+      const bout = toMinutes(r.officialBreaktimeOUT);
+      const breakMin = bin != null && bout != null && bout > bin
+        ? Math.max(0, Math.min(bout, tout) - Math.max(bin, tin))
+        : 0;
+      hoursByDay[r.day] = Math.round(((tout - tin - breakMin) / 60) * 100) / 100;
+    }
+    // Most common daily hours (ties → the longer day) is the length of one "day".
+    const freq = {};
+    Object.values(hoursByDay).forEach((h) => { freq[h] = (freq[h] || 0) + 1; });
+    const dailyHours = Object.keys(freq).length
+      ? Number(Object.keys(freq).sort((a, b) => freq[b] - freq[a] || b - a)[0])
+      : null;
+
+    const days = [...new Set(result.map((row) => row.day))];
     const dayAbbreviations = {
       Monday: 'M',
       Tuesday: 'T',
@@ -624,6 +675,12 @@ router.get('/official-time/:employeeNumber', authenticateToken, requireSelfOrAdm
       timeRange: timeRange,
       officialTimeIN: timeIN,
       officialTimeOUT: timeOUT,
+      breakTimeIN: result[0].officialBreaktimeIN || null,
+      breakTimeOUT: result[0].officialBreaktimeOUT || null,
+      dailyHours,
+      hoursByDay,
+      scheduleStart: chosen.start || null,
+      scheduleEnd: chosen.end || null,
     });
   });
 });
