@@ -23,7 +23,7 @@ import {
   Schedule,
   ExpandMore,
   CheckCircle,
-  Timelapse,
+  VisibilityOff,
 } from '@mui/icons-material';
 import PrintIcon from '@mui/icons-material/Print';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
@@ -1313,6 +1313,10 @@ const DailyTimeRecordFaculty = ({
   const applyLateFromEmploymentCategoryRef = useRef(null);
   /** Fresh late/undertime by employee, read while a print batch is built. */
   const printLateOverrideRef = useRef(null);
+  /** `${emp}|${start}|${end}` → late refresh promise (byDate or null). */
+  const lateRefreshRef = useRef(new Map());
+  const ensureLateForUsersRef = useRef(null);
+  const [previewLateStatus, setPreviewLateStatus] = useState('');
 
   const loadComputedLateForEmployee = useCallback(
     async (employeeNumber) => {
@@ -1667,7 +1671,7 @@ const DailyTimeRecordFaculty = ({
 
   const loadComputedLateBatch = useCallback(
     async (employeeNumbers) => {
-      if (!startDate || !endDate || !employeeNumbers?.length) return;
+      if (!startDate || !endDate || !employeeNumbers?.length) return {};
       const {
         byEmployee,
         halfDayDatesByEmployee: halfByEmp,
@@ -1686,6 +1690,7 @@ const DailyTimeRecordFaculty = ({
       setHalfDayDatesByEmployee((prev) => ({ ...prev, ...halfSets }));
       setHalfDayReviewByEmployee((prev) => ({ ...prev, ...reviewByEmp }));
       setComputationModuleTypeByEmployee((prev) => ({ ...prev, ...modByEmp }));
+      return byEmployee || {};
     },
     [startDate, endDate],
   );
@@ -3074,58 +3079,151 @@ const DailyTimeRecordFaculty = ({
     return pages;
   };
 
-  /**
-   * Before printing, recompute Non-Teaching late/undertime saved under an
-   * older formula (e.g. before the missing-break deduction). Returns the
-   * fresh maps by employee; also updates state for the on-screen preview.
-   */
-  const refreshStaleLateForPrint = async (users) => {
-    if (dtrType !== 'regular' || !startDate || !endDate) return {};
-    const stale = (users || []).filter((u) => {
-      const key = String(u.employeeNumber);
-      const mod =
-        computationModuleTypeByEmployee[key] ||
-        resolveAttendanceModuleFromEmployment(empCatMap[key]);
-      return (
-        mod === MODULE_TYPES.NON_TEACHING &&
-        isDailyLateByDateStale(computedLateByEmployee[key])
-      );
-    });
-    if (!stale.length) return {};
-    setPrintingStatus(`Updating late/undertime (${stale.length})…`);
-    const fresh = {};
-    const CONCURRENCY = 4;
-    for (let i = 0; i < stale.length; i += CONCURRENCY) {
-      await Promise.all(
-        stale.slice(i, i + CONCURRENCY).map(async (u) => {
-          const key = String(u.employeeNumber);
-          try {
-            const applied = await computeAndApplyModuleLateUndertime({
-              personID: key,
-              startDate,
-              endDate,
-              moduleType: MODULE_TYPES.NON_TEACHING,
-            });
-            if (applied?.byDate) fresh[key] = applied.byDate;
-          } catch (err) {
-            console.warn(
-              `Could not refresh late/undertime for ${key}:`,
-              err?.message || err,
-            );
-          }
-        }),
-      );
+  const applyComputedLateResult = (key, applied) => {
+    computedLateRef.current = { ...computedLateRef.current, [key]: applied.byDate };
+    setComputedLateByEmployee((prev) => ({ ...prev, [key]: applied.byDate }));
+    setHalfDayDatesByEmployee((prev) => ({
+      ...prev,
+      [key]: parseHalfDayDatesSet(applied.halfDayDates),
+    }));
+    setHalfDayReviewByEmployee((prev) => ({
+      ...prev,
+      [key]: buildReviewByDate(parseHalfDayReviewJson(applied.half_day_review)),
+    }));
+    if (applied.computation_module_type) {
+      setComputationModuleTypeByEmployee((prev) => ({
+        ...prev,
+        [key]: applied.computation_module_type,
+      }));
     }
-    if (Object.keys(fresh).length) {
-      computedLateRef.current = { ...computedLateRef.current, ...fresh };
-      setComputedLateByEmployee((prev) => ({ ...prev, ...fresh }));
-    }
-    return fresh;
   };
 
-  /** Build print pages with any just-refreshed late/undertime applied. */
+  /**
+   * Make sure each employee's DTR has current late/undertime for the period
+   * (Batch preview + printing). Loads what is saved, then computes — and
+   * saves — for anyone with punches but nothing saved, or with Non-Teaching
+   * values from an older formula (before the missing-break deduction).
+   * Each employee is computed at most once per period; a failed attempt is
+   * retried next time. Returns { [employeeNumber]: byDate } for those computed.
+   */
+  const ensureLateForUsers = async (users, { onProgress } = {}) => {
+    if (dtrType !== 'regular' || !startDate || !endDate) return {};
+    const periodKey = `${startDate}|${endDate}`;
+    const keys = [
+      ...new Set(
+        (users || [])
+          .filter((u) => (u.records || []).length > 0)
+          .map((u) => String(u.employeeNumber)),
+      ),
+    ];
+    if (!keys.length) return {};
+
+    const refreshMap = lateRefreshRef.current;
+    const unchecked = keys.filter((k) => !refreshMap.has(`${k}|${periodKey}`));
+    // Latest saved values first — the background batch late load may not
+    // have reached these employees yet.
+    let saved = {};
+    if (unchecked.length) {
+      try {
+        saved = await loadComputedLateBatch(unchecked);
+      } catch {
+        saved = {};
+      }
+    }
+
+    const tasks = [];
+    unchecked.forEach((key) => {
+      const mapKey = `${key}|${periodKey}`;
+      if (refreshMap.has(mapKey)) return; // picked up by a parallel call
+      const mod =
+        resolveAttendanceModuleFromEmployment(empCatMap[key]) ||
+        computationModuleTypeByEmployee[key];
+      const byDate = saved[key] || computedLateByEmployee[key] || {};
+      const isEmpty = Object.keys(byDate).length === 0;
+      const isStale =
+        mod === MODULE_TYPES.NON_TEACHING && isDailyLateByDateStale(byDate);
+      if (!mod || (!isEmpty && !isStale)) {
+        refreshMap.set(mapKey, Promise.resolve(null));
+        return;
+      }
+      let resolve;
+      refreshMap.set(mapKey, new Promise((r) => { resolve = r; }));
+      tasks.push({ key, mapKey, mod, resolve });
+    });
+
+    let done = 0;
+    if (tasks.length) onProgress?.(0, tasks.length);
+    const queue = [...tasks];
+    const runTask = async ({ key, mapKey, mod, resolve }) => {
+      let result = null;
+      try {
+        const applied = await computeAndApplyModuleLateUndertime({
+          personID: key,
+          startDate,
+          endDate,
+          moduleType: mod,
+        });
+        if (applied?.byDate) {
+          result = applied.byDate;
+          applyComputedLateResult(key, applied);
+        }
+      } catch (err) {
+        console.warn(
+          `Could not compute late/undertime for ${key}:`,
+          err?.message || err,
+        );
+      }
+      resolve(result);
+      if (!result) refreshMap.delete(mapKey);
+      done += 1;
+      onProgress?.(done, tasks.length);
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(4, queue.length) }, async () => {
+        while (queue.length) await runTask(queue.shift());
+      }),
+    );
+
+    // Include results from an earlier / still-running call (e.g. the preview).
+    const fresh = {};
+    const settled = await Promise.all(
+      keys.map(async (k) => [k, await refreshMap.get(`${k}|${periodKey}`)]),
+    );
+    settled.forEach(([k, byDate]) => {
+      if (byDate) fresh[k] = byDate;
+    });
+    return fresh;
+  };
+  ensureLateForUsersRef.current = ensureLateForUsers;
+
+  // Batch preview: fill missing / outdated late/undertime for previewed DTRs.
+  useEffect(() => {
+    if (!previewModalOpen || !previewUsers.length) return undefined;
+    let cancelled = false;
+    setPreviewLateStatus('Updating late/undertime…');
+    ensureLateForUsersRef
+      .current(previewUsers, {
+        onProgress: (done, total) => {
+          if (!cancelled && total) {
+            setPreviewLateStatus(`Updating late/undertime ${done} / ${total}…`);
+          }
+        },
+      })
+      .finally(() => {
+        if (!cancelled) setPreviewLateStatus('');
+      });
+    return () => {
+      cancelled = true;
+      setPreviewLateStatus('');
+    };
+  }, [previewModalOpen, previewUsers, startDate, endDate, dtrType]);
+
+  /** Build print pages with current late/undertime applied. */
   const buildFreshDtrPrintPages = async (users, calendar) => {
-    const fresh = await refreshStaleLateForPrint(users);
+    const fresh = await ensureLateForUsers(users, {
+      onProgress: (done, total) =>
+        setPrintingStatus(`Updating late/undertime ${done} / ${total}…`),
+    });
     printLateOverrideRef.current = fresh;
     try {
       return buildDtrPrintPages(users, calendar);
@@ -3814,12 +3912,19 @@ const DailyTimeRecordFaculty = ({
       placement="top"
     >
       <span>
+        {/* ON = filled + check; OFF = grey dashed outline + crossed eye. */}
         <AccentButton
-          variant={showDeductions ? 'outlined' : 'contained'}
+          variant={showDeductions ? 'contained' : 'outlined'}
           size="small"
           aria-label="Toggle DTR deductions"
           aria-pressed={showDeductions}
-          startIcon={<Timelapse sx={{ fontSize: '15px !important' }} />}
+          startIcon={
+            showDeductions ? (
+              <CheckCircle sx={{ fontSize: '15px !important' }} />
+            ) : (
+              <VisibilityOff sx={{ fontSize: '15px !important' }} />
+            )
+          }
           onClick={toggleDeductions}
           className="no-print"
           sx={{
@@ -3827,17 +3932,21 @@ const DailyTimeRecordFaculty = ({
             fontSize: '0.75rem',
             fontWeight: 700,
             px: 1.5,
-            color: showDeductions ? T.accent : '#fff',
-            bgcolor: showDeductions ? '#fff' : T.accent,
-            borderColor: T.accent,
-            boxShadow: showDeductions ? 'none' : `0 2px 8px ${alpha(T.accent, 0.3)}`,
+            color: showDeductions ? '#fff' : T.muted,
+            bgcolor: showDeductions ? T.accent : '#fff',
+            border: showDeductions
+              ? `1px solid ${T.accent}`
+              : `1px dashed ${alpha(T.muted, 0.6)}`,
+            boxShadow: showDeductions ? `0 2px 8px ${alpha(T.accent, 0.3)}` : 'none',
             '&:hover': {
-              bgcolor: showDeductions ? T.accentFaint : T.accentDark,
-              borderColor: T.accent,
+              bgcolor: showDeductions ? T.accentDark : alpha('#000', 0.04),
+              border: showDeductions
+                ? `1px solid ${T.accentDark}`
+                : `1px dashed ${T.muted}`,
             },
           }}
         >
-          {showDeductions ? 'Deductions' : 'Deductions off'}
+          Deductions: {showDeductions ? 'ON' : 'OFF'}
         </AccentButton>
       </span>
     </Tooltip>
@@ -6781,6 +6890,21 @@ const DailyTimeRecordFaculty = ({
                       {previewUsers.length}
                     </Box>
                   </AccentButton>
+                  {previewLateStatus && (
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 0.75,
+                        color: T.muted,
+                        fontSize: '0.75rem',
+                        fontWeight: 600,
+                      }}
+                    >
+                      <CircularProgress size={12} sx={{ color: T.accent }} />
+                      {previewLateStatus}
+                    </Box>
+                  )}
                 </Box>
                 <AccentButton
                   variant="text"
