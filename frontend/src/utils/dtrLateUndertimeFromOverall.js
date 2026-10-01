@@ -205,7 +205,18 @@ export const rowsToByDateMap = (rows) => {
  * Bump when late/undertime formula changes so stored values recompute.
  * Values stay sticky when punches + official times are unchanged.
  */
-export const LATE_UNDERTIME_FORMULA_VERSION = 'v2-arrival-earlyleave';
+export const LATE_UNDERTIME_FORMULA_VERSION = 'v3-missing-break';
+
+/**
+ * True when any saved day carries an input hash from an older formula
+ * version — those values predate a rule change (e.g. missing-break
+ * deduction) and must be recomputed. Days without a hash are ignored.
+ */
+export const isDailyLateByDateStale = (byDate) =>
+  Object.values(byDate || {}).some((entry) => {
+    const hash = String(entry?.inputHash || '').trim();
+    return Boolean(hash) && !hash.startsWith(`${LATE_UNDERTIME_FORMULA_VERSION}|`);
+  });
 
 const normLateInputClock = (v) => {
   if (v == null) return '';

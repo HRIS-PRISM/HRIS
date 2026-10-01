@@ -117,6 +117,7 @@ import {
   fetchDailyLateUndertime,
   fetchDailyLateUndertimeBatch,
   parseHalfDayDatesSet,
+  isDailyLateByDateStale,
   DTR_COMPUTED_LATE_UPDATE_EVENT,
   DTR_COMPUTED_LATE_STORAGE_KEY,
 } from '../../utils/dtrLateUndertimeFromOverall';
@@ -1310,6 +1311,8 @@ const DailyTimeRecordFaculty = ({
   const applyingLateRef = useRef(false);
   const lastAutoOpenKeyRef = useRef('');
   const applyLateFromEmploymentCategoryRef = useRef(null);
+  /** Fresh late/undertime by employee, read while a print batch is built. */
+  const printLateOverrideRef = useRef(null);
 
   const loadComputedLateForEmployee = useCallback(
     async (employeeNumber) => {
@@ -1418,8 +1421,15 @@ const DailyTimeRecordFaculty = ({
     const key = String(personID);
     if (lateLoadSettledRef.current !== `${key}|${startDate}|${endDate}`) return;
     const byDate = computedLateByEmployee[key];
-    if (byDate && Object.keys(byDate).length > 0) return;
     if (!empCatMap[key]) return;
+    if (byDate && Object.keys(byDate).length > 0) {
+      // Non-Teaching values saved under an older formula (e.g. before the
+      // missing-break deduction) are recomputed once; fresh ones are kept.
+      const isNonTeaching =
+        resolveAttendanceModuleFromEmployment(empCatMap[key]) ===
+        MODULE_TYPES.NON_TEACHING;
+      if (!isNonTeaching || !isDailyLateByDateStale(byDate)) return;
+    }
     applyLateFromEmploymentCategory(personID);
   }, [
     viewMode,
@@ -3064,6 +3074,66 @@ const DailyTimeRecordFaculty = ({
     return pages;
   };
 
+  /**
+   * Before printing, recompute Non-Teaching late/undertime saved under an
+   * older formula (e.g. before the missing-break deduction). Returns the
+   * fresh maps by employee; also updates state for the on-screen preview.
+   */
+  const refreshStaleLateForPrint = async (users) => {
+    if (dtrType !== 'regular' || !startDate || !endDate) return {};
+    const stale = (users || []).filter((u) => {
+      const key = String(u.employeeNumber);
+      const mod =
+        computationModuleTypeByEmployee[key] ||
+        resolveAttendanceModuleFromEmployment(empCatMap[key]);
+      return (
+        mod === MODULE_TYPES.NON_TEACHING &&
+        isDailyLateByDateStale(computedLateByEmployee[key])
+      );
+    });
+    if (!stale.length) return {};
+    setPrintingStatus(`Updating late/undertime (${stale.length})…`);
+    const fresh = {};
+    const CONCURRENCY = 4;
+    for (let i = 0; i < stale.length; i += CONCURRENCY) {
+      await Promise.all(
+        stale.slice(i, i + CONCURRENCY).map(async (u) => {
+          const key = String(u.employeeNumber);
+          try {
+            const applied = await computeAndApplyModuleLateUndertime({
+              personID: key,
+              startDate,
+              endDate,
+              moduleType: MODULE_TYPES.NON_TEACHING,
+            });
+            if (applied?.byDate) fresh[key] = applied.byDate;
+          } catch (err) {
+            console.warn(
+              `Could not refresh late/undertime for ${key}:`,
+              err?.message || err,
+            );
+          }
+        }),
+      );
+    }
+    if (Object.keys(fresh).length) {
+      computedLateRef.current = { ...computedLateRef.current, ...fresh };
+      setComputedLateByEmployee((prev) => ({ ...prev, ...fresh }));
+    }
+    return fresh;
+  };
+
+  /** Build print pages with any just-refreshed late/undertime applied. */
+  const buildFreshDtrPrintPages = async (users, calendar) => {
+    const fresh = await refreshStaleLateForPrint(users);
+    printLateOverrideRef.current = fresh;
+    try {
+      return buildDtrPrintPages(users, calendar);
+    } finally {
+      printLateOverrideRef.current = null;
+    }
+  };
+
   const printJobTitle = (users) =>
     resolvePdfFileName(users).replace(/\.pdf$/i, '');
 
@@ -3127,7 +3197,7 @@ const DailyTimeRecordFaculty = ({
         ? null
         : await refreshHolidaysAndSuspensions({ force: true });
       await new Promise((r) => requestAnimationFrame(r));
-      const pages = buildDtrPrintPages(users, calendar);
+      const pages = await buildFreshDtrPrintPages(users, calendar);
       if (!pages.length) throw new Error('No DTRs could be prepared.');
 
       await printDtrPdfPages(pages, {
@@ -3175,7 +3245,7 @@ const DailyTimeRecordFaculty = ({
         ? null
         : await refreshHolidaysAndSuspensions({ force: true });
       await new Promise((r) => requestAnimationFrame(r));
-      const pages = buildDtrPrintPages(users, calendar);
+      const pages = await buildFreshDtrPrintPages(users, calendar);
       if (!pages.length) throw new Error('No DTRs could be prepared.');
       const fileName = resolvePdfFileName(users);
       await downloadDtrHtmlPages(pages, fileName, {
@@ -3552,7 +3622,10 @@ const DailyTimeRecordFaculty = ({
     const rangedRecords = (sourceRecords || []).filter((row) =>
       dayInDisplayRange(row?.date),
     );
-    const lateMap = computedLateByEmployee[empKey] || {};
+    const lateMap =
+      printLateOverrideRef.current?.[empKey] ||
+      computedLateByEmployee[empKey] ||
+      {};
     const rangedLate = Object.fromEntries(
       Object.entries(lateMap).filter(([date]) => dayInDisplayRange(date)),
     );

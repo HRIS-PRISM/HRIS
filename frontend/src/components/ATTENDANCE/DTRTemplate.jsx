@@ -5,6 +5,7 @@ import {
   isDtrDateScheduledByOfficialTime,
   isDtrHalfDayLateUndertimePending,
 } from '../../utils/dtrLateUndertimeFromOverall';
+import { parseClockToMinuteSec } from '../../utils/attendanceDurationHhMm';
 import { personnelScopeFromEmployment } from '../../utils/earningsEmpCatRules';
 import {
   MODULE_TYPES,
@@ -40,6 +41,42 @@ import {
 } from '../../utils/dtrFormatHelpers';
 import { calendarAppliesToBranch } from '../../constants/branches';
 
+/** Fallback work day when the employee has no usable official time. */
+const DTR_DEFAULT_MINUTES_PER_DAY = 8 * 60;
+
+/** Height the total row adds; the footer gives the same back so the sheet never grows. */
+const DTR_TOTAL_ROW_PX = 16;
+
+/** "H:MM" cell value → minutes (blank / unparseable = 0). */
+const dtrDurationToMinutes = (value) => {
+  const m = String(value || '').match(/^(\d{1,3}):(\d{2})$/);
+  return m ? parseInt(m[1], 10) * 60 + parseInt(m[2], 10) : 0;
+};
+
+/** Total minutes → "12:45" (hours may exceed 24). */
+const formatDtrTotalHhMm = (totalMinutes) => {
+  const total = Math.max(0, totalMinutes || 0);
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+};
+
+/** Total minutes → "1 day, 4 hrs, 45 mins" using the employee's work-day length. */
+const formatDtrTotalAsDays = (totalMinutes, minutesPerDay) => {
+  if (!totalMinutes || totalMinutes <= 0) return '0 mins';
+  const perDay = minutesPerDay > 0 ? minutesPerDay : DTR_DEFAULT_MINUTES_PER_DAY;
+  const days = Math.floor(totalMinutes / perDay);
+  const rest = totalMinutes % perDay;
+  const hours = Math.floor(rest / 60);
+  const minutes = rest % 60;
+  const part = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  return [
+    days ? part(days, 'day', 'days') : '',
+    hours ? part(hours, 'hr', 'hrs') : '',
+    minutes ? part(minutes, 'min', 'mins') : '',
+  ]
+    .filter(Boolean)
+    .join(', ');
+};
+
 const emptyOfficialTime = (v) => {
   if (v == null) return true;
   const s = String(v).trim();
@@ -50,6 +87,56 @@ const emptyOfficialTime = (v) => {
     s.toLowerCase() === 'null' ||
     s.toLowerCase() === 'undefined'
   );
+};
+
+/**
+ * Work minutes of one official-time day: time in → time out, minus the
+ * break (breaktime in → breaktime out) when it sits inside the day.
+ */
+const officialDayWorkMinutes = (dayRow) => {
+  if (
+    !dayRow ||
+    emptyOfficialTime(dayRow.officialTimeIN) ||
+    emptyOfficialTime(dayRow.officialTimeOUT)
+  ) {
+    return 0;
+  }
+  const start = parseClockToMinuteSec(dayRow.officialTimeIN);
+  const end = parseClockToMinuteSec(dayRow.officialTimeOUT);
+  if (start == null || end == null || end <= start) return 0;
+  let secs = end - start;
+  if (
+    !emptyOfficialTime(dayRow.officialBreaktimeIN) &&
+    !emptyOfficialTime(dayRow.officialBreaktimeOUT)
+  ) {
+    const bIn = parseClockToMinuteSec(dayRow.officialBreaktimeIN);
+    const bOut = parseClockToMinuteSec(dayRow.officialBreaktimeOUT);
+    if (bIn != null && bOut != null && bOut > bIn && bIn >= start && bOut <= end) {
+      secs -= bOut - bIn;
+    }
+  }
+  return Math.round(secs / 60);
+};
+
+/**
+ * One work day for this employee, from their official time. Uses the most
+ * common scheduled day length (longest on a tie); 8 hours when none is set.
+ */
+const resolveOfficialMinutesPerDay = (officialTimesByDay) => {
+  const counts = new Map();
+  Object.values(officialTimesByDay || {}).forEach((row) => {
+    const mins = officialDayWorkMinutes(row);
+    if (mins > 0) counts.set(mins, (counts.get(mins) || 0) + 1);
+  });
+  let best = 0;
+  let bestCount = 0;
+  counts.forEach((count, mins) => {
+    if (count > bestCount || (count === bestCount && mins > best)) {
+      best = mins;
+      bestCount = count;
+    }
+  });
+  return best || DTR_DEFAULT_MINUTES_PER_DAY;
 };
 
 /** Whether honorarium / service-credit / overtime official times cover a day row. */
@@ -1044,7 +1131,8 @@ export default function DTRTemplate({
   const rangeTo = Number(dataDayTo);
   const hasDataRange = Number.isFinite(rangeFrom) || Number.isFinite(rangeTo);
 
-  const renderTableRows = (styleObj, rowKeyPrefix) =>
+  // `totals.minutes` collects the late + undertime shown on each day row.
+  const renderTableRows = (styleObj, rowKeyPrefix, totals = null) =>
     Array.from({ length: daysInSelectedMonth }, (_, i) => {
       const dayNum = i + 1;
       const day = dayNum.toString().padStart(2, '0');
@@ -1432,6 +1520,11 @@ export default function DTRTemplate({
       // their headers, and every punch time stay exactly as they print, so the
       // grid never shifts and the anti-tamper restore still has its anchors.
       const showDeductionValues = showDeductions !== false;
+      if (totals) {
+        totals.minutes +=
+          dtrDurationToMinutes(lateDisplay) +
+          dtrDurationToMinutes(undertimeDisplay);
+      }
       const lateCellValue = showDeductionValues ? lateDisplay : '';
       const undertimeCellValue = showDeductionValues ? undertimeDisplay : '';
       return (
@@ -1493,6 +1586,45 @@ export default function DTRTemplate({
       );
     });
 
+  // Regular DTR only — special DTRs use the last columns for hours worked.
+  const showDeductionTotal = !isSpecialDtr;
+  const officialMinutesPerDay = resolveOfficialMinutesPerDay(officialTime);
+
+  /**
+   * Combined late + undertime for the period, right under the last day:
+   * label | total H:MM | day conversion (employee's official work day) under
+   * the Late / U-time columns. Blanked (row kept) when deductions are hidden.
+   */
+  const renderDeductionTotalRow = (styleObj, totalMinutes, rowKey) => {
+    if (!showDeductionTotal) return null;
+    const showDeductionValues = showDeductions !== false;
+    const cell = { ...styleObj, fontWeight: 700 };
+    return (
+      <tr key={rowKey} className="dtr-day-row dtr-total-row">
+        <td colSpan={3} style={cell}>
+          TOTAL LATE &amp; U-TIME
+        </td>
+        <td colSpan={2} style={cell}>
+          <span className="dtr-computed-total">
+            {showDeductionValues ? formatDtrTotalHhMm(totalMinutes) : ''}
+          </span>
+        </td>
+        <td colSpan={2} style={{ ...cell, fontSize: '9px' }}>
+          <span className="dtr-computed-total-days">
+            {showDeductionValues
+              ? formatDtrTotalAsDays(totalMinutes, officialMinutesPerDay)
+              : ''}
+          </span>
+        </td>
+      </tr>
+    );
+  };
+
+  // The total row's height comes out of the footer's blank gaps (16px =
+  // 4 + 4 + 8), so a 31-day month still fits the page at 1:1.
+  const footerGap = (px, give) =>
+    `${showDeductionTotal ? px - give : px}px`;
+
   const renderTableFooter = () => (
     <tr className="dtr-footer-row">
       <td colSpan="7" style={{ padding: '10px 6px 8px 6px' }}>
@@ -1517,7 +1649,7 @@ export default function DTRTemplate({
             width: '55%',
             marginLeft: 'auto',
             textAlign: 'center',
-            marginTop: '22px',
+            marginTop: footerGap(22, 4),
           }}
         >
           <hr style={{ borderTop: '1px solid black', margin: 0 }} />
@@ -1531,7 +1663,7 @@ export default function DTRTemplate({
             Signature
           </p>
         </div>
-        <div style={{ width: '100%', marginTop: '18px' }}>
+        <div style={{ width: '100%', marginTop: footerGap(18, 4) }}>
           <hr
             style={{ borderTop: '1px solid black', width: '100%', margin: 0 }}
           />
@@ -1557,7 +1689,7 @@ export default function DTRTemplate({
           style={{
             width: '55%',
             marginLeft: 'auto',
-            marginTop: '28px',
+            marginTop: footerGap(28, DTR_TOTAL_ROW_PX - 8),
             textAlign: 'center',
           }}
         >
@@ -1605,6 +1737,12 @@ export default function DTRTemplate({
       }}
     >
       {[0, 1].flatMap((tableIdx) => {
+        const totals = { minutes: 0 };
+        const dayRows = renderTableRows(
+          cellStyle,
+          `${keyPrefix}${tableIdx}`,
+          totals,
+        );
         const sheet = (
           <div
             key={`sheet-${tableIdx}`}
@@ -1630,7 +1768,12 @@ export default function DTRTemplate({
               {buildDtrColgroup(needsWideDayCol)}
               {renderHeader()}
               <tbody className="dtr-body">
-                {renderTableRows(cellStyle, `${keyPrefix}${tableIdx}`)}
+                {dayRows}
+                {renderDeductionTotalRow(
+                  cellStyle,
+                  totals.minutes,
+                  `${keyPrefix}${tableIdx}-total`,
+                )}
               </tbody>
               <tfoot className="dtr-footer">{renderTableFooter()}</tfoot>
             </table>

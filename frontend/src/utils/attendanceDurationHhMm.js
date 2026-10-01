@@ -126,6 +126,49 @@ export const computeEarlyLeaveUndertimeMinuteSec = (row) => {
   return Math.max(0, offOut - departure);
 };
 
+/** Empty device / schedule clock (same sentinels as the Non-Teaching module). */
+const isEmptyPunchClock = (t) => {
+  if (t == null) return true;
+  const s = String(t).trim();
+  return (
+    !s
+    || s === '—'
+    || s === 'N/A'
+    || s === '00:00:00 AM'
+    || s === '00:00:00 PM'
+    || s === '00:00:00'
+  );
+};
+
+/** Official lunch window length (minute precision). */
+const getOfficialBreakDurationMinuteSec = (row) => {
+  const breakIn = parseClockToMinuteSec(row?.officialBreaktimeIN);
+  const breakOut = parseClockToMinuteSec(row?.officialBreaktimeOUT);
+  if (breakIn == null || breakOut == null) return 0;
+  let end = breakOut;
+  while (end <= breakIn) end += 12 * 3600;
+  return Math.max(0, end - breakIn);
+};
+
+/**
+ * Non-Teaching: Break IN and Break OUT are required on a full day (Time IN +
+ * Time OUT). If either punch is missing, deduct the official break duration
+ * once (charged on undertime). Half-day patterns are excluded.
+ * Same rule as AttendanceModuleNonTeaching.jsx.
+ */
+export const computeMissingBreakDeductionMinuteSec = (row) => {
+  if (isEmptyPunchClock(row?.officialBreaktimeIN) || isEmptyPunchClock(row?.officialBreaktimeOUT)) {
+    return 0;
+  }
+  if (isEmptyPunchClock(row?.timeIN) || isEmptyPunchClock(row?.timeOUT)) {
+    return 0;
+  }
+  const missingBreakIn = isEmptyPunchClock(row?.breaktimeIN);
+  const missingBreakOut = isEmptyPunchClock(row?.breaktimeOUT);
+  if (!missingBreakIn && !missingBreakOut) return 0;
+  return getOfficialBreakDurationMinuteSec(row);
+};
+
 export const getAmPmSlotLateMinuteSec = (row) =>
   (computeArrivalLateMinuteSec(row) ?? 0) + (computeEarlyLeaveUndertimeMinuteSec(row) ?? 0);
 

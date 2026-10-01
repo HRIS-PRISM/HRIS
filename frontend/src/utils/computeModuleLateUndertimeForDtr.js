@@ -19,7 +19,9 @@ import {
   persistDailyLateUndertimeFromModule,
   fetchDailyLateUndertime,
   rowsToByDateMap,
+  isDailyLateByDateStale,
 } from './dtrLateUndertimeFromOverall';
+import { computeMissingBreakDeductionMinuteSec } from './attendanceDurationHhMm';
 import {
   fetchAttendanceCalendarMaps,
   fetchEmployeeBranch,
@@ -233,8 +235,13 @@ export const processNonTeachingLateUndertimeRows = (rawRows) =>
   (rawRows || []).map((row) => {
     const arrivalLateSec = computeArrivalLateSec(row) ?? 0;
     const earlyLeaveSec = computeEarlyLeaveUndertimeSec(row) ?? 0;
+    // Missing Break IN/OUT → official break length, charged on undertime
+    // (same as the Non-Teaching module).
+    const missingBreakSec = computeMissingBreakDeductionMinuteSec(row) ?? 0;
     const lateTotal = formatOfficialAttendanceSeconds(arrivalLateSec);
-    const undertimeTotal = formatOfficialAttendanceSeconds(earlyLeaveSec);
+    const undertimeTotal = formatOfficialAttendanceSeconds(
+      earlyLeaveSec + missingBreakSec,
+    );
     return {
       ...row,
       lateTotal,
@@ -430,9 +437,14 @@ export async function computeAndApplyModuleLateUndertime({
   // Non-Academic / Non-Teaching: use a saved module row when one exists so the
   // DTR does not overwrite that calculation. If nothing is saved yet, fall
   // through and compute from punches so Late/Undertime can appear on search.
+  // Rows saved under an older formula version are recomputed instead.
   if (mod === MODULE_TYPES.NON_TEACHING) {
     const stored = await fetchDailyLateUndertime(personID, startDate, endDate);
-    if (stored && Object.keys(stored.byDate || {}).length > 0) {
+    if (
+      stored &&
+      Object.keys(stored.byDate || {}).length > 0 &&
+      !isDailyLateByDateStale(stored.byDate)
+    ) {
       return {
         byDate: stored.byDate || {},
         halfDayDates: stored.halfDayDates || '',

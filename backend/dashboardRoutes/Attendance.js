@@ -1683,6 +1683,9 @@
           lateTotal: r.lateTotal || '00:00:00',
           undertimeTotal: r.undertimeTotal || '00:00:00',
         };
+        // Lets the client tell values saved under an older formula version.
+        const hash = String(r.inputHash || '').trim();
+        if (hash) byDate[d].inputHash = hash;
       });
       return byDate;
     } catch {
@@ -1861,24 +1864,35 @@
       const runChunk = (chunk) =>
         new Promise((resolve, reject) => {
           const placeholders = chunk.map(() => '?').join(',');
+          // Match the single-employee GET: any summary overlapping the period
+          // counts (e.g. quincena rows inside a month), not only an exact match.
+          // Exact-period rows sort last so their values win on overlap.
           db.query(
             `SELECT personID, daily_late_undertime, halfDayDates, half_day_review, computation_module_type
             FROM overall_attendance_record
-            WHERE startDate = ? AND endDate = ?
-              AND personID IN (${placeholders})`,
-            [sd, ed, ...chunk],
+            WHERE startDate <= ? AND endDate >= ?
+              AND personID IN (${placeholders})
+            ORDER BY (startDate = ? AND endDate = ?) ASC`,
+            [ed, sd, ...chunk, sd, ed],
             (err, rows) => {
               if (err) return reject(err);
               (rows || []).forEach((r) => {
                 const emp = String(r.personID).trim();
-                if (!emp) return;
-                Object.assign(byEmployee[emp], parseDailyLateUndertimeJson(r.daily_late_undertime));
+                if (!emp || !byEmployee[emp]) return;
+                const daily = parseDailyLateUndertimeJson(r.daily_late_undertime);
+                Object.entries(daily).forEach(([d, v]) => {
+                  if (d >= sd && d <= ed) byEmployee[emp][d] = v;
+                });
                 if (r.halfDayDates) {
-                  halfDayDatesByEmployee[emp] = String(r.halfDayDates);
+                  halfDayDatesByEmployee[emp] = halfDayDatesByEmployee[emp]
+                    ? `${halfDayDatesByEmployee[emp]},${r.halfDayDates}`
+                    : String(r.halfDayDates);
                 }
+                const prevMeta = metaByEmployee[emp] || {};
                 metaByEmployee[emp] = {
-                  half_day_review: r.half_day_review,
-                  computation_module_type: r.computation_module_type,
+                  half_day_review: r.half_day_review ?? prevMeta.half_day_review,
+                  computation_module_type:
+                    r.computation_module_type || prevMeta.computation_module_type,
                 };
               });
               resolve();
