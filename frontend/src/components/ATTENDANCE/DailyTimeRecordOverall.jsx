@@ -30,7 +30,6 @@ import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import { Stack, Divider, Grid } from '@mui/material';
 import {
   Alert,
-  Autocomplete,
   Box,
   Button,
   Card,
@@ -101,6 +100,7 @@ import {
   filterUnmountedIssuesByPeriod,
 } from '../../utils/unmountedPunchIssues';
 import LoadingOverlay from '../LoadingOverlay';
+import DepartmentAutocomplete, { DEPT_UNASSIGNED_OPTION } from '../shared/DepartmentAutocomplete';
 import useAttendanceWorkflow from '../../hooks/useAttendanceWorkflow';
 import AttendanceWorkflowNav from './AttendanceWorkflowNav';
 import AttendanceModification from './AttendanceModification';
@@ -2550,20 +2550,6 @@ const DailyTimeRecordFaculty = ({
     setLoadPhase('');
   }, [startDate, endDate]);
 
-  // Department scope picker options (searchable by code or description)
-  const deptScopeOptions = useMemo(
-    () => [
-      { value: '', short: 'All Departments', description: '' },
-      { value: '__UNASSIGNED__', short: 'Unassigned', description: '' },
-      ...departments.map((d) => ({
-        value: d.code,
-        short: d.code,
-        description: d.description || '',
-      })),
-    ],
-    [departments],
-  );
-
   // Employment categories in use (Employment Category module labels) for the scope picker
   const batchScopeCatOptions = useMemo(() => {
     const seen = new Map();
@@ -4585,52 +4571,14 @@ const DailyTimeRecordFaculty = ({
             <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, mb: 1 }}>
               <Box sx={{ minWidth: 0 }}>
                 <Typography sx={scopeLabelSx}>Department</Typography>
-                {/* Type-to-search; the list opens under the field at the field's width. */}
-                <Autocomplete
-                  size="small"
-                  fullWidth
-                  disableClearable
-                  autoHighlight
-                  options={deptScopeOptions}
-                  value={deptScopeOptions.find((o) => o.value === batchScopeDept) || deptScopeOptions[0]}
-                  onChange={(_, opt) => setBatchScopeDept(opt?.value ?? '')}
-                  getOptionLabel={(o) => o.short}
-                  isOptionEqualToValue={(o, v) => o.value === v.value}
-                  filterOptions={(opts, { inputValue }) => {
-                    const q = inputValue.trim().toLowerCase();
-                    if (!q) return opts;
-                    return opts.filter((o) => `${o.short} ${o.description}`.toLowerCase().includes(q));
-                  }}
-                  renderOption={(props, o) => {
-                    const { key, ...rest } = props;
-                    return (
-                      <Box component="li" key={key} {...rest}
-                        sx={{ display: 'block !important', py: '5px !important', px: '10px !important', lineHeight: 1.25 }}>
-                        <Box sx={{ fontSize: '0.76rem', fontWeight: 700, color: T.text }}>{o.short}</Box>
-                        {o.description && (
-                          <Box sx={{ fontSize: '0.66rem', color: T.muted, whiteSpace: 'normal' }}>{o.description}</Box>
-                        )}
-                      </Box>
-                    );
-                  }}
-                  slotProps={{
-                    paper: { sx: { mt: 0.5, borderRadius: '8px', border: `1px solid ${T.accentBorder}`, boxShadow: `0 6px 18px ${alpha(T.accent, 0.12)}` } },
-                    listbox: { sx: { maxHeight: 280, py: 0.5 } },
-                  }}
-                  noOptionsText={<Box sx={{ fontSize: '0.74rem' }}>No department found</Box>}
-                  renderInput={(params) => (
-                    <TextField {...params} placeholder="Search dept…"
-                      onFocus={(e) => e.target.select()}
-                      sx={{
-                        '& .MuiOutlinedInput-root': {
-                          ...selectSx,
-                          fontSize: '0.76rem',
-                          py: '2px !important',
-                          pl: '6px !important',
-                        },
-                      }}
-                    />
-                  )}
+                <DepartmentAutocomplete
+                  value={batchScopeDept}
+                  onChange={setBatchScopeDept}
+                  departments={departments}
+                  extraOptions={DEPT_UNASSIGNED_OPTION}
+                  placeholder="Search dept…"
+                  fontSize="0.76rem"
+                  inputSx={{ ...selectSx, fontSize: "0.76rem", py: "2px !important", pl: "6px !important" }}
                 />
               </Box>
               <Box sx={{ minWidth: 0 }}>
@@ -5892,37 +5840,19 @@ const DailyTimeRecordFaculty = ({
                                     </MenuItem>
                                   </Select>
                                 </FormControl>
-                                <FormControl
-                                  size="small"
-                                  sx={{ minWidth: 140 }}
-                                >
-                                  <Select
-                                    value={departmentFilter}
-                                    onChange={(e) => {
-                                      setDepartmentFilter(e.target.value);
-                                      setCurrentPage(1);
-                                    }}
-                                    sx={selectSx}
-                                    displayEmpty
-                                    renderValue={(v) => v || 'All Depts'}
-                                  >
-                                    <MenuItem
-                                      value=""
-                                      sx={{ fontSize: '0.82rem' }}
-                                    >
-                                      All Departments
-                                    </MenuItem>
-                                    {departments.map((d) => (
-                                      <MenuItem
-                                        key={d.code}
-                                        value={d.code}
-                                        sx={{ fontSize: '0.82rem' }}
-                                      >
-                                        {d.code}
-                                      </MenuItem>
-                                    ))}
-                                  </Select>
-                                </FormControl>
+                                <DepartmentAutocomplete
+                                  value={departmentFilter}
+                                  onChange={(v) => {
+                                    setDepartmentFilter(v);
+                                    setCurrentPage(1);
+                                  }}
+                                  departments={departments}
+                                  allLabel="All Depts"
+                                  fontSize="0.82rem"
+                                  fullWidth={false}
+                                  sx={{ width: 160 }}
+                                  inputSx={selectSx}
+                                />
                                 <FormControl
                                   size="small"
                                   sx={{ minWidth: 160 }}

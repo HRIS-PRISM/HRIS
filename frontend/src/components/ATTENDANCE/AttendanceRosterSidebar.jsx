@@ -22,6 +22,7 @@ import {
   ArrowForward,
   Search,
 } from '@mui/icons-material';
+import DepartmentAutocomplete from '../shared/DepartmentAutocomplete';
 
 /** Card shell shared by the attendance modules (matches their SectionCard). */
 const SectionCard = styled(Card)({
@@ -379,29 +380,20 @@ const AttendanceRosterSidebar = ({
         </Box>
 
         {departments.length > 0 && (
-          <Select
-            size="small"
-            displayEmpty
+          <DepartmentAutocomplete
             value={department}
-            onChange={(e) => onDepartment(e.target.value)}
-            sx={{
-              fontSize: '0.75rem',
+            onChange={onDepartment}
+            departments={departments}
+            allLabel="All departments"
+            fontSize="0.75rem"
+            inputSx={{
               borderRadius: '8px',
               bgcolor: '#fff',
-              '& .MuiSelect-select': { py: 0.7 },
+              py: '1px !important',
               '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: T.accent },
               '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: T.accent },
             }}
-          >
-            <MenuItem value="" sx={{ fontSize: '0.78rem' }}>
-              All departments
-            </MenuItem>
-            {departments.map((d) => (
-              <MenuItem key={d} value={d} sx={{ fontSize: '0.78rem' }}>
-                {d}
-              </MenuItem>
-            ))}
-          </Select>
+          />
         )}
       </Box>
       <Box

@@ -109,6 +109,7 @@ import {
 import AttendanceEmployeeSearchField from './AttendanceEmployeeSearchField';
 import AttendancePunchStatusSidebar from './AttendancePunchStatusSidebar';
 import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded';
+import DepartmentAutocomplete, { DEPT_UNASSIGNED_OPTION } from '../shared/DepartmentAutocomplete';
 
 
 // ─── Theme tokens ──────────────────────────────────────────────────────────
@@ -2708,22 +2709,15 @@ const goToComputationModule = async (selectedComputationType) => {
         <>
           <FormSectionLabel icon={FilterList}>Department</FormSectionLabel>
           <Box sx={{ mb: 0.75 }}>
-            <FormControl fullWidth size="small" disabled={loadingDepartments}>
-              <Select
-                value={departmentCodeFilter}
-                onChange={(e) => { setDepartmentCodeFilter(e.target.value); setCurrentPage(1); }}
-                displayEmpty
-                sx={compactSelectSx}
-              >
-                <MenuItem value="" sx={{ fontSize: '0.76rem' }}>All Departments</MenuItem>
-                <MenuItem value="__UNASSIGNED__" sx={{ fontSize: '0.76rem' }}>Unassigned</MenuItem>
-                {departments.map((d) => (
-                  <MenuItem key={d.id ?? d.code} value={d.code} sx={{ fontSize: '0.76rem' }}>
-                    {d.code}{d.description ? ` — ${d.description}` : ''}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+            <DepartmentAutocomplete
+              value={departmentCodeFilter}
+              onChange={(v) => { setDepartmentCodeFilter(v); setCurrentPage(1); }}
+              departments={departments}
+              extraOptions={DEPT_UNASSIGNED_OPTION}
+              disabled={loadingDepartments}
+              fontSize="0.76rem"
+              inputSx={{ ...selectSx, fontSize: '0.76rem', py: '1px !important' }}
+            />
           </Box>
           <FormSectionLabel icon={FilterList}>Employment Category</FormSectionLabel>
           <Box sx={{ mb: 0.75 }}>

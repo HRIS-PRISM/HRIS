@@ -25,6 +25,7 @@ import {
   Info, Warning, Error, Close,
 } from '@mui/icons-material';
 import BusinessCenterIcon from '@mui/icons-material/BusinessCenter';
+import DepartmentAutocomplete from '../shared/DepartmentAutocomplete';
 
 // ─── Unified Design Tokens (mirrors PayrollJO) ────────────────────────────────
 const T = {
@@ -507,13 +508,17 @@ const PayrollProcessed = () => {
                 ),
               }}
             />
-            <FormControl size="small" sx={{ minWidth: 160, flex: 1 }}>
-              <InputLabel sx={{ fontSize: '0.82rem', fontFamily: T.font }}>Department</InputLabel>
-              <Select value={selectedDepartment} onChange={(e) => { setSelectedDepartment(e.target.value); applyFilters(e.target.value, searchTerm, selectedDate, selectedMonth, selectedYear); }} label="Department" sx={filterSelectSx}>
-                <MenuItem value=""><em style={{ fontSize: '0.82rem', fontFamily: T.font }}>All Departments</em></MenuItem>
-                {departments.map((dept) => (<MenuItem key={dept.id} value={dept.code} sx={{ fontSize: '0.82rem', fontFamily: T.font }}>{dept.description}</MenuItem>))}
-              </Select>
-            </FormControl>
+            <DepartmentAutocomplete
+              label="Department"
+              value={selectedDepartment}
+              onChange={(v) => { setSelectedDepartment(v); applyFilters(v, searchTerm, selectedDate, selectedMonth, selectedYear); }}
+              departments={departments}
+              displayField="description"
+              fontSize="0.82rem"
+              fullWidth={false}
+              sx={{ minWidth: 160, flex: 1 }}
+              inputSx={filterSelectSx}
+            />
             <FormControl size="small" sx={{ minWidth: 130, flex: '0 0 auto' }}>
               <InputLabel sx={{ fontSize: '0.82rem', fontFamily: T.font }}>Month</InputLabel>
               <Select value={selectedMonth} onChange={(e) => { setSelectedMonth(e.target.value); applyFilters(selectedDepartment, searchTerm, selectedDate, e.target.value, selectedYear); }} label="Month" sx={filterSelectSx}>

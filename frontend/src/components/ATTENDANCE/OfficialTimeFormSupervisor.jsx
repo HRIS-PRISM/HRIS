@@ -109,6 +109,7 @@ import useAttendanceRealtimeRefresh from "../../hooks/useAttendanceRealtimeRefre
 import AccessDenied from "../AccessDenied";
 import CircularProgress from "@mui/material/CircularProgress";
 import { sortEmployeesByLastName } from "../../utils/sortEmployeesByLastName";
+import DepartmentAutocomplete from '../shared/DepartmentAutocomplete';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THEME TOKENS
@@ -3480,16 +3481,18 @@ const handleSelectChangedEmployee = useCallback((emp) => {
                       Only rows for employees in the selected department will be processed.
                     </Typography>
 
-                    <ModernTextField
-                      select fullWidth size="small" label="Target department"
+                    <DepartmentAutocomplete
+                      TextFieldComponent={ModernTextField}
+                      label="Target department"
+                      placeholder="Select department…"
                       value={deptUploadDepartment}
                       disabled={!canUploadExcel}
-                      onChange={(e) => setDeptUploadDepartment(e.target.value)}
+                      onChange={setDeptUploadDepartment}
+                      departments={departmentOptions}
+                      allValue={null}
+                      fontSize="0.85rem"
                       sx={{ mb: 1.5 }}
-                    >
-                      <MenuItem value="">Select department…</MenuItem>
-                      {departmentOptions.map((d) => <MenuItem key={d} value={d}>{d}</MenuItem>)}
-                    </ModernTextField>
+                    />
 
                     <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
                       <input type="file" accept=".xlsx,.xls" id="dept-upload-button" style={{ display: "none" }} onChange={(e) => setDeptFile(e.target.files[0] || null)} />
@@ -3665,15 +3668,16 @@ const handleSelectChangedEmployee = useCallback((emp) => {
                         sx={{ flex: "2 1 240px", minWidth: 220 }}
                       />
 
-                      <ModernTextField
-                        select size="small" label="Department"
+                      <DepartmentAutocomplete
+                        TextFieldComponent={ModernTextField}
+                        label="Department"
                         value={filterDepartment}
-                        onChange={(e) => { setFilterDepartment(e.target.value); setAllUsersPage(0); }}
+                        onChange={(v) => { setFilterDepartment(v); setAllUsersPage(0); }}
+                        departments={departmentOptions}
+                        fontSize="0.85rem"
+                        fullWidth={false}
                         sx={{ flex: "1 1 170px", minWidth: 160 }}
-                      >
-                        <MenuItem value="">All Departments</MenuItem>
-                        {departmentOptions.map((d) => <MenuItem key={d} value={d}>{d}</MenuItem>)}
-                      </ModernTextField>
+                      />
 
                       {/* Employment Category filter — independent axis from Department above.
                           [CHANGE H] color dot added to match module styling. */}

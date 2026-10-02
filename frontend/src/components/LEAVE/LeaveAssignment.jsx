@@ -60,6 +60,7 @@ import {
 } from "./leaveAssignmentBalanceUtils";
 import usePayrollPeriodLock from "../../hooks/usePayrollPeriodLock";
 import { PAYROLL_LOCK_TOOLTIP } from "../../utils/payrollPeriodLock";
+import DepartmentAutocomplete from '../shared/DepartmentAutocomplete';
 
 // ─── Theme tokens ──────────────────────────────────────────────────────────────
 const T = {
@@ -2239,12 +2240,16 @@ const BulkAutoAssignDialog = ({ open, onClose, leaveTypes, assignments, employee
             {allDeptCodes.length > 0 && (
               <Box>
                 <Typography sx={{ fontSize: "0.72rem", fontWeight: 700, color: T.text, mb: 0.5, fontFamily: T.poppins }}>Department</Typography>
-                <FormControl fullWidth size="small">
-                  <Select value={filterDept} onChange={(e) => !running && setFilterDept(e.target.value)} disabled={running} sx={{ ...selectSx, "& .MuiSelect-select": { py: "8px", fontFamily: T.poppins, fontSize: "0.82rem" } }}>
-                    <MenuItem value="all" sx={{ fontFamily: T.poppins, fontSize: "0.82rem" }}>All departments</MenuItem>
-                    {allDeptCodes.map((c) => <MenuItem key={c} value={c} sx={{ fontFamily: T.poppins, fontSize: "0.82rem" }}><Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}><DomainIcon sx={{ fontSize: 13, color: T.accent }} />{c}</Box></MenuItem>)}
-                  </Select>
-                </FormControl>
+                <DepartmentAutocomplete
+                  value={filterDept}
+                  onChange={(v) => !running && setFilterDept(v)}
+                  disabled={running}
+                  departments={allDeptCodes}
+                  allValue="all"
+                  allLabel="All departments"
+                  fontSize="0.82rem"
+                  inputSx={{ ...selectSx, fontFamily: T.poppins, py: "3px !important" }}
+                />
               </Box>
             )}
             <Box>
@@ -4025,13 +4030,18 @@ assignments.forEach((a) => {
                   <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
                     <FieldInput size="small" placeholder="Search by name or employee number…" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} sx={{ flex: 1 }} InputProps={{ startAdornment: <SearchIcon sx={{ fontSize: 15, color: T.muted, mr: 0.5 }} /> }} />
                     {allDeptCodes.length > 0 && (
-                      <FormControl size="small" sx={{ minWidth: 130, flexShrink: 0 }}>
-                        <Select value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)} displayEmpty startAdornment={<DomainIcon sx={{ fontSize: 14, color: T.accent, mr: 0.5, ml: 0.25 }} />}
-                          sx={{ ...selectSx, "& .MuiSelect-select": { py: "7px", fontSize: "0.8rem", fontWeight: deptFilter !== "all" ? 700 : 400, color: deptFilter !== "all" ? T.accent : T.muted, display: "flex", alignItems: "center" } }}>
-                          <MenuItem value="all" sx={{ fontFamily: T.poppins, fontSize: "0.82rem", color: T.muted }}>All depts</MenuItem>
-                          {allDeptCodes.map((c) => <MenuItem key={c} value={c} sx={{ fontFamily: T.poppins, fontSize: "0.82rem" }}><Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}><Typography sx={{ fontSize: "0.82rem", fontWeight: 600, color: T.text }}>{c}</Typography></Box></MenuItem>)}
-                        </Select>
-                      </FormControl>
+                      <DepartmentAutocomplete
+                        value={deptFilter}
+                        onChange={setDeptFilter}
+                        departments={allDeptCodes}
+                        allValue="all"
+                        allLabel="All depts"
+                        fullWidth={false}
+                        sx={{ width: 150, flexShrink: 0 }}
+                        fontSize="0.8rem"
+                        startIcon={<DomainIcon sx={{ fontSize: 14, color: T.accent, ml: 0.25 }} />}
+                        inputSx={{ ...selectSx, fontFamily: T.poppins, py: "2px !important", "& input": { fontWeight: deptFilter !== "all" ? 700 : 400, color: deptFilter !== "all" ? T.accent : T.muted } }}
+                      />
                     )}
                   </Box>
                   {deptFilter !== "all" && (

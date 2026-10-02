@@ -84,6 +84,7 @@ import PeopleIcon from '@mui/icons-material/People';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import PendingIcon from '@mui/icons-material/Pending';
+import DepartmentAutocomplete from '../shared/DepartmentAutocomplete';
 
 const isRowProcessed = (row) => row.status === 'Processed' || row.status === 1;
 
@@ -1990,32 +1991,17 @@ const PayrollProcess = () => {
               }}
             />
 
-            <FormControl size="small" sx={{ minWidth: 160, flex: 1 }}>
-              <InputLabel sx={{ fontSize: '0.82rem', fontFamily: T.font }}>
-                Department
-              </InputLabel>
-              <Select
-                value={selectedDepartment}
-                onChange={handleDepartmentChange}
-                label="Department"
-                sx={filterSelectSx}
-              >
-                <MenuItem value="">
-                  <em style={{ fontSize: '0.82rem', fontFamily: T.font }}>
-                    All Departments
-                  </em>
-                </MenuItem>
-                {departments.map((dept) => (
-                  <MenuItem
-                    key={dept.id}
-                    value={dept.code}
-                    sx={{ fontSize: '0.82rem', fontFamily: T.font }}
-                  >
-                    {dept.description}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+            <DepartmentAutocomplete
+              label="Department"
+              value={selectedDepartment}
+              onChange={(v) => handleDepartmentChange({ target: { value: v } })}
+              departments={departments}
+              displayField="description"
+              fontSize="0.82rem"
+              fullWidth={false}
+              sx={{ minWidth: 160, flex: 1 }}
+              inputSx={filterSelectSx}
+            />
 
             <FormControl size="small" sx={{ minWidth: 130, flex: '0 0 auto' }}>
               <InputLabel sx={{ fontSize: '0.82rem', fontFamily: T.font }}>
@@ -5518,31 +5504,15 @@ const PayrollProcess = () => {
                             </Grid>
                           ))}
                           <Grid item xs={6}>
-                            <FormControl fullWidth size="small">
-                              <InputLabel sx={{ fontFamily: T.font }}>
-                                Department
-                              </InputLabel>
-                              <Select
-                                name="department"
-                                value={editRow.department || ''}
-                                onChange={handleModalChange}
-                                label="Department"
-                                sx={filterSelectSx}
-                              >
-                                <MenuItem value="">
-                                  <em>All Departments</em>
-                                </MenuItem>
-                                {departments.map((dept) => (
-                                  <MenuItem
-                                    key={dept.id}
-                                    value={dept.code}
-                                    sx={{ fontFamily: T.font }}
-                                  >
-                                    {dept.description}
-                                  </MenuItem>
-                                ))}
-                              </Select>
-                            </FormControl>
+                            <DepartmentAutocomplete
+                              label="Department"
+                              value={editRow.department || ''}
+                              onChange={(v) => handleModalChange({ target: { name: 'department', value: v } })}
+                              departments={departments}
+                              displayField="description"
+                              fontSize="0.82rem"
+                              inputSx={filterSelectSx}
+                            />
                           </Grid>
                           {[
                             ['Start Date', 'startDate'],

@@ -29,6 +29,7 @@ import { styled, alpha } from '@mui/material/styles';
 import { useSystemSettings } from '../../hooks/useSystemSettings';
 import usePayrollRealtimeRefresh from '../../hooks/usePayrollRealtimeRefresh';
 import { sortEmployeesByLastName } from '../../utils/sortEmployeesByLastName';
+import DepartmentAutocomplete from '../shared/DepartmentAutocomplete';
 
 // ── Design tokens ─────────────────────────────────────────────
 // Same maroon identity as before, with a calmer neutral scale around it so the
@@ -1931,14 +1932,16 @@ const DepartmentAssignment = () => {
                         </MenuItem>
                       ))}
                     </FieldInput>
-                    <FieldInput select size="small" label="Department"
-                      value={filterDept} onChange={(e) => setFilterDept(e.target.value)}
-                      sx={{ flex: 1, minWidth: 130 }}>
-                      <MenuItem value="">All departments</MenuItem>
-                      {deptFilterOptions.map((c) => (
-                        <MenuItem key={c} value={c}>{c}</MenuItem>
-                      ))}
-                    </FieldInput>
+                    <DepartmentAutocomplete
+                      TextFieldComponent={FieldInput}
+                      label="Department"
+                      value={filterDept}
+                      onChange={setFilterDept}
+                      departments={deptFilterOptions}
+                      allLabel="All departments"
+                      fullWidth={false}
+                      sx={{ flex: 1, minWidth: 130 }}
+                    />
                     <FieldInput select size="small" label="Budget department"
                       value={filterBudget} onChange={(e) => setFilterBudget(e.target.value)}
                       SelectProps={{

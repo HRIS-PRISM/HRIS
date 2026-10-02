@@ -58,6 +58,7 @@ import {
 import SearchIcon from '@mui/icons-material/Search';
 import TextField from '@mui/material/TextField';
 import * as XLSX from 'xlsx';
+import DepartmentAutocomplete from '../shared/DepartmentAutocomplete';
 
 // ─── Unified Design Tokens (mirrored from PayrollProcessing) ─────────────────
 const T = {
@@ -971,17 +972,17 @@ const PayrollReleased = () => {
               />
 
               {/* Department */}
-              <FormControl size="small" sx={{ minWidth: 160, flex: 1 }}>
-                <InputLabel sx={{ fontSize: '0.82rem', fontFamily: T.font }}>Department</InputLabel>
-                <Select value={selectedDepartment} onChange={handleDepartmentChange} label="Department" sx={filterSelectSx}>
-                  <MenuItem value=""><em style={{ fontSize: '0.82rem', fontFamily: T.font }}>All Departments</em></MenuItem>
-                  {departments.map((dept) => (
-                    <MenuItem key={dept.id} value={dept.code} sx={{ fontSize: '0.82rem', fontFamily: T.font }}>
-                      {dept.description}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
+              <DepartmentAutocomplete
+                label="Department"
+                value={selectedDepartment}
+                onChange={(v) => handleDepartmentChange({ target: { value: v } })}
+                departments={departments}
+                displayField="description"
+                fontSize="0.82rem"
+                fullWidth={false}
+                sx={{ minWidth: 160, flex: 1 }}
+                inputSx={filterSelectSx}
+              />
 
               {/* Employment category */}
               <FormControl size="small" sx={{ minWidth: 200, flex: 1.5 }}>

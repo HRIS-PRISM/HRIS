@@ -42,6 +42,7 @@ import {
   NavigateBefore,
   NavigateNext,
 } from '@mui/icons-material';
+import DepartmentAutocomplete from '../shared/DepartmentAutocomplete';
 
 /** Match absence rows to `employeeNames` keys (trimmed string). */
 function normalizeEmployeeKey(v) {
@@ -669,13 +670,14 @@ const AbsencesReport = () => {
               {/* Department */}
               <Box sx={{ flex: '1 1 140px', minWidth: 140 }}>
                 <Typography sx={{ fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: T.faint, mb: 0.5 }}>Department</Typography>
-                <FormControl fullWidth size="small">
-                  <Select value={deptFilter} onChange={e => { setDeptFilter(e.target.value); setPage(0); }}
-                    sx={{ borderRadius: '8px', fontSize: '0.875rem', bgcolor: '#fff', '& .MuiOutlinedInput-notchedOutline': { borderColor: T.accentBorder }, '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: T.accent }, '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: T.accent, borderWidth: '1.5px' } }}>
-                    <MenuItem value="all" sx={{ fontSize: '0.875rem' }}>All Departments</MenuItem>
-                    {departments.map(d => <MenuItem key={d} value={d} sx={{ fontSize: '0.875rem' }}>{d}</MenuItem>)}
-                  </Select>
-                </FormControl>
+                <DepartmentAutocomplete
+                  value={deptFilter}
+                  onChange={(v) => { setDeptFilter(v); setPage(0); }}
+                  departments={departments}
+                  allValue="all"
+                  fontSize="0.875rem"
+                  inputSx={{ borderRadius: '8px', fontSize: '0.875rem', bgcolor: '#fff', '& .MuiOutlinedInput-notchedOutline': { borderColor: T.accentBorder }, '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: T.accent }, '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: T.accent, borderWidth: '1.5px' } }}
+                />
               </Box>
               {/* Type */}
               <Box sx={{ flex: '1 1 140px', minWidth: 140 }}>

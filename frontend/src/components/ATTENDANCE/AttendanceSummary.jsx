@@ -88,6 +88,7 @@ import LoadingOverlay from '../LoadingOverlay';
 import SuccessfulOverlay from '../SuccessfulOverlay';
 import AttendanceRosterSidebar, { pad2, rosterDisplayName } from './AttendanceRosterSidebar';
 import { resolveAttendanceModuleFromEmployment } from '../../utils/earningsEmpCatRules';
+import DepartmentAutocomplete from '../shared/DepartmentAutocomplete';
 
 // ─── Theme tokens ─────────────────────────────────────────────────────────────
 const T = {
@@ -1841,21 +1842,16 @@ const OverallAttendance = () => {
                   </Box>
 
                   <AttendanceFilterSectionLabel icon={BusinessIcon}>Department</AttendanceFilterSectionLabel>
-                  <Select
-                    size="small"
-                    fullWidth
-                    displayEmpty
+                  <DepartmentAutocomplete
                     value={department}
                     disabled={Boolean(trimmedEmployee)}
-                    onChange={e => { setDepartment(e.target.value); setResultQuery(''); }}
-                    renderValue={(v) => (v ? String(v) : 'All departments')}
-                    sx={{ ...filterCompactSelectSx, mb: 1.25 }}
-                  >
-                    <MenuItem value="" sx={{ fontSize: '0.76rem' }}>All departments</MenuItem>
-                    {departmentOptions.map(d => (
-                      <MenuItem key={d} value={d} sx={{ fontSize: '0.76rem' }}>{d}</MenuItem>
-                    ))}
-                  </Select>
+                    onChange={v => { setDepartment(v); setResultQuery(''); }}
+                    departments={departmentOptions}
+                    allLabel="All departments"
+                    fontSize="0.76rem"
+                    sx={{ mb: 1.25 }}
+                    inputSx={{ ...filterCompactSelectSx, py: '1px !important' }}
+                  />
 
                   <AttendanceFilterSectionLabel icon={CategoryIcon}>Employment category</AttendanceFilterSectionLabel>
                   <Select

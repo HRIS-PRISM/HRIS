@@ -131,6 +131,7 @@ import SuccessfulOverlay from "./SuccessfulOverlay";
 import FacialUserComparePanel, {
   prefetchFacialUsers,
 } from "./FacialUserCompareDialog";
+import DepartmentAutocomplete from './shared/DepartmentAutocomplete';
 
 /** Display name as "Surname, First M." (middle name → initial). */
 function formatSurnameFirstName({
@@ -3347,16 +3348,14 @@ html, body { overflow: hidden !important; }
 
        {/* Department filter — value=code, label=description */}
       <Grid item xs={12} md={2.5}>
-        <FormControl fullWidth size="small">
-          <InputLabel sx={{ fontSize: "0.82rem" }}>Department</InputLabel>
-          <Select
-            value={departmentFilter}
+        <DepartmentAutocomplete
             label="Department"
-            onChange={(e) => setDepartmentFilter(e.target.value)}
-            MenuProps={{
-              PaperProps: { sx: { maxHeight: 360, overflowY: "auto" } },
-            }}
-            sx={{
+            value={departmentFilter}
+            onChange={setDepartmentFilter}
+            departments={uniqueDepartments}
+            displayField="description"
+            fontSize="0.875rem"
+            inputSx={{
               borderRadius: 2,
               bgcolor: "#fafafa",
               fontSize: "0.875rem",
@@ -3370,15 +3369,7 @@ html, body { overflow: hidden !important; }
                 borderColor: T.accent,
               },
             }}
-          >
-            <MenuItem value="">All Departments</MenuItem>
-            {uniqueDepartments.map(({ code, description }) => (
-              <MenuItem key={code} value={code}>
-                {description}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+          />
       </Grid>
 
       {/* Branch filter — inserted between Employment Category and Department */}

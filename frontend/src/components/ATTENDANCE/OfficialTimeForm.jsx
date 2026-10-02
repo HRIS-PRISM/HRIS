@@ -88,6 +88,7 @@ import useAttendanceRealtimeRefresh from "../../hooks/useAttendanceRealtimeRefre
 import AccessDenied from "../AccessDenied";
 import CircularProgress from "@mui/material/CircularProgress";
 import { sortEmployeesByLastName } from "../../utils/sortEmployeesByLastName";
+import DepartmentAutocomplete from '../shared/DepartmentAutocomplete';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THEME TOKENS
@@ -1692,25 +1693,20 @@ const MonthSetupStatusCard = ({
         </Box>
 
         {departments.length > 0 && (
-          <Select
-            size="small"
-            displayEmpty
+          <DepartmentAutocomplete
             value={department}
-            onChange={(e) => onDepartment(e.target.value)}
-            sx={{
-              fontSize: "0.75rem",
+            onChange={onDepartment}
+            departments={departments}
+            allLabel="All departments"
+            fontSize="0.75rem"
+            inputSx={{
               borderRadius: "8px",
               bgcolor: "#fff",
-              "& .MuiSelect-select": { py: 0.7 },
+              py: "1px !important",
               "&:hover .MuiOutlinedInput-notchedOutline": { borderColor: T.accent },
               "&.Mui-focused .MuiOutlinedInput-notchedOutline": { borderColor: T.accent },
             }}
-          >
-            <MenuItem value="" sx={{ fontSize: "0.78rem" }}>All departments</MenuItem>
-            {departments.map((d) => (
-              <MenuItem key={d} value={d} sx={{ fontSize: "0.78rem" }}>{d}</MenuItem>
-            ))}
-          </Select>
+          />
         )}
       </Box>
 
@@ -3652,16 +3648,18 @@ const OfficialTimeForm = ({
                       Only rows for employees in the selected department will be processed.
                     </Typography>
 
-                    <ModernTextField
-                      select fullWidth size="small" label="Target department"
+                    <DepartmentAutocomplete
+                      TextFieldComponent={ModernTextField}
+                      label="Target department"
+                      placeholder="Select department…"
                       value={deptUploadDepartment}
                       disabled={!canUploadExcel}
-                      onChange={(e) => setDeptUploadDepartment(e.target.value)}
+                      onChange={setDeptUploadDepartment}
+                      departments={departmentTableList}
+                      allValue={null}
+                      fontSize="0.85rem"
                       sx={{ mb: 1.5 }}
-                    >
-                      <MenuItem value="">Select department…</MenuItem>
-                      {departmentTableList.map((d) => <MenuItem key={d} value={d}>{d}</MenuItem>)}
-                    </ModernTextField>
+                    />
 
                     <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, flexWrap: "wrap" }}>
                       <input type="file" accept=".xlsx,.xls" id="dept-upload-button" style={{ display: "none" }} onChange={(e) => setDeptFile(e.target.files[0] || null)} />
@@ -3837,15 +3835,16 @@ const OfficialTimeForm = ({
                         sx={{ flex: "2 1 240px", minWidth: 220 }}
                       />
 
-                      <ModernTextField
-                        select size="small" label="Department"
+                      <DepartmentAutocomplete
+                        TextFieldComponent={ModernTextField}
+                        label="Department"
                         value={filterDepartment}
-                        onChange={(e) => { setFilterDepartment(e.target.value); setAllUsersPage(0); }}
+                        onChange={(v) => { setFilterDepartment(v); setAllUsersPage(0); }}
+                        departments={departmentTableList}
+                        fontSize="0.85rem"
+                        fullWidth={false}
                         sx={{ flex: "1 1 170px", minWidth: 160 }}
-                      >
-                        <MenuItem value="">All Departments</MenuItem>
-                        {departmentTableList.map((d) => <MenuItem key={d} value={d}>{d}</MenuItem>)}
-                      </ModernTextField>
+                      />
 
                       {/* Employment Category filter — independent axis from Department above.
                           [CHANGE H] color dot added to match module styling. */}

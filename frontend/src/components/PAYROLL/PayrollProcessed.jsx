@@ -74,6 +74,7 @@ import SearchIcon from '@mui/icons-material/Search';
 import TextField from '@mui/material/TextField';
 import BusinessCenterIcon from '@mui/icons-material/BusinessCenter';
 import PendingIcon from '@mui/icons-material/Pending';
+import DepartmentAutocomplete from '../shared/DepartmentAutocomplete';
 
 // ─── Unified Design Tokens (matching PayrollProcess) ─────────────────────────
 const T = {
@@ -1624,13 +1625,17 @@ const PayrollProcessed = () => {
               sx={{ minWidth: 220, flex: 1 }}
               InputProps={{ startAdornment: (<InputAdornment position="start"><SearchIcon sx={{ color: T.faint, fontSize: 18 }} /></InputAdornment>) }}
             />
-            <FormControl size="small" sx={{ minWidth: 160, flex: 1 }}>
-              <InputLabel sx={{ fontSize: '0.82rem', fontFamily: T.font }}>Department</InputLabel>
-              <Select value={selectedDepartment} onChange={handleDepartmentChange} label="Department" sx={filterSelectSx}>
-                <MenuItem value=""><em style={{ fontSize: '0.82rem', fontFamily: T.font }}>All Departments</em></MenuItem>
-                {departments.map((dept) => (<MenuItem key={dept.id} value={dept.code} sx={{ fontSize: '0.82rem', fontFamily: T.font }}>{dept.description}</MenuItem>))}
-              </Select>
-            </FormControl>
+            <DepartmentAutocomplete
+              label="Department"
+              value={selectedDepartment}
+              onChange={(v) => handleDepartmentChange({ target: { value: v } })}
+              departments={departments}
+              displayField="description"
+              fontSize="0.82rem"
+              fullWidth={false}
+              sx={{ minWidth: 160, flex: 1 }}
+              inputSx={filterSelectSx}
+            />
             <FormControl size="small" sx={{ minWidth: 130, flex: '0 0 auto' }}>
               <InputLabel sx={{ fontSize: '0.82rem', fontFamily: T.font }}>Month</InputLabel>
               <Select value={selectedMonth} onChange={handleMonthChange} label="Month" sx={filterSelectSx}>

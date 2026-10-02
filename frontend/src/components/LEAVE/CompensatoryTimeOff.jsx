@@ -77,6 +77,7 @@ import {
   CTO_LEDGER_ENTRY_LABELS,
   assertCtoPeriodAssignableForCredits,
 } from "./ctoBalanceUtils";
+import DepartmentAutocomplete from '../shared/DepartmentAutocomplete';
 
 // ─── Theme tokens — 100% identical to LeaveAssignment ────────────────────────
 const T = {
@@ -2304,16 +2305,18 @@ if (accessLoading || pageLoading) {
                       value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} sx={{ flex: 1 }}
                       InputProps={{ startAdornment: <SearchIcon sx={{ fontSize: 15, color: T.muted, mr: 0.5 }} /> }} />
                     {allDeptCodes.length > 0 && (
-                      <FormControl size="small" sx={{ minWidth: 130, flexShrink: 0 }}>
-                        <Select value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)} displayEmpty
-                          startAdornment={<DomainIcon sx={{ fontSize: 14, color: T.accent, mr: 0.5, ml: 0.25 }} />}
-                          sx={{ ...selectSx, "& .MuiSelect-select": { py: "7px", fontSize: "0.8rem", fontWeight: deptFilter !== "all" ? 700 : 400, color: deptFilter !== "all" ? T.accent : T.muted, display: "flex", alignItems: "center" } }}>
-                          <MenuItem value="all" sx={{ fontFamily: T.poppins, fontSize: "0.82rem", color: T.muted }}>All depts</MenuItem>
-                          {allDeptCodes.map((c) => (
-                            <MenuItem key={c} value={c} sx={{ fontFamily: T.poppins, fontSize: "0.82rem" }}>{c}</MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
+                      <DepartmentAutocomplete
+                        value={deptFilter}
+                        onChange={setDeptFilter}
+                        departments={allDeptCodes}
+                        allValue="all"
+                        allLabel="All depts"
+                        fullWidth={false}
+                        sx={{ width: 150, flexShrink: 0 }}
+                        fontSize="0.8rem"
+                        startIcon={<DomainIcon sx={{ fontSize: 14, color: T.accent, ml: 0.25 }} />}
+                        inputSx={{ ...selectSx, fontFamily: T.poppins, py: "2px !important", "& input": { fontWeight: deptFilter !== "all" ? 700 : 400, color: deptFilter !== "all" ? T.accent : T.muted } }}
+                      />
                     )}
                   </Box>
                 </Box>

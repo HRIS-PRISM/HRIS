@@ -40,6 +40,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip as RechartTooltip,
 } from 'recharts';
+import DepartmentAutocomplete, { DEPT_UNASSIGNED_OPTION } from '../shared/DepartmentAutocomplete';
 
 // ─── Poppins font import ───────────────────────────────────────────────────
 const poppinsImport = `@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&display=swap');`;
@@ -1497,12 +1498,17 @@ const AttendanceAdjustmentReports = () => {
 
                 {/* Department */}
                 {departments.length > 0 && (
-                  <FormControl size="small" sx={{ minWidth: 140 }}>
-                    <Select value={deptFilter} onChange={e => setDeptFilter(e.target.value)} sx={selectSx}>
-                      <MenuItem value="all" sx={menuItemSx}>All Depts</MenuItem>
-                      {departments.map(d => <MenuItem key={d} value={d} sx={menuItemSx}>{d}</MenuItem>)}
-                    </Select>
-                  </FormControl>
+                  <DepartmentAutocomplete
+                    value={deptFilter}
+                    onChange={setDeptFilter}
+                    departments={departments}
+                    allValue="all"
+                    allLabel="All Depts"
+                    fullWidth={false}
+                    sx={{ width: 160 }}
+                    fontSize="0.82rem"
+                    inputSx={selectSx}
+                  />
                 )}
 
                 {/* Employment Category */}
@@ -1918,22 +1924,17 @@ const AttendanceAdjustmentReports = () => {
                             <Typography sx={{ fontSize: '0.75rem', fontWeight: 700, color: T.accent, fontFamily: T.font, mr: 0.5 }}>
                               Device filters
                             </Typography>
-                            <FormControl size="small" sx={{ minWidth: 170 }}>
-                              <Select
-                                value={deviceDeptFilter}
-                                onChange={(e) => setDeviceDeptFilter(e.target.value)}
-                                sx={{ ...selectSx, height: 32 }}
-                                displayEmpty
-                              >
-                                <MenuItem value="all" sx={menuItemSx}>All Departments</MenuItem>
-                                <MenuItem value="__UNASSIGNED__" sx={menuItemSx}>Unassigned</MenuItem>
-                                {departmentTable.map((d) => (
-                                  <MenuItem key={d.code} value={d.code} sx={menuItemSx}>
-                                    {d.code}{d.description ? ` — ${d.description}` : ''}
-                                  </MenuItem>
-                                ))}
-                              </Select>
-                            </FormControl>
+                            <DepartmentAutocomplete
+                              value={deviceDeptFilter}
+                              onChange={setDeviceDeptFilter}
+                              departments={departmentTable}
+                              allValue="all"
+                              extraOptions={DEPT_UNASSIGNED_OPTION}
+                              fullWidth={false}
+                              sx={{ width: 200 }}
+                              fontSize="0.82rem"
+                              inputSx={{ ...selectSx, minHeight: 32, py: '0 !important' }}
+                            />
                             <Box sx={{ flex: 1 }} />
                             {deviceChartData.employeesNotUsingDevice.length > 0 && (
                               <Tooltip title="Download XLSX — device users with no raw AttendanceRecordInfo records in this period">

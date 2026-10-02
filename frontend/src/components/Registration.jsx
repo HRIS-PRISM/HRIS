@@ -53,6 +53,7 @@ import axios from 'axios';
 
 import AccessDenied from './AccessDenied';
 import LoadingOverlay from './LoadingOverlay';
+import DepartmentAutocomplete from './shared/DepartmentAutocomplete';
 
 // ─── Theme tokens ─────────────────────────────────────────────────────────────
 const T = {
@@ -1805,41 +1806,23 @@ const Registration = () => {
                     </Grid>
 
                     <Grid item xs={12} sm={4}>
-                      <FormControl fullWidth size="small" sx={selectControlSx}>
-                        <InputLabel
-                          sx={{ fontWeight: 500 }}
-                        >{`Department${fieldRequirements.department ? ' *' : ''}`}</InputLabel>
-                        <Select
-                          name="department"
-                          value={formData.department}
-                          label={`Department${fieldRequirements.department ? ' *' : ''}`}
-                          onChange={handleChanges}
-                          displayEmpty
-                          startAdornment={
-                            <InputAdornment position="start">
-                              <Business sx={{ fontSize: 17 }} />
-                            </InputAdornment>
-                          }
-                          sx={selectInnerSx}
-                          renderValue={(val) =>
-                            val || (
-                              <span style={{ color: T.faint }}>
-                                Select department
-                              </span>
-                            )
-                          }
-                        >
-                          {departmentCodes.map((code) => (
-                            <MenuItem
-                              key={code}
-                              value={code}
-                              sx={{ fontSize: '0.875rem' }}
-                            >
-                              {code}
-                            </MenuItem>
-                          ))}
-                        </Select>
-                      </FormControl>
+                      <DepartmentAutocomplete
+                        label={`Department${fieldRequirements.department ? ' *' : ''}`}
+                        placeholder="Select department"
+                        value={formData.department}
+                        onChange={(v) => handleChanges({ target: { name: 'department', value: v } })}
+                        departments={departmentCodes}
+                        allValue={null}
+                        fontSize="0.875rem"
+                        startIcon={
+                          <InputAdornment position="start" sx={{ ml: 0.5, mr: 0 }}>
+                            <Business sx={{ fontSize: 17 }} />
+                          </InputAdornment>
+                        }
+                        sx={selectControlSx}
+                        inputSx={selectInnerSx}
+                        textFieldProps={{ InputLabelProps: { shrink: true } }}
+                      />
                     </Grid>
 
                     {/* ── Auto-generated password banner ── */}
