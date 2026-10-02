@@ -140,6 +140,9 @@ import {
   isDtrCellWatermarkText,
   loadDtrDeductionsVisible,
   persistDtrDeductionsVisible,
+  DTR_DEDUCTION_DAY_HOURS_OPTIONS,
+  loadDtrDeductionDayHours,
+  persistDtrDeductionDayHours,
   formatDtrPdfFileName,
   formatDtrBulkPdfFileName,
 } from '../../utils/dtrFormatHelpers';
@@ -646,6 +649,10 @@ const DailyTimeRecordFaculty = ({
   /** Late / U-time deduction values on the form. Display only, persisted. */
   const [showDeductions, setShowDeductions] = useState(
     loadDtrDeductionsVisible,
+  );
+  /** Hours per work day for the deduction total's day conversion (8 or 10). */
+  const [deductionDayHours, setDeductionDayHours] = useState(
+    loadDtrDeductionDayHours,
   );
   const [computationMenuAnchor, setComputationMenuAnchor] = useState(null);
   const dtrRef = useRef(null);
@@ -1214,7 +1221,7 @@ const DailyTimeRecordFaculty = ({
       isRestoringRef.current = false;
     }, 350);
     return () => clearTimeout(t);
-  }, [showOfficialTimeOnDtr, showOfficialBreaktimeOnDtr, dtrType, printQuincena, printRangeStart, printRangeEnd, indicatorVisibility, showDeductions]);
+  }, [showOfficialTimeOnDtr, showOfficialBreaktimeOnDtr, dtrType, printQuincena, printRangeStart, printRangeEnd, indicatorVisibility, showDeductions, deductionDayHours]);
 
   useEffect(() => () => stopObserver(), [stopObserver]);
 
@@ -1634,8 +1641,11 @@ const DailyTimeRecordFaculty = ({
       setSummaryRefreshKey((k) => k + 1);
       if (!personID || !startDate || !endDate) return;
       const jobs = [];
-      if (refetchRecords) jobs.push(Promise.resolve(fetchRecordsRef.current?.()));
-      else {
+      // Records JOIN the officialtime table server-side, so a schedule change
+      // needs a records refetch too. Quiet = no overlay / no schedule flicker.
+      if (refetchRecords) {
+        jobs.push(Promise.resolve(fetchRecordsRef.current?.({ quiet: true })));
+      } else {
         jobs.push(fetchOfficialTimes(personID, startDate, endDate));
         if (dtrType === 'regular') {
           jobs.push(loadComputedLateForEmployee(personID));
@@ -3781,6 +3791,7 @@ const DailyTimeRecordFaculty = ({
       showOfficialTimeOnDtr,
       showOfficialBreaktimeOnDtr,
       showDeductions,
+      deductionDayHours,
       indicatorVisibility,
       startDate: displayPeriod.startDate || startDate,
       endDate: displayPeriod.endDate || endDate,
@@ -3979,6 +3990,61 @@ const DailyTimeRecordFaculty = ({
           Deductions: {showDeductions ? 'ON' : 'OFF'}
         </AccentButton>
       </span>
+    </Tooltip>
+  );
+
+  const changeDeductionDayHours = (hours) => {
+    setDeductionDayHours(hours);
+    persistDtrDeductionDayHours(hours);
+  };
+
+  /** 8 hrs / 10 hrs — day length used to convert the deduction total into days. */
+  const renderDeductionDayHoursButton = () => (
+    <Tooltip
+      title={`The deduction total counts 1 day as ${deductionDayHours} hours. Print and PDF use the same choice.`}
+      placement="top"
+    >
+      <Box
+        role="group"
+        aria-label="Hours per day for the deduction total"
+        className="no-print"
+        sx={{
+          display: 'inline-flex',
+          height: 32,
+          borderRadius: 1,
+          border: `1px solid ${T.accent}`,
+          overflow: 'hidden',
+          flexShrink: 0,
+        }}
+      >
+        {DTR_DEDUCTION_DAY_HOURS_OPTIONS.map((hours) => {
+          const active = deductionDayHours === hours;
+          return (
+            <Box
+              key={hours}
+              component="button"
+              type="button"
+              aria-pressed={active}
+              onClick={() => changeDeductionDayHours(hours)}
+              sx={{
+                border: 0,
+                px: 1.25,
+                cursor: 'pointer',
+                fontSize: '0.75rem',
+                fontWeight: 700,
+                fontFamily: 'inherit',
+                color: active ? '#fff' : T.accent,
+                bgcolor: active ? T.accent : '#fff',
+                '&:hover': {
+                  bgcolor: active ? T.accentDark : T.accentFaint,
+                },
+              }}
+            >
+              {hours} hrs
+            </Box>
+          );
+        })}
+      </Box>
     </Tooltip>
   );
 
@@ -5411,6 +5477,7 @@ const DailyTimeRecordFaculty = ({
                             >
                               {renderIndicatorsButton()}
                               {renderDeductionsButton()}
+                              {renderDeductionDayHoursButton()}
                               <Tooltip
                                 placement="top"
                                 title={
@@ -6533,6 +6600,7 @@ const DailyTimeRecordFaculty = ({
                               >
                                 {renderIndicatorsButton()}
                                 {renderDeductionsButton()}
+                                {renderDeductionDayHoursButton()}
                                 <FormControl
                                   size="small"
                                   sx={{ minWidth: 130, bgcolor: '#fff' }}
@@ -6911,6 +6979,7 @@ const DailyTimeRecordFaculty = ({
                 <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
                   {renderIndicatorsButton()}
                   {renderDeductionsButton()}
+                  {renderDeductionDayHoursButton()}
                   <AccentButton
                     variant="contained"
                     onClick={handlePrintAllSelected}
@@ -7953,7 +8022,7 @@ const DailyTimeRecordFaculty = ({
         onClose={() =>
           closeHubDrawer({
             bumpRevision: moduleDrawer === 'officialTime',
-            refetchRecords: moduleDrawer !== 'officialTime',
+            refetchRecords: true,
           })
         }
         className="no-print"
@@ -8036,12 +8105,12 @@ const DailyTimeRecordFaculty = ({
               key={`ot-drawer-${personID || 'none'}-${startDate || ''}-${endDate || ''}-r${attendanceRevision}`}
               embedded
               onClose={() =>
-                closeHubDrawer({ bumpRevision: true, refetchRecords: false })
+                closeHubDrawer({ bumpRevision: true, refetchRecords: true })
               }
               onScheduleSaved={() => {
                 void refreshHubAfterDrawerChange({
                   bumpRevision: true,
-                  refetchRecords: false,
+                  refetchRecords: true,
                 });
               }}
               initialContext={{

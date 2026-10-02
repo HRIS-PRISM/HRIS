@@ -71,6 +71,41 @@ export const persistDtrDeductionsVisible = (visible) => {
   }
 };
 
+/* ── Deduction total: hours per day ─────────────────────────────────────────
+ * Work-day length used to turn the TOTAL LATE & U-TIME into days. Display
+ * only, persisted per browser like the deductions toggle.
+ */
+export const DTR_DEDUCTION_DAY_HOURS_STORAGE_KEY = 'hris-dtr-deduction-day-hours';
+
+export const DTR_DEDUCTION_DAY_HOURS_OPTIONS = [8, 10];
+
+export const defaultDtrDeductionDayHours = () => 8;
+
+export const loadDtrDeductionDayHours = () => {
+  try {
+    const parsed = JSON.parse(
+      localStorage.getItem(DTR_DEDUCTION_DAY_HOURS_STORAGE_KEY),
+    );
+    return DTR_DEDUCTION_DAY_HOURS_OPTIONS.includes(parsed)
+      ? parsed
+      : defaultDtrDeductionDayHours();
+  } catch {
+    /* ignore private mode / bad JSON */
+    return defaultDtrDeductionDayHours();
+  }
+};
+
+export const persistDtrDeductionDayHours = (hours) => {
+  try {
+    localStorage.setItem(
+      DTR_DEDUCTION_DAY_HOURS_STORAGE_KEY,
+      JSON.stringify(hours),
+    );
+  } catch {
+    /* ignore private mode / quota */
+  }
+};
+
 /** Missing map means all marks stay on (pages that do not pass the setting). */
 export const isDtrIndicatorEnabled = (visibility, key) =>
   visibility == null || visibility[key] !== false;

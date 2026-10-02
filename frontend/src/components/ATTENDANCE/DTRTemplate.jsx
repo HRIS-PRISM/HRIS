@@ -415,6 +415,11 @@ export default function DTRTemplate({
    * unchanged and the columns themselves always stay so the grid never shifts.
    */
   showDeductions = true,
+  /**
+   * Hours in one work day for the deduction total's day conversion (e.g. 8
+   * or 10). Omit to use the employee's official time.
+   */
+  deductionDayHours = null,
   startDate = '',
   endDate = '',
   selectedYear,
@@ -1606,7 +1611,10 @@ export default function DTRTemplate({
 
   // Regular DTR only — special DTRs use the last columns for hours worked.
   const showDeductionTotal = !isSpecialDtr;
-  const officialMinutesPerDay = resolveOfficialMinutesPerDay(officialTime);
+  const officialMinutesPerDay =
+    deductionDayHours > 0
+      ? deductionDayHours * 60
+      : resolveOfficialMinutesPerDay(officialTime);
 
   /**
    * Combined late + undertime for the period, right under the last day:
