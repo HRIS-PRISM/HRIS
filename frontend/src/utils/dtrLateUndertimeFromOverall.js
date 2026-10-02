@@ -205,7 +205,7 @@ export const rowsToByDateMap = (rows) => {
  * Bump when late/undertime formula changes so stored values recompute.
  * Values stay sticky when punches + official times are unchanged.
  */
-export const LATE_UNDERTIME_FORMULA_VERSION = 'v3-missing-break';
+export const LATE_UNDERTIME_FORMULA_VERSION = 'v5-undertime-split';
 
 /**
  * True when any saved day carries an input hash from an older formula

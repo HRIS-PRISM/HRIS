@@ -723,9 +723,9 @@ const filterApplicableSuspensionsForFaculty = (suspensionByDate, employeeBranch)
       if (inSec != null && outSec != null) {
         renderedSecTotal += Math.max(0, outSec - inSec);
       }
-      lateShortfallSecTotal += parseDurationToMinuteSec(
-        row?.lateTotal ?? row?.formattedfinalcalcFaculty,
-      );
+      lateShortfallSecTotal += row?.lateTotal != null
+        ? parseDurationToMinuteSec(row.lateTotal) + parseDurationToMinuteSec(row.undertimeTotal)
+        : parseDurationToMinuteSec(row?.formattedfinalcalcFaculty);
     });
 
     const overallShortfallSecTotal = absentSecTotal + halfDayShortfallSecTotal + lateShortfallSecTotal;
@@ -2055,6 +2055,14 @@ const filterApplicableSuspensionsForFaculty = (suspensionByDate, employeeBranch)
           const formattedfinalcalcFaculty = formatDurationMsNoSeconds(
             tardinessMsFromLateFloorEarlyCeil(lateRawMs, earlyRawMs),
           );
+          // Late = late arrival, U-time = early leave only (no missing-break
+          // deduction for 30hrs). Table Total Tardiness stays the combined value.
+          const lateOnly = formatDurationMsNoSeconds(
+            tardinessMsFromLateFloorEarlyCeil(lateRawMs, 0),
+          );
+          const earlyLeaveOnly = formatDurationMsNoSeconds(
+            tardinessMsFromLateFloorEarlyCeil(0, earlyRawMs),
+          );
 
           const hnTIn  = row.specialType === 'HONORARIUM' && row.specialTimeIN  ? row.specialTimeIN  : timeIN;
           const hnTOut = row.specialType === 'HONORARIUM' && row.specialTimeOUT ? row.specialTimeOUT : timeOUT;
@@ -2069,8 +2077,8 @@ const filterApplicableSuspensionsForFaculty = (suspensionByDate, employeeBranch)
 
           return {
             ...row,
-            lateTotal: formattedfinalcalcFaculty,
-            undertimeTotal: ZERO_HM,
+            lateTotal: lateOnly,
+            undertimeTotal: earlyLeaveOnly,
             formattedfinalcalcFaculty,
             formattedFacultyRenderedTime,
             formattedFacultyMaxRenderedTime,
@@ -2135,7 +2143,10 @@ const filterApplicableSuspensionsForFaculty = (suspensionByDate, employeeBranch)
         setHalfDayReviewByDate(initialReviewMap);
 
         const totalLateSec = normalizedProcessed.reduce(
-          (sum, row) => sum + parseDurationToMinuteSec(row.lateTotal),
+          (sum, row) =>
+            sum +
+            parseDurationToMinuteSec(row.lateTotal) +
+            parseDurationToMinuteSec(row.undertimeTotal),
           0,
         );
         const totalLateLabel = formatDurationHhMm(totalLateSec);

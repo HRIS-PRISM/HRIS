@@ -169,8 +169,11 @@ export const computeMissingBreakDeductionMinuteSec = (row) => {
   return getOfficialBreakDurationMinuteSec(row);
 };
 
+/** Late + undertime (early leave + missing break) — Non-Teaching / Designated. */
 export const getAmPmSlotLateMinuteSec = (row) =>
-  (computeArrivalLateMinuteSec(row) ?? 0) + (computeEarlyLeaveUndertimeMinuteSec(row) ?? 0);
+  (computeArrivalLateMinuteSec(row) ?? 0)
+  + (computeEarlyLeaveUndertimeMinuteSec(row) ?? 0)
+  + (computeMissingBreakDeductionMinuteSec(row) ?? 0);
 
 export const getOfficialSchedWorkMinuteSec = (row) => {
   const offInSec = parseClockToMinuteSec(row?.officialTimeIN);
@@ -360,10 +363,10 @@ export const computeFaculty30MinuteBuckets = (
   });
 };
 
-/** Match Faculty 30hrs table Total Tardiness (lateTotal / final calc). */
+/** Match Faculty 30hrs table Total Tardiness (late + undertime / final calc). */
 export const getFaculty30TableLateMinuteSec = (row) => {
   if (row?.lateTotal != null && String(row.lateTotal).trim() !== '') {
-    return parseDurationToMinuteSec(row.lateTotal);
+    return parseDurationToMinuteSec(row.lateTotal) + parseDurationToMinuteSec(row.undertimeTotal);
   }
   if (
     row?.formattedfinalcalcFaculty != null &&

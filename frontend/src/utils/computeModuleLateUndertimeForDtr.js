@@ -21,7 +21,11 @@ import {
   rowsToByDateMap,
   isDailyLateByDateStale,
 } from './dtrLateUndertimeFromOverall';
-import { computeMissingBreakDeductionMinuteSec } from './attendanceDurationHhMm';
+import {
+  computeArrivalLateMinuteSec,
+  computeEarlyLeaveUndertimeMinuteSec,
+  computeMissingBreakDeductionMinuteSec,
+} from './attendanceDurationHhMm';
 import {
   fetchAttendanceCalendarMaps,
   fetchEmployeeBranch,
@@ -29,11 +33,7 @@ import {
   pickApplicableSuspension,
 } from '../components/ATTENDANCE/attendanceLeaveIntegration';
 import { resolveAttendanceModuleFromEmployment } from './earningsEmpCatRules';
-import {
-  computeArrivalLateSec,
-  computeEarlyLeaveUndertimeSec,
-  formatOfficialAttendanceSeconds,
-} from './officialAttendanceFromDailyRows';
+import { formatOfficialAttendanceSeconds } from './officialAttendanceFromDailyRows';
 
 const getAuthHeaders = () => {
   const token = localStorage.getItem('token');
@@ -233,8 +233,10 @@ const formatSecondsHms = (totalSeconds) => {
 
 export const processNonTeachingLateUndertimeRows = (rawRows) =>
   (rawRows || []).map((row) => {
-    const arrivalLateSec = computeArrivalLateSec(row) ?? 0;
-    const earlyLeaveSec = computeEarlyLeaveUndertimeSec(row) ?? 0;
+    // Minute precision (punch seconds dropped) — same as the Non-Teaching
+    // module, so a 4:55:30 PM out vs 5:00 PM is 5 mins undertime, not 4.
+    const arrivalLateSec = computeArrivalLateMinuteSec(row) ?? 0;
+    const earlyLeaveSec = computeEarlyLeaveUndertimeMinuteSec(row) ?? 0;
     // Missing Break IN/OUT → official break length, charged on undertime
     // (same as the Non-Teaching module).
     const missingBreakSec = computeMissingBreakDeductionMinuteSec(row) ?? 0;
@@ -334,18 +336,21 @@ export const processFaculty30LateUndertimeRows = (rawRows) => {
     const earlyRawMs = isMidnightEdge
       ? 0
       : Math.max(0, endOfficialTimeFaculty - timeoutfaculty);
-    const lateTotal = formatDurationMsNoSeconds(
-      tardinessMsFromLateFloorEarlyCeil(lateRawMs, earlyRawMs),
-    );
+    // Late = late arrival, U-time = early leave only (no missing-break
+    // deduction for 30hrs) — same split as the Faculty 30hrs module.
     return {
       ...row,
-      lateTotal,
-      undertimeTotal: ZERO,
+      lateTotal: formatDurationMsNoSeconds(
+        tardinessMsFromLateFloorEarlyCeil(lateRawMs, 0),
+      ),
+      undertimeTotal: formatDurationMsNoSeconds(
+        tardinessMsFromLateFloorEarlyCeil(0, earlyRawMs),
+      ),
     };
   });
 };
 
-// ─── Designated 40hrs (AM → late, PM → undertime) ────────────────────────────
+// ─── Designated 40hrs (late → Late; early leave + missing break → U-time) ────
 
 const parseAttendanceTimeOn2000 = (timeStr) => {
   if (!timeStr || typeof timeStr !== 'string') return new Date(NaN);
@@ -369,10 +374,13 @@ const formatDurationMsToHhMmSs = (diffMs) => {
 export const processDesignatedLateUndertimeRows = (rawRows) =>
   (rawRows || []).map((row) => {
     const lateTotal = formatOfficialAttendanceSeconds(
-      computeArrivalLateSec(row) ?? 0,
+      computeArrivalLateMinuteSec(row) ?? 0,
     );
+    // Same as Non-Teaching: a missing Break IN/OUT charges the official
+    // break length on undertime.
     const undertimeTotal = formatOfficialAttendanceSeconds(
-      computeEarlyLeaveUndertimeSec(row) ?? 0,
+      (computeEarlyLeaveUndertimeMinuteSec(row) ?? 0) +
+        (computeMissingBreakDeductionMinuteSec(row) ?? 0),
     );
     return {
       ...row,

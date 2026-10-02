@@ -1437,12 +1437,9 @@ const DailyTimeRecordFaculty = ({
     const byDate = computedLateByEmployee[key];
     if (!empCatMap[key]) return;
     if (byDate && Object.keys(byDate).length > 0) {
-      // Non-Teaching values saved under an older formula (e.g. before the
-      // missing-break deduction) are recomputed once; fresh ones are kept.
-      const isNonTeaching =
-        resolveAttendanceModuleFromEmployment(empCatMap[key]) ===
-        MODULE_TYPES.NON_TEACHING;
-      if (!isNonTeaching || !isDailyLateByDateStale(byDate)) return;
+      // Values saved under an older formula (e.g. before minute-precision
+      // punches / the Late vs U-time split) are recomputed once; fresh ones kept.
+      if (!isDailyLateByDateStale(byDate)) return;
     }
     applyLateFromEmploymentCategory(personID);
   }, [
@@ -3180,7 +3177,7 @@ const DailyTimeRecordFaculty = ({
       const byDate = saved[key] || computedLateByEmployee[key] || {};
       const isEmpty = Object.keys(byDate).length === 0;
       const isStale =
-        mod === MODULE_TYPES.NON_TEACHING && isDailyLateByDateStale(byDate);
+        isDailyLateByDateStale(byDate);
       if (!mod || (!isEmpty && !isStale)) {
         refreshMap.set(mapKey, Promise.resolve(null));
         return;

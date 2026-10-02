@@ -130,6 +130,7 @@ import {
   addTimeHhMmOnly,
   computeArrivalLateMinuteSec,
   computeEarlyLeaveUndertimeMinuteSec,
+  computeMissingBreakDeductionMinuteSec,
   computeAmPmMinuteBuckets,
   getRowTotalRenderedMinuteDisplay,
   getRowTotalTardinessMinuteDisplay,
@@ -3016,8 +3017,11 @@ const AttendanceModuleFacultyDesignated = ({
           officialTimeIN,
           officialTimeOUT,
         }) ?? 0;
+        // Missing Break IN/OUT → official break length, charged on undertime
+        // (same rule as Non-Teaching). Uses the raw punches, not display fills.
+        const missingBreakSec = computeMissingBreakDeductionMinuteSec(row) ?? 0;
         formattedfinalcalcFacultyAM = formatDurationHhMm(arrivalLateSec);
-        formattedfinalcalcFacultyPM = formatDurationHhMm(earlyLeaveSec);
+        formattedfinalcalcFacultyPM = formatDurationHhMm(earlyLeaveSec + missingBreakSec);
 
         return {
           ...row,
