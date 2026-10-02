@@ -637,6 +637,8 @@ const DailyTimeRecordFaculty = ({
   const [computationModuleTypeByEmployee, setComputationModuleTypeByEmployee] =
     useState({});
   const [showOfficialTimeOnDtr, setShowOfficialTimeOnDtr] = useState(false);
+  const [showOfficialBreaktimeOnDtr, setShowOfficialBreaktimeOnDtr] =
+    useState(true);
   const [indicatorVisibility, setIndicatorVisibility] = useState(
     loadDtrIndicatorVisibility,
   );
@@ -1212,7 +1214,7 @@ const DailyTimeRecordFaculty = ({
       isRestoringRef.current = false;
     }, 350);
     return () => clearTimeout(t);
-  }, [showOfficialTimeOnDtr, dtrType, printQuincena, printRangeStart, printRangeEnd, indicatorVisibility, showDeductions]);
+  }, [showOfficialTimeOnDtr, showOfficialBreaktimeOnDtr, dtrType, printQuincena, printRangeStart, printRangeEnd, indicatorVisibility, showDeductions]);
 
   useEffect(() => () => stopObserver(), [stopObserver]);
 
@@ -3777,6 +3779,7 @@ const DailyTimeRecordFaculty = ({
       records: rangedRecords,
       officialTime: officialTimesForUser,
       showOfficialTimeOnDtr,
+      showOfficialBreaktimeOnDtr,
       showDeductions,
       indicatorVisibility,
       startDate: displayPeriod.startDate || startDate,
@@ -4502,55 +4505,104 @@ const DailyTimeRecordFaculty = ({
         {printQuincena !== 'full' ? ` Showing ${printPeriodCaption}.` : ''}
       </Typography>
 
-      {/* ── Show official time checkbox ── */}
+      {/* ── Official time on DTR (+ optional break time) ── */}
       <Box
+        className="no-print"
         sx={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 0.75,
           mt: 2,
           mb: 0.5,
-          px: 1,
-          py: 0.75,
           borderRadius: '8px',
           border: `1px solid ${showOfficialTimeOnDtr ? T.accent : T.accentBorder}`,
-          bgcolor: showOfficialTimeOnDtr
-            ? alpha(T.accent, 0.06)
-            : 'transparent',
-          cursor: 'pointer',
+          bgcolor: showOfficialTimeOnDtr ? alpha(T.accent, 0.06) : 'transparent',
+          // The filter panel is a fixed-height flex column; keep this card
+          // at its natural height instead of letting it collapse.
+          flexShrink: 0,
           transition: 'all 0.15s ease',
-          '&:hover': {
-            bgcolor: alpha(T.accent, 0.05),
-            border: `1px solid ${T.accent}`,
-          },
+          '&:hover': { border: `1px solid ${T.accent}` },
         }}
-        onClick={() => setShowOfficialTimeOnDtr((v) => !v)}
-        className="no-print"
       >
-        <Checkbox
-          size="small"
-          checked={showOfficialTimeOnDtr}
-          onChange={(e) => {
-            e.stopPropagation();
-            setShowOfficialTimeOnDtr(e.target.checked);
-          }}
+        <Box
+          onClick={() => setShowOfficialTimeOnDtr((v) => !v)}
           sx={{
-            p: 0,
-            color: alpha(T.accent, 0.5),
-            '&.Mui-checked': { color: T.accent },
-          }}
-        />
-        <Typography
-          sx={{
-            fontSize: '0.78rem',
-            fontWeight: 600,
-            color: showOfficialTimeOnDtr ? T.accent : T.text,
-            lineHeight: 1.3,
-            userSelect: 'none',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 0.75,
+            px: 1,
+            py: 0.75,
+            borderRadius: '8px 8px 0 0',
+            cursor: 'pointer',
+            '&:hover': { bgcolor: alpha(T.accent, 0.05) },
           }}
         >
-          Show official time on DTR
-        </Typography>
+          <Checkbox
+            size="small"
+            checked={showOfficialTimeOnDtr}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => setShowOfficialTimeOnDtr(e.target.checked)}
+            sx={{
+              p: 0,
+              color: alpha(T.accent, 0.5),
+              '&.Mui-checked': { color: T.accent },
+            }}
+          />
+          <Typography
+            sx={{
+              fontSize: '0.78rem',
+              fontWeight: 600,
+              color: showOfficialTimeOnDtr ? T.accent : T.text,
+              lineHeight: 1.3,
+              userSelect: 'none',
+            }}
+          >
+            Show official time on DTR
+          </Typography>
+        </Box>
+        {/* Break time only appears inside the official time lines, so the
+            switch stays visible but is disabled while official time is off. */}
+        <Box
+          onClick={() => {
+            if (showOfficialTimeOnDtr) setShowOfficialBreaktimeOnDtr((v) => !v);
+          }}
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 1,
+            pl: 3.75,
+            pr: 0.5,
+            py: 0.25,
+            borderTop: `1px dashed ${alpha(T.accent, 0.25)}`,
+            cursor: showOfficialTimeOnDtr ? 'pointer' : 'default',
+            opacity: showOfficialTimeOnDtr ? 1 : 0.5,
+          }}
+        >
+          <Typography
+            sx={{
+              fontSize: '0.72rem',
+              fontWeight: 500,
+              color:
+                showOfficialTimeOnDtr && showOfficialBreaktimeOnDtr
+                  ? T.text
+                  : T.muted,
+              userSelect: 'none',
+            }}
+          >
+            Include break time
+          </Typography>
+          <Switch
+            size="small"
+            disabled={!showOfficialTimeOnDtr}
+            checked={showOfficialBreaktimeOnDtr}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => setShowOfficialBreaktimeOnDtr(e.target.checked)}
+            sx={{
+              '& .MuiSwitch-switchBase.Mui-checked': { color: T.accent },
+              '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                bgcolor: T.accent,
+              },
+            }}
+          />
+        </Box>
       </Box>
 
       {/* Batch load scope — only these employees are loaded for the month.

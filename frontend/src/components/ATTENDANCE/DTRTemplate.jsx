@@ -199,13 +199,13 @@ const formatOfficialClock = (timeString, formatTimeFn) => {
   return s;
 };
 
-const buildOfficialTwoSegment = (sched, formatTimeFn) => {
+const buildOfficialTwoSegment = (sched, formatTimeFn, showBreaktime = true) => {
   if (!sched) return '';
   const tIn = formatOfficialClock(sched.officialTimeIN, formatTimeFn);
   const brOut = formatOfficialClock(sched.officialBreaktimeOUT, formatTimeFn);
   const brIn = formatOfficialClock(sched.officialBreaktimeIN, formatTimeFn);
   const tOut = formatOfficialClock(sched.officialTimeOUT, formatTimeFn);
-  if (tIn && brOut && brIn && tOut)
+  if (showBreaktime && tIn && brOut && brIn && tOut)
     return `${tIn} to ${brOut} : ${brIn} to ${tOut}`;
   if (tIn && tOut) return `${tIn} to ${tOut}`;
   return '';
@@ -219,7 +219,11 @@ const formatRegularDayRangeLabel = (startDay, endDay) => {
   return `${a} - ${b}`;
 };
 
-const buildRegularDaysOfficialLines = (officialTimes, formatTimeFn) => {
+const buildRegularDaysOfficialLines = (
+  officialTimes,
+  formatTimeFn,
+  showBreaktime = true,
+) => {
   const lines = [];
   let runStart = -1;
   let runEnd = -1;
@@ -236,7 +240,11 @@ const buildRegularDaysOfficialLines = (officialTimes, formatTimeFn) => {
 
   for (let i = 0; i < REGULAR_WEEKDAY_KEYS.length; i += 1) {
     const day = REGULAR_WEEKDAY_KEYS[i];
-    const seg = buildOfficialTwoSegment(officialTimes[day], formatTimeFn);
+    const seg = buildOfficialTwoSegment(
+      officialTimes[day],
+      formatTimeFn,
+      showBreaktime,
+    );
     if (!seg) {
       flush();
       continue;
@@ -398,6 +406,8 @@ export default function DTRTemplate({
   records = [],
   officialTime = {},
   showOfficialTimeOnDtr = false,
+  /** Include the official break time in the Regular Days / Saturdays lines. */
+  showOfficialBreaktimeOnDtr = true,
   /** Which on-form marks to paint. Omit to keep every indicator on. */
   indicatorVisibility = null,
   /**
@@ -557,10 +567,18 @@ export default function DTRTemplate({
 
   const getDtrHeaderData = () => {
     const regularDaysLines = showOfficialTimeOnDtr
-      ? buildRegularDaysOfficialLines(officialTime, formatTime)
+      ? buildRegularDaysOfficialLines(
+          officialTime,
+          formatTime,
+          showOfficialBreaktimeOnDtr,
+        )
       : [];
     const saturdayOfficialText = showOfficialTimeOnDtr
-      ? buildOfficialTwoSegment(officialTime.Saturday, formatTime)
+      ? buildOfficialTwoSegment(
+          officialTime.Saturday,
+          formatTime,
+          showOfficialBreaktimeOnDtr,
+        )
       : '';
     const regularBlockMinH =
       showOfficialTimeOnDtr && regularDaysLines.length > 0
