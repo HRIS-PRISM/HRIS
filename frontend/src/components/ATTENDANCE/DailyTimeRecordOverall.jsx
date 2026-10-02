@@ -2481,7 +2481,7 @@ const DailyTimeRecordFaculty = ({
   // Snapshot the batch once every row has finished loading
   useEffect(() => {
     const key = currentBatchKeyRef.current;
-    if (viewMode !== 'multiple' || !key || key !== batchKey) return;
+    if (viewMode !== 'multiple' || !key) return;
     if (!allUsersDTR.length || allUsersDTR.some((u) => u._loading)) return;
     const cache = batchCacheRef.current;
     cache.delete(key); // re-insert = most recent
@@ -2497,15 +2497,23 @@ const DailyTimeRecordFaculty = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allUsersDTR, batchOfficialTimesMap, computedLateByEmployee, halfDayDatesByEmployee, printStatusMap]);
 
-  // Load when the month or the load scope (Department / Employment Category /
-  // Employee Status) changes — from the cache when that batch was loaded recently.
-  useEffect(() => {
-    if (viewMode !== 'multiple' || !startDate || !endDate) return;
-    // Already showing this batch (e.g. Individual → Batch and back): keep it.
-    if (currentBatchKeyRef.current === batchKey && allUsersDTR.length) return;
+  // Batch loads only when Search is clicked — picking a month or a load scope
+  // (Department / Employment Category / Employee Status) no longer auto-loads.
+  // A recently loaded batch for another month/scope comes from the cache;
+  // searching the batch already shown re-downloads it fresh.
+  const [loadedBatchKey, setLoadedBatchKey] = useState('');
+  const batchSearchPending = viewMode === 'multiple' && batchKey !== loadedBatchKey;
+
+  const handleBatchSearch = () => {
+    if (!startDate || !endDate) {
+      showAlert('Date Required', 'Please select a month or date range first');
+      return;
+    }
     const cached = batchCacheRef.current.get(batchKey);
+    const isShowing = currentBatchKeyRef.current === batchKey && allUsersDTR.length > 0;
     currentBatchKeyRef.current = batchKey;
-    if (cached && Date.now() - cached.at < BATCH_CACHE_TTL_MS) {
+    setLoadedBatchKey(batchKey);
+    if (!isShowing && cached && Date.now() - cached.at < BATCH_CACHE_TTL_MS) {
       if (abortControllerRef.current) abortControllerRef.current.abort();
       batchFetchGenRef.current += 1; // any in-flight load for another month is now stale
       setAllUsersDTR(cached.users);
@@ -2519,9 +2527,27 @@ const DailyTimeRecordFaculty = ({
       setLoadPhase('');
       return;
     }
+    batchCacheRef.current.delete(batchKey);
     fetchAllUsersDTR();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [batchKey, viewMode]);
+  };
+
+  // A loaded batch belongs to one period: when the month/date range changes,
+  // drop it (and stop any in-flight load) so an old month is never printed
+  // under the new period. Scope-only changes keep the table until Search.
+  useEffect(() => {
+    const key = currentBatchKeyRef.current;
+    if (!key || key.startsWith(`${startDate}|${endDate}|`)) return;
+    if (abortControllerRef.current) abortControllerRef.current.abort();
+    batchFetchGenRef.current += 1;
+    currentBatchKeyRef.current = '';
+    setLoadedBatchKey('');
+    setAllUsersDTR([]);
+    setBatchOfficialTimesMap({});
+    setSelectedUsers(new Set());
+    setCurrentPage(1);
+    setLoadingAllUsers(false);
+    setLoadPhase('');
+  }, [startDate, endDate]);
 
   // Employment categories in use (Employment Category module labels) for the scope picker
   const batchScopeCatOptions = useMemo(() => {
@@ -4597,8 +4623,31 @@ const DailyTimeRecordFaculty = ({
               </Select>
             </FormControl>
             <Typography sx={{ fontSize: '0.64rem', color: T.muted, mt: 0.5, lineHeight: 1.35 }}>
-              Only these employees are loaded; changing a filter reloads the batch.
+              Only these employees are loaded. Pick the month and filters, then click Search.
             </Typography>
+            <AccentButton
+              variant="contained"
+              fullWidth
+              onClick={handleBatchSearch}
+              disabled={loadingAllUsers || !startDate || !endDate}
+              startIcon={<SearchOutlined sx={{ fontSize: '16px !important' }} />}
+              sx={{
+                mt: 1.25,
+                bgcolor: T.accent,
+                color: '#fff',
+                boxShadow: `0 2px 10px ${alpha(T.accent, 0.32)}`,
+                '&:hover': { bgcolor: T.accentDark },
+              }}
+            >
+              Search
+            </AccentButton>
+            {batchSearchPending && !loadingAllUsers && startDate && endDate && (
+              <Typography sx={{ fontSize: '0.66rem', color: T.accent, fontWeight: 600, mt: 0.5, lineHeight: 1.35 }}>
+                {allUsersDTR.length
+                  ? 'Filters changed — click Search to load them.'
+                  : 'Click Search to load the batch.'}
+              </Typography>
+            )}
           </Box>
         );
       })()}
@@ -5659,7 +5708,7 @@ const DailyTimeRecordFaculty = ({
                               >
                                 <IconButton
                                   size="small"
-                                  onClick={fetchAllUsersDTR}
+                                  onClick={handleBatchSearch}
                                   disabled={
                                     loadingAllUsers || !startDate || !endDate
                                   }
@@ -6411,14 +6460,16 @@ const DailyTimeRecordFaculty = ({
                                     }}
                                   >
                                     {allUsersDTR.length === 0
-                                      ? 'No attendance records'
+                                      ? loadedBatchKey
+                                        ? 'No attendance records'
+                                        : 'No batch loaded yet'
                                       : 'No users match your filters'}
                                   </Typography>
                                   <Typography
                                     sx={{ fontSize: '0.78rem', color: T.faint }}
                                   >
                                     {allUsersDTR.length === 0
-                                      ? 'Select a month to auto-load records.'
+                                      ? 'Select a month and filters, then click Search.'
                                       : 'Try adjusting the search or filters.'}
                                   </Typography>
                                 </Box>
