@@ -650,7 +650,7 @@ const DailyTimeRecordFaculty = ({
   const [showDeductions, setShowDeductions] = useState(
     loadDtrDeductionsVisible,
   );
-  /** Hours per work day for the deduction total's day conversion (8 or 10). */
+  /** Hours per work day for the deduction total's day conversion (6, 8 or 10). */
   const [deductionDayHours, setDeductionDayHours] = useState(
     loadDtrDeductionDayHours,
   );
@@ -3995,7 +3995,7 @@ const DailyTimeRecordFaculty = ({
     persistDtrDeductionDayHours(hours);
   };
 
-  /** 8 hrs / 10 hrs — day length used to convert the deduction total into days. */
+  /** 6 / 8 / 10 hrs — day length used to convert the deduction total into days. */
   const renderDeductionDayHoursButton = () => (
     <Tooltip
       title={`The deduction total counts 1 day as ${deductionDayHours} hours. Print and PDF use the same choice.`}

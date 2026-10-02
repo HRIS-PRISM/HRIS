@@ -77,7 +77,7 @@ export const persistDtrDeductionsVisible = (visible) => {
  */
 export const DTR_DEDUCTION_DAY_HOURS_STORAGE_KEY = 'hris-dtr-deduction-day-hours';
 
-export const DTR_DEDUCTION_DAY_HOURS_OPTIONS = [8, 10];
+export const DTR_DEDUCTION_DAY_HOURS_OPTIONS = [6, 8, 10];
 
 export const defaultDtrDeductionDayHours = () => 8;
 
