@@ -30,6 +30,7 @@ import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import { Stack, Divider, Grid } from '@mui/material';
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
   Card,
@@ -2549,6 +2550,20 @@ const DailyTimeRecordFaculty = ({
     setLoadPhase('');
   }, [startDate, endDate]);
 
+  // Department scope picker options (searchable by code or description)
+  const deptScopeOptions = useMemo(
+    () => [
+      { value: '', short: 'All Departments', description: '' },
+      { value: '__UNASSIGNED__', short: 'Unassigned', description: '' },
+      ...departments.map((d) => ({
+        value: d.code,
+        short: d.code,
+        description: d.description || '',
+      })),
+    ],
+    [departments],
+  );
+
   // Employment categories in use (Employment Category module labels) for the scope picker
   const batchScopeCatOptions = useMemo(() => {
     const seen = new Map();
@@ -4570,19 +4585,53 @@ const DailyTimeRecordFaculty = ({
             <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, mb: 1 }}>
               <Box sx={{ minWidth: 0 }}>
                 <Typography sx={scopeLabelSx}>Department</Typography>
-                <FormControl fullWidth size="small">
-                  <Select value={batchScopeDept} onChange={(e) => setBatchScopeDept(e.target.value)}
-                    displayEmpty sx={scopeSelectSx}
-                    renderValue={(v) => (v === '' ? 'All' : v === '__UNASSIGNED__' ? 'Unassigned' : v)}>
-                    <MenuItem value="" sx={itemSx}>All Departments</MenuItem>
-                    <MenuItem value="__UNASSIGNED__" sx={itemSx}>Unassigned</MenuItem>
-                    {departments.map((d) => (
-                      <MenuItem key={d.code} value={d.code} sx={itemSx}>
-                        {d.code}{d.description ? ` — ${d.description}` : ''}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
+                {/* Type-to-search; the list opens under the field at the field's width. */}
+                <Autocomplete
+                  size="small"
+                  fullWidth
+                  disableClearable
+                  autoHighlight
+                  options={deptScopeOptions}
+                  value={deptScopeOptions.find((o) => o.value === batchScopeDept) || deptScopeOptions[0]}
+                  onChange={(_, opt) => setBatchScopeDept(opt?.value ?? '')}
+                  getOptionLabel={(o) => o.short}
+                  isOptionEqualToValue={(o, v) => o.value === v.value}
+                  filterOptions={(opts, { inputValue }) => {
+                    const q = inputValue.trim().toLowerCase();
+                    if (!q) return opts;
+                    return opts.filter((o) => `${o.short} ${o.description}`.toLowerCase().includes(q));
+                  }}
+                  renderOption={(props, o) => {
+                    const { key, ...rest } = props;
+                    return (
+                      <Box component="li" key={key} {...rest}
+                        sx={{ display: 'block !important', py: '5px !important', px: '10px !important', lineHeight: 1.25 }}>
+                        <Box sx={{ fontSize: '0.76rem', fontWeight: 700, color: T.text }}>{o.short}</Box>
+                        {o.description && (
+                          <Box sx={{ fontSize: '0.66rem', color: T.muted, whiteSpace: 'normal' }}>{o.description}</Box>
+                        )}
+                      </Box>
+                    );
+                  }}
+                  slotProps={{
+                    paper: { sx: { mt: 0.5, borderRadius: '8px', border: `1px solid ${T.accentBorder}`, boxShadow: `0 6px 18px ${alpha(T.accent, 0.12)}` } },
+                    listbox: { sx: { maxHeight: 280, py: 0.5 } },
+                  }}
+                  noOptionsText={<Box sx={{ fontSize: '0.74rem' }}>No department found</Box>}
+                  renderInput={(params) => (
+                    <TextField {...params} placeholder="Search dept…"
+                      onFocus={(e) => e.target.select()}
+                      sx={{
+                        '& .MuiOutlinedInput-root': {
+                          ...selectSx,
+                          fontSize: '0.76rem',
+                          py: '2px !important',
+                          pl: '6px !important',
+                        },
+                      }}
+                    />
+                  )}
+                />
               </Box>
               <Box sx={{ minWidth: 0 }}>
                 <Typography sx={scopeLabelSx}>Employee Status</Typography>
