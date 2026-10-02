@@ -169,11 +169,8 @@ export const computeMissingBreakDeductionMinuteSec = (row) => {
   return getOfficialBreakDurationMinuteSec(row);
 };
 
-/** Late + undertime (early leave + missing break) — Non-Teaching / Designated. */
 export const getAmPmSlotLateMinuteSec = (row) =>
-  (computeArrivalLateMinuteSec(row) ?? 0)
-  + (computeEarlyLeaveUndertimeMinuteSec(row) ?? 0)
-  + (computeMissingBreakDeductionMinuteSec(row) ?? 0);
+  (computeArrivalLateMinuteSec(row) ?? 0) + (computeEarlyLeaveUndertimeMinuteSec(row) ?? 0);
 
 export const getOfficialSchedWorkMinuteSec = (row) => {
   const offInSec = parseClockToMinuteSec(row?.officialTimeIN);

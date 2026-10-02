@@ -350,7 +350,7 @@ export const processFaculty30LateUndertimeRows = (rawRows) => {
   });
 };
 
-// ─── Designated 40hrs (late → Late; early leave + missing break → U-time) ────
+// ─── Designated 40hrs (late → Late; early leave → U-time; no break rule) ─────
 
 const parseAttendanceTimeOn2000 = (timeStr) => {
   if (!timeStr || typeof timeStr !== 'string') return new Date(NaN);
@@ -376,11 +376,9 @@ export const processDesignatedLateUndertimeRows = (rawRows) =>
     const lateTotal = formatOfficialAttendanceSeconds(
       computeArrivalLateMinuteSec(row) ?? 0,
     );
-    // Same as Non-Teaching: a missing Break IN/OUT charges the official
-    // break length on undertime.
+    // Designated does not require break punches — U-time is early leave only.
     const undertimeTotal = formatOfficialAttendanceSeconds(
-      (computeEarlyLeaveUndertimeMinuteSec(row) ?? 0) +
-        (computeMissingBreakDeductionMinuteSec(row) ?? 0),
+      computeEarlyLeaveUndertimeMinuteSec(row) ?? 0,
     );
     return {
       ...row,
